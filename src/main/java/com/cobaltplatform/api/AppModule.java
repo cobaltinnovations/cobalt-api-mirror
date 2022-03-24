@@ -94,8 +94,8 @@ import com.cobaltplatform.api.model.api.response.IntroAssessmentApiResponse.Intr
 import com.cobaltplatform.api.model.api.response.LogicalAvailabilityApiResponse.LogicalAvailabilityApiResponseFactory;
 import com.cobaltplatform.api.model.api.response.PresignedUploadApiResponse.PresignedUploadApiResponseFactory;
 import com.cobaltplatform.api.model.api.response.ProviderApiResponse.ProviderApiResponseFactory;
-import com.cobaltplatform.api.model.api.response.ProviderCalendarApiResponse;
 import com.cobaltplatform.api.model.api.response.ProviderCalendarApiResponse.ProviderCalendarApiResponseFactory;
+import com.cobaltplatform.api.model.api.response.ProviderFindsApiResponse.ProviderFindsApiResponseFactory;
 import com.cobaltplatform.api.model.api.response.QuestionApiResponse.QuestionApiResponseFactory;
 import com.cobaltplatform.api.model.api.response.ReportingChartApiResponse.ReportingChartApiResponseFactory;
 import com.cobaltplatform.api.model.api.response.ReportingChartApiResponse.ReportingChartElementApiResponse.ReportingChartElementApiResponseFactory;
@@ -228,6 +228,7 @@ public class AppModule extends AbstractModule {
 		install((new FactoryModuleBuilder().build(SpecialtyApiResponseFactory.class)));
 		install((new FactoryModuleBuilder().build(AccountSessionApiResponseFactory.class)));
 		install((new FactoryModuleBuilder().build(ProviderCalendarApiResponseFactory.class)));
+		install((new FactoryModuleBuilder().build(ProviderFindsApiResponseFactory.class)));
 	}
 
 	@Provides
