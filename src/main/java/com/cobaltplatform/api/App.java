@@ -27,6 +27,7 @@ import com.cobaltplatform.api.messaging.email.EmailMessageManager;
 import com.cobaltplatform.api.messaging.sms.SmsMessageManager;
 import com.cobaltplatform.api.service.GroupSessionService;
 import com.cobaltplatform.api.service.MessageService;
+import com.cobaltplatform.api.service.ProviderSlotReportingService;
 import com.cobaltplatform.api.service.Way2HealthService;
 import com.google.inject.Guice;
 import com.google.inject.Injector;
@@ -199,9 +200,23 @@ public class App implements AutoCloseable {
 				getLogger().warn("Failed to start Way2Health background task", e);
 			}
 		}
+
+		try {
+			ProviderSlotReportingService providerSlotReportingService = getInjector().getInstance(ProviderSlotReportingService.class);
+			providerSlotReportingService.startBackgroundTask();
+		} catch (Exception e) {
+			getLogger().warn("Failed to start provider slot reporting background task", e);
+		}
 	}
 
 	public void performShutdownTasks() {
+		try {
+			ProviderSlotReportingService providerSlotReportingService = getInjector().getInstance(ProviderSlotReportingService.class);
+			providerSlotReportingService.stopBackgroundTask();
+		} catch (Exception e) {
+			getLogger().warn("Failed to stop provider slot reporting background task", e);
+		}
+
 		if (getConfiguration().getShouldPollWay2Health()) {
 			try {
 				Way2HealthService way2HealthService = getInjector().getInstance(Way2HealthService.class);

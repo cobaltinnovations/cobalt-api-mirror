@@ -27,6 +27,8 @@ import com.google.gson.reflect.TypeToken;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import javax.annotation.concurrent.NotThreadSafe;
+import java.time.Instant;
+import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.Collections;
 import java.util.List;
@@ -96,6 +98,10 @@ public class Institution {
 	private Long anonAccessTokenExpirationInMinutes;
 	@Nonnull
 	private Long anonAccessTokenShortExpirationInMinutes;
+	@Nullable
+	private Instant providerSlotReportingLastRun;
+	@Nullable
+	private LocalTime providerSlotReportingTimeOfDay;
 
 	public enum InstitutionId {
 		COBALT
@@ -412,5 +418,23 @@ public class Institution {
 
 	public void setAnonAccessTokenShortExpirationInMinutes(@Nonnull Long anonAccessTokenShortExpirationInMinutes) {
 		this.anonAccessTokenShortExpirationInMinutes = anonAccessTokenShortExpirationInMinutes;
+	}
+
+	@Nullable
+	public Instant getProviderSlotReportingLastRun() {
+		return providerSlotReportingLastRun;
+	}
+
+	public void setProviderSlotReportingLastRun(@Nullable Instant providerSlotReportingLastRun) {
+		this.providerSlotReportingLastRun = providerSlotReportingLastRun;
+	}
+
+	@Nullable
+	public LocalTime getProviderSlotReportingTimeOfDay() {
+		return providerSlotReportingTimeOfDay;
+	}
+
+	public void setProviderSlotReportingTimeOfDay(@Nullable LocalTime providerSlotReportingTimeOfDay) {
+		this.providerSlotReportingTimeOfDay = providerSlotReportingTimeOfDay;
 	}
 }

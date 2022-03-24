@@ -141,7 +141,7 @@ public class Way2HealthService implements AutoCloseable {
 			if (isBackgroundTaskStarted())
 				return false;
 
-			getLogger().trace("Starting group session background task...");
+			getLogger().trace("Starting Way2Health background task...");
 
 			this.backgroundTaskExecutorService = Executors.newScheduledThreadPool(1, new ThreadFactoryBuilder().setNameFormat("way2health-background-task").build());
 			this.backgroundTaskStarted = true;
@@ -152,12 +152,12 @@ public class Way2HealthService implements AutoCloseable {
 					try {
 						getBackgroundSyncTaskProvider().get().run();
 					} catch (Exception e) {
-						getLogger().warn(format("Unable to complete group session background task - will retry in %s seconds", String.valueOf(getBackgroundTaskIntervalInSeconds())), e);
+						getLogger().warn(format("Unable to complete Way2Health background task - will retry in %s seconds", String.valueOf(getBackgroundTaskIntervalInSeconds())), e);
 					}
 				}
 			}, getBackgroundTaskInitialDelayInSeconds(), getBackgroundTaskIntervalInSeconds(), TimeUnit.SECONDS);
 
-			getLogger().trace("Group session background task started.");
+			getLogger().trace("Way2Health background task started.");
 
 			return true;
 		}
@@ -169,13 +169,13 @@ public class Way2HealthService implements AutoCloseable {
 			if (!isBackgroundTaskStarted())
 				return false;
 
-			getLogger().trace("Stopping group session background task...");
+			getLogger().trace("Stopping Way2Health background task...");
 
 			getBackgroundTaskExecutorService().get().shutdownNow();
 			this.backgroundTaskExecutorService = null;
 			this.backgroundTaskStarted = false;
 
-			getLogger().trace("Group session background task stopped.");
+			getLogger().trace("Way2Health background task stopped.");
 
 			return true;
 		}

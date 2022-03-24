@@ -27,7 +27,8 @@ import static java.util.Objects.requireNonNull;
  * @author Transmogrify, LLC.
  */
 public enum AdvisoryLock {
-	WAY2HEALTH_INCIDENT_SYNCING(100);
+	WAY2HEALTH_INCIDENT_SYNCING(100),
+	PROVIDER_SLOT_REPORTING(101);
 
 	@Nonnull
 	private final Integer key;
