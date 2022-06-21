@@ -40,7 +40,8 @@ public class AssessmentType {
 		GAD7,
 		PHQ9,
 		PCPTSD,
-		INTAKE
+		INTAKE,
+		WHO5
 	}
 
 	@Override

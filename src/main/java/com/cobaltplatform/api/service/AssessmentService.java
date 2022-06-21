@@ -189,8 +189,26 @@ public class AssessmentService {
 	}
 
 	@Nonnull
-	private Optional<Assessment> findPreviousAssessment(@Nonnull UUID currentAssessmentId) {
-		return database.queryForObject("SELECT * from assessment WHERE next_assessment_id = ?", Assessment.class, currentAssessmentId);
+	private Optional<Assessment> findPreviousAssessment(@Nonnull UUID currentAssessmentId,
+																											@Nonnull AccountSession accountSession) {
+		// TODO: confirm this logic is correct
+
+		// Pick out all assessments in the session.  Find the one immediately prior to the passed-in "current" assessment and return it.
+		// It's possible one doesn't exist, and that's OK
+		List<Assessment> sessionAssessments = database.queryForList("SELECT a.* FROM assessment a, account_session sess "
+						+ "WHERE a.assessment_id=sess.assessment_id AND sess.account_session_id=? ORDER BY sess.created",
+				Assessment.class, accountSession.getAccountSessionId());
+
+		Assessment previousAssessment = null;
+
+		for(Assessment assessment : sessionAssessments) {
+			if(assessment.getAssessmentId().equals(currentAssessmentId))
+				return Optional.ofNullable(previousAssessment);
+
+			previousAssessment = assessment;
+		}
+
+		return Optional.empty();
 	}
 
 	@Nonnull
@@ -268,11 +286,12 @@ public class AssessmentService {
 
 	@Nonnull
 	private Optional<Question> findPreviousQuestion(@Nonnull Assessment assessment,
-																									@Nonnull Question currentQuestion) {
+																									@Nonnull Question currentQuestion,
+																									@Nonnull AccountSession accountSession) {
 		if (currentQuestion.getDisplayOrder() > 1) {
 			return database.queryForObject("SELECT * from question WHERE assessment_id = ? AND display_order = ?", Question.class, assessment.getAssessmentId(), currentQuestion.getDisplayOrder() - 1);
 		} else {
-			Optional<Assessment> previousAssessment = findPreviousAssessment(assessment.getAssessmentId());
+			Optional<Assessment> previousAssessment = findPreviousAssessment(assessment.getAssessmentId(), accountSession);
 			if (previousAssessment.isPresent()) {
 				return database.queryForObject("SELECT * from question WHERE assessment_id = ? ORDER by display_order DESC LIMIT 1", Question.class, previousAssessment.get().getAssessmentId());
 			}
@@ -291,7 +310,7 @@ public class AssessmentService {
 		else
 			nextQuestion = Optional.empty();
 
-		Optional<Question> previousQuestion = findPreviousQuestion(assessment, currentQuestion);
+		Optional<Question> previousQuestion = findPreviousQuestion(assessment, currentQuestion, accountSession);
 		logger.info(format("Found question: session - %s, question - %s, next - %s, previous - %s", accountSession.getAccountSessionId(), currentQuestion.getQuestionId(), nextQuestion.isPresent() ? nextQuestion.get().getQuestionId() : "none", previousQuestion.isPresent() ? previousQuestion.get().getQuestionId() : "none"));
 
 		List<Answer> answers = findAnswersForQuestion(currentQuestion.getQuestionId());
@@ -439,6 +458,7 @@ public class AssessmentService {
 		Optional<Question> nextQuestion = findNextQuestionInAssessment(accountSession, assessment, question, firstAnswer.orElseThrow());
 
 		if (nextQuestion.isEmpty()) {
+			System.out.println("No next question.");
 			boolean endedSession = false;
 			if (assessment.getAssessmentTypeId() == AssessmentTypeId.INTRO ||
 					assessment.getAssessmentTypeId() == AssessmentTypeId.INTAKE) {
@@ -455,6 +475,18 @@ public class AssessmentService {
 				}
 			}
 
+			if (assessment.getAssessmentTypeId() == AssessmentTypeId.WHO5) {
+				sessionService.markSessionAsComplete(accountSession);
+
+				List<Answer> previousAnswers = getSessionService().findAnswersForSession(accountSession);
+				int score = previousAnswers.stream().mapToInt(Answer::getAnswerValue).sum();
+
+				// 13+ -> scheduling with Resilience Coaches
+				// 12 or less -> complete PHQ9 + GAD7
+				if (score >= 13)
+					endedSession = true;
+			}
+
 			if (!endedSession) {
 				if (assessment.getNextAssessmentId() != null) {
 					Optional<Assessment> nextAssessment = findAssessmentById(assessment.getNextAssessmentId());
@@ -463,7 +495,7 @@ public class AssessmentService {
 					accountSession = sessionService.createSessionForAssessment(accountSession.getAccountId(), nextAssessment.get());
 					nextQuestion = findFirstQuestionForAssessment(nextAssessment.get().getAssessmentId());
 				} else {
-					if (assessment.getAssessmentTypeId().equals(AssessmentTypeId.PCPTSD)) {
+					if (assessment.getAssessmentTypeId().equals(AssessmentTypeId.GAD7)) {
 						assessmentScoringService.finishEvidenceAssessment(account);
 					}
 				}
@@ -512,13 +544,16 @@ public class AssessmentService {
 		if (initialAssessment == null)
 			throw new NotFoundException("No assessment found");
 
-		AccountSession accountSession;
+		AccountSession accountSession = null;
 
 		if (sessionIdCommand != null) {
 			accountSession = getSessionService().findAccountSessionByIdAndAccount(account, UUID.fromString(sessionIdCommand))
 					.orElseThrow(() -> new NotFoundException("Couldn't find session"));
 		} else {
 			if (initialAssessment.getAssessmentTypeId().equals(AssessmentTypeId.PHQ4)) {
+				accountSession = getSessionService().findCurrentIncompleteEvidenceAssessmentForAccount(account)
+						.orElseGet(() -> sessionService.createSessionForAssessment(account.getAccountId(), initialAssessment));
+			} else if (initialAssessment.getAssessmentTypeId().equals(AssessmentTypeId.WHO5)) {
 				accountSession = getSessionService().findCurrentIncompleteEvidenceAssessmentForAccount(account)
 						.orElseGet(() -> sessionService.createSessionForAssessment(account.getAccountId(), initialAssessment));
 			} else if (initialAssessment.getAssessmentTypeId().equals(AssessmentTypeId.INTRO)) {
