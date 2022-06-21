@@ -252,10 +252,10 @@ public class SessionService {
 				"ia.assessment_id = ass.assessment_id AND " +
 				"a.account_id = ? AND " +
 				"acs.account_id = a.account_id AND " +
-				"acs.complete_flag = ? AND " +
-				"acs.current_flag = ? AND " +
-				"ass.assessment_type_id IN (?, ?, ?, ?) " +
-				"ORDER by acs.created DESC LIMIT 1", AccountSession.class, account.getAccountId(), false, true, AssessmentTypeId.PHQ4, AssessmentTypeId.PHQ9, AssessmentTypeId.GAD7, AssessmentTypeId.PCPTSD);
+				"acs.complete_flag = FALSE AND " +
+				"acs.current_flag = TRUE AND " +
+				"ass.assessment_type_id IN (?, ?, ?) " +
+				"ORDER by acs.created DESC LIMIT 1", AccountSession.class, account.getAccountId(), AssessmentTypeId.WHO5, AssessmentTypeId.PHQ9, AssessmentTypeId.GAD7);
 		return opt;
 	}
 

@@ -36,13 +36,11 @@ public class EvidenceScores {
 	@Nonnull
 	private final Boolean isCrisis;
 	@Nonnull
-	private final Recommendation phq4Recommendation;
+	private final Recommendation who5Recommendation;
 	@Nullable
 	private final Recommendation phq9Recommendation;
 	@Nullable
 	private final Recommendation gad7Recommendation;
-	@Nullable
-	private final Recommendation pcptsdRecommendation;
 
 
 	public static class Recommendation {
@@ -100,18 +98,16 @@ public class EvidenceScores {
 		}
 	}
 
-	public EvidenceScores(@Nonnull Recommendation phq4Recommendation,
+	public EvidenceScores(@Nonnull Recommendation who5Recommendation,
 												@Nullable Recommendation phq9Recommendation,
 												@Nullable Recommendation gad7Recommendation,
-												@Nullable Recommendation pcptsdRecommendation,
 												@Nonnull Boolean isCrisis){
 
-		this.phq4Recommendation = phq4Recommendation;
+		this.who5Recommendation = who5Recommendation;
 		this.phq9Recommendation = phq9Recommendation;
 		this.gad7Recommendation = gad7Recommendation;
-		this.pcptsdRecommendation = pcptsdRecommendation;
 		this.isCrisis = isCrisis;
-		this.topRecommendation = Stream.of(phq4Recommendation, phq9Recommendation, gad7Recommendation, pcptsdRecommendation)
+		this.topRecommendation = Stream.of(who5Recommendation, phq9Recommendation, gad7Recommendation)
 				.filter(Objects::nonNull).max(Comparator.comparing(l -> l.getLevel().getValue())).orElse(null);
 	}
 
@@ -123,8 +119,8 @@ public class EvidenceScores {
 	}
 
 	@Nullable
-	public Recommendation getPhq4Recommendation() {
-		return phq4Recommendation;
+	public Recommendation getWho5Recommendation() {
+		return who5Recommendation;
 	}
 
 	@Nullable
@@ -135,11 +131,6 @@ public class EvidenceScores {
 	@Nullable
 	public Recommendation getGad7Recommendation() {
 		return gad7Recommendation;
-	}
-
-	@Nullable
-	public Recommendation getPcptsdRecommendation() {
-		return pcptsdRecommendation;
 	}
 
 	@Nonnull

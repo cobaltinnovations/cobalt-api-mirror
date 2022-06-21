@@ -2071,9 +2071,9 @@ public class AppointmentService {
 		String accountScoreString;
 		if (evidenceScores.isPresent()) {
 			accountScoreString = Stream.of(
+					evidenceScores.get().getWho5Recommendation(),
 					evidenceScores.get().getPhq9Recommendation(),
-					evidenceScores.get().getGad7Recommendation(),
-					evidenceScores.get().getPcptsdRecommendation()
+					evidenceScores.get().getGad7Recommendation()
 			).filter(Objects::nonNull).map(r -> r.getAnswers()).collect(Collectors.joining(":"));
 			if (accountScoreString.isEmpty()) {
 				accountScoreString = getStrings().get("No assessment taken yet");

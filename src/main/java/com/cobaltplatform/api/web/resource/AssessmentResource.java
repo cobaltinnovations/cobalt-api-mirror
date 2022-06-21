@@ -158,7 +158,7 @@ public class AssessmentResource {
 	@GET("/assessment/evidence")
 	public ApiResponse getEvidenceAssessmentQuestion(@QueryParameter("questionId") Optional<String> questionId,
 																									 @QueryParameter("sessionId") Optional<String> sessionId) {
-		return getAssessmentQuestion(AssessmentTypeId.PHQ4, questionId.orElse(null), sessionId.orElse(null), null, null, null);
+		return getAssessmentQuestion(AssessmentTypeId.WHO5, questionId.orElse(null), sessionId.orElse(null), null, null, null);
 	}
 
 	private ApiResponse getAssessmentQuestion(@Nonnull AssessmentTypeId assessmentTypeId,

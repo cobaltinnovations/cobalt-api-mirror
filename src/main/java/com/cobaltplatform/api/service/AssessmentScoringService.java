@@ -117,10 +117,9 @@ public class AssessmentScoringService {
 
 	@Nonnull
 	public void finishEvidenceAssessment(@Nonnull Account account) {
-		sessionService().markCurrentSessionCompleteForAssessmentType(account, AssessmentTypeId.PHQ4);
+		sessionService().markCurrentSessionCompleteForAssessmentType(account, AssessmentTypeId.WHO5);
 		sessionService().markCurrentSessionCompleteForAssessmentType(account, AssessmentTypeId.PHQ9);
 		sessionService().markCurrentSessionCompleteForAssessmentType(account, AssessmentTypeId.GAD7);
-		sessionService().markCurrentSessionCompleteForAssessmentType(account, AssessmentTypeId.PCPTSD);
 		EvidenceScores scores = getEvidenceAssessmentRecommendation(account)
 				.orElseThrow(() -> new IllegalStateException("Just marked session as complete but was not able to calculate final score"));
 
@@ -147,12 +146,11 @@ public class AssessmentScoringService {
 		String phoneNumber = getFormatter().formatPhoneNumber(crisisAccount.getPhoneNumber(), crisisAccount.getLocale());
 		phoneNumber = phoneNumber == null ? getStrings().get("[no phone number]") : phoneNumber;
 
-		String accountDescription = format("Q9 alert for %s at %s with %s and S3: %s and %s and %s and %s.",
+		String accountDescription = format("Q9 alert for %s at %s with %s and S3: %s and %s and %s.",
 				name, phoneNumber, emailAddress,
-				scores.getPhq4Recommendation().getAnswers(),
+				scores.getWho5Recommendation().getAnswers(),
 				scores.getPhq9Recommendation().getAnswers(),
-				scores.getGad7Recommendation().getAnswers(),
-				scores.getPcptsdRecommendation().getAnswers());
+				scores.getGad7Recommendation().getAnswers());
 
 		String institutionDescription = format("Account - %s at %s - %s - %s", crisisAccount.getAccountId(), crisisAccount.getInstitutionId(),
 				emailAddress, phoneNumber);
@@ -256,14 +254,12 @@ public class AssessmentScoringService {
 			htmlListItems.add(createHtmlListItem(getStrings().get("Phone Number", locale), format("<a href='tel:%s'>%s</a>", crisisAccount.getPhoneNumber(), getFormatter().formatPhoneNumber(crisisAccount.getPhoneNumber(), locale)), false));
 		if (crisisAccount.getEmailAddress() != null)
 			htmlListItems.add(createHtmlListItem(getStrings().get("Email Address", locale), format("<a href='mailto:%s'>%s</a>", crisisAccount.getEmailAddress(), crisisAccount.getEmailAddress()), false));
-		if (evidenceScores.getPhq4Recommendation().getAnswers() != null)
-			htmlListItems.add(createHtmlListItem(getStrings().get("PHQ4 Answers", locale), evidenceScores.getPhq4Recommendation().getAnswers()));
+		if (evidenceScores.getWho5Recommendation().getAnswers() != null)
+			htmlListItems.add(createHtmlListItem(getStrings().get("WHO5 Answers", locale), evidenceScores.getWho5Recommendation().getAnswers()));
 		if (evidenceScores.getPhq9Recommendation().getAnswers() != null)
 			htmlListItems.add(createHtmlListItem(getStrings().get("PHQ9 Answers", locale), evidenceScores.getPhq9Recommendation().getAnswers()));
 		if (evidenceScores.getGad7Recommendation().getAnswers() != null)
 			htmlListItems.add(createHtmlListItem(getStrings().get("GAD7 Answers", locale), evidenceScores.getGad7Recommendation().getAnswers()));
-		if (evidenceScores.getPcptsdRecommendation().getAnswers() != null)
-			htmlListItems.add(createHtmlListItem(getStrings().get("PCPTSD Answers", locale), evidenceScores.getPcptsdRecommendation().getAnswers()));
 
 		String endUserHtmlRepresentation = format("<ul>%s</ul>", htmlListItems.stream().collect(Collectors.joining("")));
 
@@ -279,17 +275,14 @@ public class AssessmentScoringService {
 			if (crisisAccount.getEmailAddress() != null)
 				put("emailAddress", crisisAccount.getEmailAddress());
 
-			if (evidenceScores.getPhq4Recommendation().getAnswers() != null)
-				put("phq4Answers", evidenceScores.getPhq4Recommendation().getAnswers());
+			if (evidenceScores.getWho5Recommendation().getAnswers() != null)
+				put("who5Answers", evidenceScores.getWho5Recommendation().getAnswers());
 
 			if (evidenceScores.getPhq9Recommendation().getAnswers() != null)
 				put("phq9Answers", evidenceScores.getPhq9Recommendation().getAnswers());
 
 			if (evidenceScores.getGad7Recommendation().getAnswers() != null)
 				put("gad7Answers", evidenceScores.getGad7Recommendation().getAnswers());
-
-			if (evidenceScores.getPcptsdRecommendation().getAnswers() != null)
-				put("pcptsdAnswers", evidenceScores.getPcptsdRecommendation().getAnswers());
 
 			put("endUserHtmlRepresentation", endUserHtmlRepresentation);
 		}};
@@ -337,16 +330,16 @@ public class AssessmentScoringService {
 	@Nonnull
 	public Optional<EvidenceScores> getEvidenceAssessmentRecommendation(@Nonnull Account account) {
 
-		Optional<AccountSession> phq4Session = sessionService().getCompletedAssessmentSessionForAccount(account, AssessmentTypeId.PHQ4);
-		if (phq4Session.isEmpty()) {
+		Optional<AccountSession> who5Session = sessionService().getCompletedAssessmentSessionForAccount(account, AssessmentTypeId.WHO5);
+		if (who5Session.isEmpty()) {
 			return Optional.empty();
 		} else {
-			List<Answer> phq4UserAnswers = sessionService().findAnswersForSession(phq4Session.get());
-			int phq4AnswerValue = phq4UserAnswers.stream().mapToInt(Answer::getAnswerValue).sum();
-			String phq4AnswerString = generateAnswersString(phq4UserAnswers);
-			Recommendation phq4Recommendation = new Recommendation(RecommendationLevel.PEER_COACH, phq4AnswerValue, phq4Session.get().getAccountSessionId(), phq4AnswerString);
-			if (phq4AnswerValue <= 2) {
-				return Optional.of(new EvidenceScores(phq4Recommendation, null, null, null, false));
+			List<Answer> who5UserAnswers = sessionService().findAnswersForSession(who5Session.get());
+			int who5AnswerValue = who5UserAnswers.stream().mapToInt(Answer::getAnswerValue).sum();
+			String who5AnswerString = generateAnswersString(who5UserAnswers);
+			Recommendation who5Recommendation = new Recommendation(RecommendationLevel.PEER_COACH, who5AnswerValue, who5Session.get().getAccountSessionId(), who5AnswerString);
+			if (who5AnswerValue <= 2) {
+				return Optional.of(new EvidenceScores(who5Recommendation, null, null, false));
 			} else {
 
 				Optional<AccountSession> phq9Session = sessionService().getCompletedAssessmentSessionForAccount(account, AssessmentTypeId.PHQ9);
@@ -387,19 +380,7 @@ public class AssessmentScoringService {
 					gad7Recommendation = new Recommendation(RecommendationLevel.PSYCHIATRIST, gad7AnswerValue, gad7Session.get().getAccountSessionId(), gad7AnswerString);
 				}
 
-
-				Optional<AccountSession> pcptsdSession = sessionService().getCompletedAssessmentSessionForAccount(account, AssessmentTypeId.PCPTSD);
-				if (pcptsdSession.isEmpty()) return Optional.empty();
-				List<Answer> pcptsdUserAnswers = sessionService().findAnswersForSession(pcptsdSession.get());
-				int pcptsdAnswerValue = pcptsdUserAnswers.stream().mapToInt(Answer::getAnswerValue).sum();
-				String pcptsdAnswerString = generateAnswersString(pcptsdUserAnswers);
-				Recommendation pcptsdRecommendation;
-				if (pcptsdAnswerValue < 3) {
-					pcptsdRecommendation = new Recommendation(RecommendationLevel.COACH_CLINICIAN, pcptsdAnswerValue, pcptsdSession.get().getAccountSessionId(), pcptsdAnswerString);
-				} else {
-					pcptsdRecommendation = new Recommendation(RecommendationLevel.CLINICIAN_PSYCHIATRIST, pcptsdAnswerValue, pcptsdSession.get().getAccountSessionId(), pcptsdAnswerString);
-				}
-				return Optional.of(new EvidenceScores(phq4Recommendation, phq9Recommendation, gad7Recommendation, pcptsdRecommendation, isCrisis));
+				return Optional.of(new EvidenceScores(who5Recommendation, phq9Recommendation, gad7Recommendation, isCrisis));
 			}
 		}
 	}
