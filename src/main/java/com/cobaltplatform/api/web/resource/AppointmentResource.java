@@ -23,15 +23,12 @@ import com.cobaltplatform.api.context.CurrentContext;
 import com.cobaltplatform.api.integration.ical.ICalInviteGenerator.InviteMethod;
 import com.cobaltplatform.api.model.api.request.CancelAppointmentRequest;
 import com.cobaltplatform.api.model.api.request.ChangeAppointmentAttendanceStatusRequest;
-import com.cobaltplatform.api.model.api.request.CreateActivityTrackingRequest;
 import com.cobaltplatform.api.model.api.request.CreateAppointmentRequest;
 import com.cobaltplatform.api.model.api.request.UpdateAppointmentRequest;
 import com.cobaltplatform.api.model.api.response.AccountApiResponse.AccountApiResponseFactory;
 import com.cobaltplatform.api.model.api.response.AppointmentApiResponse.AppointmentApiResponseFactory;
 import com.cobaltplatform.api.model.api.response.AppointmentApiResponse.AppointmentApiResponseSupplement;
 import com.cobaltplatform.api.model.db.Account;
-import com.cobaltplatform.api.model.db.ActivityAction.ActivityActionId;
-import com.cobaltplatform.api.model.db.ActivityType.ActivityTypeId;
 import com.cobaltplatform.api.model.db.Appointment;
 import com.cobaltplatform.api.model.db.AuditLog;
 import com.cobaltplatform.api.model.db.AuditLogEvent;
@@ -49,7 +46,6 @@ import com.cobaltplatform.api.util.JsonMapper;
 import com.cobaltplatform.api.util.ValidationException;
 import com.cobaltplatform.api.web.request.RequestBodyParser;
 import com.lokalized.Strings;
-import com.soklet.json.JSONObject;
 import com.soklet.web.annotation.GET;
 import com.soklet.web.annotation.POST;
 import com.soklet.web.annotation.PUT;
@@ -383,18 +379,6 @@ public class AppointmentResource {
 		UUID appointmentId = getAppointmentService().createAppointment(request);
 		Appointment appointment = getAppointmentService().findAppointmentById(appointmentId).get();
 
-		UUID sessionTrackingId = getCurrentContext().getSessionTrackingId().orElse(null);
-
-		if (sessionTrackingId != null) {
-			CreateActivityTrackingRequest activityTrackingRequest = new CreateActivityTrackingRequest();
-			activityTrackingRequest.setSessionTrackingId(sessionTrackingId);
-			activityTrackingRequest.setActivityActionId(ActivityActionId.CREATE);
-			activityTrackingRequest.setActivityTypeId(ActivityTypeId.APPOINTMENT);
-			activityTrackingRequest.setContext(new JSONObject().put("appointmentId", appointmentId.toString()).toString());
-
-			getActivityTrackingService().trackActivity(Optional.of(account), activityTrackingRequest);
-		}
-
 		// It's possible creating the appointment has updated the account's email address.
 		// Vend the account so client has the latest and greatest
 		Account updatedAccount = getAccountService().findAccountById(request.getAccountId()).get();
@@ -440,16 +424,6 @@ public class AppointmentResource {
 		getAppointmentService().cancelAppointment(request);
 
 		UUID sessionTrackingId = getCurrentContext().getSessionTrackingId().orElse(null);
-
-		if (sessionTrackingId != null) {
-			CreateActivityTrackingRequest activityTrackingRequest = new CreateActivityTrackingRequest();
-			activityTrackingRequest.setSessionTrackingId(sessionTrackingId);
-			activityTrackingRequest.setActivityActionId(ActivityActionId.CANCEL);
-			activityTrackingRequest.setActivityTypeId(ActivityTypeId.APPOINTMENT);
-			activityTrackingRequest.setContext(new JSONObject().put("appointmentId", appointmentId.toString()).toString());
-
-			getActivityTrackingService().trackActivity(Optional.of(account), activityTrackingRequest);
-		}
 
 		return new ApiResponse();
 	}
