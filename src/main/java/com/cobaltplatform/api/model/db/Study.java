@@ -58,15 +58,21 @@ public class Study {
 	@Nullable
 	private Instant lastUpdated;
 	@Nullable
-	private Boolean sendReminderNotification;
-	@Nullable
-	private Integer reminderNotificationMinutes;
-	@Nullable
-	private String reminderNotificationMessageTitle;
-	@Nullable
-	private String reminderNotificationMessageBody;
+	private Boolean sendCheckInReminderNotification;
 	@Nullable
 	private Boolean resetAfterFinalCheckIn;
+
+	@Nullable
+	private Boolean leaveFirstCheckInOpenUntilStarted;
+
+	@Nullable
+	private Boolean checkInWindowsFixed;
+
+	@Nullable
+	private Integer checkInReminderNotificationMinutes;
+
+	@Nullable
+	private UUID studyCheckInReminderId;
 
 	@Nullable
 	public UUID getStudyId() {
@@ -186,47 +192,56 @@ public class Study {
 	}
 
 	@Nullable
-	public Boolean getSendReminderNotification() {
-		return sendReminderNotification;
-	}
-
-	public void setSendReminderNotification(@Nullable Boolean sendReminderNotification) {
-		this.sendReminderNotification = sendReminderNotification;
-	}
-
-	@Nullable
-	public Integer getReminderNotificationMinutes() {
-		return reminderNotificationMinutes;
-	}
-
-	public void setReminderNotificationMinutes(@Nullable Integer reminderNotificationMinutes) {
-		this.reminderNotificationMinutes = reminderNotificationMinutes;
-	}
-
-	@Nullable
-	public String getReminderNotificationMessageTitle() {
-		return reminderNotificationMessageTitle;
-	}
-
-	public void setReminderNotificationMessageTitle(@Nullable String reminderNotificationMessageTitle) {
-		this.reminderNotificationMessageTitle = reminderNotificationMessageTitle;
-	}
-
-	@Nullable
-	public String getReminderNotificationMessageBody() {
-		return reminderNotificationMessageBody;
-	}
-
-	public void setReminderNotificationMessageBody(@Nullable String reminderNotificationMessageBody) {
-		this.reminderNotificationMessageBody = reminderNotificationMessageBody;
-	}
-
-	@Nullable
 	public Boolean getResetAfterFinalCheckIn() {
 		return resetAfterFinalCheckIn;
 	}
 
 	public void setResetAfterFinalCheckIn(@Nullable Boolean resetAfterFinalCheckIn) {
 		this.resetAfterFinalCheckIn = resetAfterFinalCheckIn;
+	}
+
+	@Nullable
+	public Boolean getLeaveFirstCheckInOpenUntilStarted() {
+		return leaveFirstCheckInOpenUntilStarted;
+	}
+
+	public void setLeaveFirstCheckInOpenUntilStarted(@Nullable Boolean leaveFirstCheckInOpenUntilStarted) {
+		this.leaveFirstCheckInOpenUntilStarted = leaveFirstCheckInOpenUntilStarted;
+	}
+
+	@Nullable
+	public Boolean getCheckInWindowsFixed() {
+		return checkInWindowsFixed;
+	}
+
+	public void setCheckInWindowsFixed(@Nullable Boolean checkInWindowsFixed) {
+		this.checkInWindowsFixed = checkInWindowsFixed;
+	}
+
+	@Nullable
+	public Integer getCheckInReminderNotificationMinutes() {
+		return checkInReminderNotificationMinutes;
+	}
+
+	public void setCheckInReminderNotificationMinutes(@Nullable Integer checkInReminderNotificationMinutes) {
+		this.checkInReminderNotificationMinutes = checkInReminderNotificationMinutes;
+	}
+
+	@Nullable
+	public UUID getStudyCheckInReminderId() {
+		return studyCheckInReminderId;
+	}
+
+	public void setStudyCheckInReminderId(@Nullable UUID studyCheckInReminderId) {
+		this.studyCheckInReminderId = studyCheckInReminderId;
+	}
+
+	@Nullable
+	public Boolean getSendCheckInReminderNotification() {
+		return sendCheckInReminderNotification;
+	}
+
+	public void setSendCheckInReminderNotification(@Nullable Boolean sendCheckInReminderNotification) {
+		this.sendCheckInReminderNotification = sendCheckInReminderNotification;
 	}
 }

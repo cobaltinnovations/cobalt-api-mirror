@@ -50,6 +50,7 @@ import com.cobaltplatform.api.model.db.Study;
 import com.cobaltplatform.api.model.db.StudyBeiweConfig;
 import com.cobaltplatform.api.model.db.StudyCheckIn;
 import com.cobaltplatform.api.model.db.StudyCheckInAction;
+import com.cobaltplatform.api.model.db.StudyCheckInReminder;
 import com.cobaltplatform.api.model.db.StudyFileUpload;
 import com.cobaltplatform.api.model.service.FileUploadResult;
 import com.cobaltplatform.api.model.service.StudyAccount;
@@ -344,6 +345,7 @@ public class StudyService implements AutoCloseable {
 				setRoleId(RoleId.PATIENT);
 				setInstitutionId(account.getInstitutionId());
 				setUsername(accountUsername);
+				setDisplayName(accountUsername);
 				setPassword(getAuthenticator().hashPassword(accountPassword));
 				setPasswordResetRequired(true);
 			}});
@@ -471,18 +473,22 @@ public class StudyService implements AutoCloseable {
 		LocalDateTime currentDateTime = LocalDateTime.now(account.getTimeZone());
 		LocalDateTime newStartDateTime = currentDateTime;
 		Optional<Study> study = findStudyById(studyId);
+		Optional<AccountStudy> accountStudy = findAccountStudyByAccountIdAndStudyId(account.getAccountId(), studyId);
 		Boolean resetCheckIns = false;
+		Boolean reschedulingCheckIns = false;
 
 		if (!study.isPresent())
 			validationException.add(new FieldError("studyId", getStrings().get("Not a valid Study ID.")));
 
+		if (!accountStudy.isPresent())
+			validationException.add(new FieldError("accountId", getStrings().get("Account not part of this study.")));
+
 		if (validationException.hasErrors())
 			throw validationException;
 
-		Boolean rescheduleFirstCheckIn = false;
 		getLogger().debug("Rescheduling check-ins");
 		for (AccountCheckIn accountCheckIn : accountCheckIns) {
-			if (accountCheckActive(account, accountCheckIn) && !rescheduleFirstCheckIn) {
+			if (accountStudy.get().getStudyStarted() && accountCheckActive(account, accountCheckIn) && accountCheckIn.getCheckInNumber() == 1) {
 				getLogger().debug(format("Breaking because check-in %s is active.", accountCheckIn.getCheckInNumber()));
 				break;
 			} else if (accountCheckIn.getCheckInNumber() == 1 && !accountCheckIn.getCheckInStatusId().equals(CheckInStatusId.COMPLETE)) {
@@ -494,10 +500,17 @@ public class StudyService implements AutoCloseable {
 					updateCheckInStatusId(accountCheckIn.getAccountCheckInId(), CheckInStatusId.EXPIRED);
 					checkInCount = 1;
 					continue;
+				} else if (accountStudy.get().getStudyStarted() && accountCheckExpired(account, accountCheckIn)) {
+					getLogger().debug(format("Check-in %s has expired so continuing to next check-in", accountCheckIn.getCheckInNumber()));
+					if (!accountCheckIn.getCheckInStatusId().equals(CheckInStatusId.EXPIRED)) {
+						getLogger().debug(format("Check-in %s was not set to expired so expiring", accountCheckIn.getCheckInNumber()));
+						updateCheckInStatusId(accountCheckIn.getAccountCheckInId(), CheckInStatusId.EXPIRED);
+					}
+					continue;
 				} else {
 					getLogger().debug("First check-in is NOT started and not complete so setting start time to now and continuing on.");
-					rescheduleFirstCheckIn = true;
 					newStartDateTime = currentDateTime;
+					reschedulingCheckIns = true;
 				}
 			} else if (accountCheckIn.getCheckInStatusId().equals(CheckInStatusId.COMPLETE)) {
 				getLogger().debug(format("Check-in %s is complete so continuing to next check-in", accountCheckIn.getCheckInNumber()));
@@ -507,7 +520,7 @@ public class StudyService implements AutoCloseable {
 				if (accountCheckIn.getCheckInNumber() == accountCheckIns.size())
 					resetCheckIns = true;
 				continue;
-			} else if (accountCheckExpired(account, accountCheckIn) && !rescheduleFirstCheckIn) {
+			} else if (accountCheckExpired(account, accountCheckIn) && !reschedulingCheckIns) {
 				getLogger().debug(format("Check-in %s has expired so continuing to next check-in", accountCheckIn.getCheckInNumber()));
 				newStartDateTime = currentDateTime;
 				checkInCount = 1;
@@ -521,23 +534,26 @@ public class StudyService implements AutoCloseable {
 				continue;
 			}
 
-			if (study.get().getMinutesBetweenCheckIns() >= minutesInADay) {
-				//TODO: Validate that the minutes are a whole number of days
-				Integer daysToAdd = checkInCount == 0 ? 0 : (study.get().getMinutesBetweenCheckIns() * checkInCount) / minutesInADay;
-				LocalDate checkInStartDate = newStartDateTime.toLocalDate().plusDays(daysToAdd);
-				checkInStartDateTime = LocalDateTime.of(checkInStartDate, LocalTime.of(0, 0, 0));
-			} else {
-				Integer minutesToAdd = checkInCount == 0 ? 0 : study.get().getMinutesBetweenCheckIns() * checkInCount;
-				checkInStartDateTime = newStartDateTime.plus(minutesToAdd, ChronoUnit.MINUTES);
-				getLogger().debug(format("Adding %s minutes to %s and setting next check-in to %s", minutesToAdd, newStartDateTime, checkInStartDateTime));
-			}
-			checkInEndDateTime = checkInStartDateTime.plusMinutes(study.get().getMinutesBetweenCheckIns());
+			// If the study has not started then reset start/end times for check ins
+			if (!accountStudy.get().getStudyStarted()) {
+				if (study.get().getMinutesBetweenCheckIns() >= minutesInADay) {
+					//TODO: Validate that the minutes are a whole number of days
+					Integer daysToAdd = checkInCount == 0 ? 0 : (study.get().getMinutesBetweenCheckIns() * checkInCount) / minutesInADay;
+					LocalDate checkInStartDate = newStartDateTime.toLocalDate().plusDays(daysToAdd);
+					checkInStartDateTime = LocalDateTime.of(checkInStartDate, LocalTime.of(0, 0, 0));
+				} else {
+					Integer minutesToAdd = checkInCount == 0 ? 0 : study.get().getMinutesBetweenCheckIns() * checkInCount;
+					checkInStartDateTime = newStartDateTime.plus(minutesToAdd, ChronoUnit.MINUTES);
+					getLogger().debug(format("Adding %s minutes to %s and setting next check-in to %s", minutesToAdd, newStartDateTime, checkInStartDateTime));
+				}
+				checkInEndDateTime = checkInStartDateTime.plusMinutes(study.get().getMinutesBetweenCheckIns()).minusSeconds(1);
 
-			getDatabase().execute("""
-					UPDATE account_check_in
-					SET check_in_start_date_time = ?, check_in_end_date_time = ?
-					WHERE account_check_in_id = ?
-					""", checkInStartDateTime, checkInEndDateTime, accountCheckIn.getAccountCheckInId());
+				getDatabase().execute("""
+						UPDATE account_check_in
+						SET check_in_start_date_time = ?, check_in_end_date_time = ?
+						WHERE account_check_in_id = ?
+						""", checkInStartDateTime, checkInEndDateTime, accountCheckIn.getAccountCheckInId());
+			}
 
 			checkInCount++;
 		}
@@ -964,6 +980,17 @@ public class StudyService implements AutoCloseable {
 				""", AccountCheckInActionFileUpload.class, accountCheckInActionId, fileUploadId);
 	}
 
+	@Nonnull
+	public void startStudyForAccount(@Nullable UUID accountId,
+																	 @Nullable UUID studyId) {
+
+		getDatabase().execute("""
+				UPDATE account_study 
+				SET study_started = true
+				WHERE account_id = ? 
+				AND study_id=? """, accountId, studyId);
+	}
+
 	@Override
 	public void close() throws Exception {
 		stopBackgroundTask();
@@ -1071,58 +1098,64 @@ public class StudyService implements AutoCloseable {
 		}
 
 		protected void scheduleCheckInNotificationReminder() {
-			List<AccountStudy> accountStudies = getDatabase().queryForList("""
-					SELECT ast.*
-					FROM v_account_study ast, study s
-					WHERE ast.study_id = s.study_id
-					AND s.send_check_in_reminder_notification = true
-					AND ast.password_reset_required = false
-					AND NOT EXISTS
-					(SELECT 'X'
-					FROM v_account_check_in vaci
-					WHERE ast.account_study_id = vaci.account_study_id
-					AND EXTRACT(EPOCH FROM NOW() - vaci.completed_date) / 60 <  s.check_in_reminder_notification_minutes)
-					AND NOT EXISTS
-					(SELECT 'X'
-					FROM account_study_scheduled_message ass, scheduled_message sm
-					WHERE ass.scheduled_message_id = sm.scheduled_message_id
-					AND ast.account_study_id = ass.account_study_id
-					AND EXTRACT(EPOCH FROM NOW() - ass.created) / 60 < s.check_in_reminder_notification_minutes)
-					AND NOT EXISTS
-					(SELECT assm.account_study_id
-					FROM account_study_scheduled_message assm
-					WHERE ast.account_study_id = assm.account_study_id
-					GROUP BY assm.account_study_id
-					HAVING COUNT(*) >= s.max_check_in_reminder)
-					""", AccountStudy.class);
+			// TODO: support non fixed window studies
+			// List of all studies that have check in reminders turned on and the number of minutes
+			// at which to send a notification after the check in has started but has not been completed
+			List<StudyCheckInReminder> studyCheckInReminders = getDatabase().queryForList("""
+					SELECT *
+					FROM v_study_check_in_reminder sc
+					WHERE send_check_in_reminder_notification = true
+					AND check_in_windows_fixed = true""", StudyCheckInReminder.class);
 
-			for (AccountStudy accountStudy : accountStudies) {
-				Map<String, Object> standardMessageContext = new HashMap<>();
-				standardMessageContext.put("condition", format("accountId %s", accountStudy.getAccountId()));
-				standardMessageContext.put("title", accountStudy.getCheckInReminderNotificationMessageTitle());
-				standardMessageContext.put("body", accountStudy.getCheckInReminderNotificationMessageBody());
+			// Get a list of all "Active" study check ins that have not been notified
+			for (StudyCheckInReminder studyCheckInReminder : studyCheckInReminders) {
+				getLogger().debug(format("Sending check in reminders for Study check in reminder id %s", studyCheckInReminder.getStudyCheckInReminderId()));
+				List<AccountCheckIn> accountCheckIns =
+						getDatabase().queryForList("""
+										SELECT va.*
+										FROM v_account_check_in va
+										WHERE va.study_id = ?
+										AND va.study_started = TRUE
+										AND va.check_in_status_id != ?
+										AND EXTRACT(EPOCH FROM NOW() at time zone va.time_zone - va.check_in_start_date_time) / 60 >  ?
+										AND now() at time zone va.time_zone BETWEEN check_in_start_date_time AND check_in_end_date_time
+										AND NOT EXISTS
+										(SELECT 'X'
+										FROM account_check_in_reminder ac
+										WHERE ac.account_check_in_id = va.account_check_in_id
+										AND ac.study_check_in_reminder_id = ?)
+								""", AccountCheckIn.class, studyCheckInReminder.getStudyId(), CheckInStatusId.COMPLETE,
+								studyCheckInReminder.getCheckInReminderNotificationMinutes(), studyCheckInReminder.getStudyCheckInReminderId());
 
-				List<ClientDevicePushToken> clientDevicePushTokens = accountService.findClientDevicePushTokensForAccountId(accountStudy.getAccountId());
+				for (AccountCheckIn accountCheckIn : accountCheckIns) {
+					Map<String, Object> standardMessageContext = new HashMap<>();
+					standardMessageContext.put("condition", format("accountId %s", accountCheckIn.getAccountId()));
+					standardMessageContext.put("title", studyCheckInReminder.getCheckInReminderNotificationMessageTitle());
+					standardMessageContext.put("body", studyCheckInReminder.getCheckInReminderNotificationMessageBody());
 
-				for (ClientDevicePushToken clientDevicePushToken : clientDevicePushTokens) {
-					getLogger().debug(format("Scheduling account check-in reminder for accountId %s", accountStudy.getAccountId()));
+					List<ClientDevicePushToken> clientDevicePushTokens = accountService.findClientDevicePushTokensForAccountId(accountCheckIn.getAccountId());
 
-					PushMessage pushMessage = new PushMessage.Builder(accountStudy.getInstitutionId(), PushMessageTemplate.FREEFORM,
-							clientDevicePushToken.getClientDevicePushTokenTypeId(), clientDevicePushToken.getPushToken(), Locale.US)
-							.messageContext(standardMessageContext).build();
-					UUID scheduledMessageId = messageService.createScheduledMessage(new CreateScheduledMessageRequest<>() {{
-						setMessage(pushMessage);
-						setTimeZone(accountStudy.getTimeZone());
-						setScheduledAt(LocalDateTime.now(accountStudy.getTimeZone()));
-					}});
+					for (ClientDevicePushToken clientDevicePushToken : clientDevicePushTokens) {
+						getLogger().debug(format("Scheduling account check-in reminder for accountId %s", accountCheckIn.getAccountId()));
 
-					getDatabase().execute("""
-							INSERT INTO account_study_scheduled_message
-							  (account_study_id, scheduled_message_id)
-							VALUES
-							  (?,?)""", accountStudy.getAccountStudyId(), scheduledMessageId);
+						PushMessage pushMessage = new PushMessage.Builder(accountCheckIn.getInstitutionId(), PushMessageTemplate.FREEFORM,
+								clientDevicePushToken.getClientDevicePushTokenTypeId(), clientDevicePushToken.getPushToken(), Locale.US)
+								.messageContext(standardMessageContext).build();
+						UUID scheduledMessageId = messageService.createScheduledMessage(new CreateScheduledMessageRequest<>() {{
+							setMessage(pushMessage);
+							setTimeZone(accountCheckIn.getTimeZone());
+							setScheduledAt(LocalDateTime.now(accountCheckIn.getTimeZone()));
+						}});
+
+						getDatabase().execute("""
+									INSERT INTO account_check_in_reminder
+								  (account_check_in_id, study_check_in_reminder_id, scheduled_message_id)
+								VALUES
+								  (?,?,?)""",
+								accountCheckIn.getAccountCheckInId(), studyCheckInReminder.getStudyCheckInReminderId(), scheduledMessageId);
+					}
+
 				}
-
 			}
 		}
 

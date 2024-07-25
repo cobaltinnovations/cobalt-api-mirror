@@ -305,6 +305,8 @@ public class Institution {
 
 	@Nullable
 	private UUID integratedCareSafetyPlanningManagerAccountId;
+	@Nullable
+	private Integer integratedCareOrderImportDelayInSeconds;
 
 	@Nullable
 	private String twilioAccountSid;
@@ -314,6 +316,20 @@ public class Institution {
 	private Boolean callMessagesEnabled;
 	@Nullable
 	private Boolean smsMessagesEnabled;
+
+	@Nullable
+	private LocalTime integratedCareOrderImportStartTimeWindow;
+	@Nullable
+	private LocalTime integratedCareOrderImportEndTimeWindow;
+
+	@Nullable
+	private Boolean epicProviderSlotBookingSyncEnabled;
+	@Nullable
+	private String epicProviderSlotBookingSyncContactIdType;
+	@Nullable
+	private String epicProviderSlotBookingSyncDepartmentIdType;
+	@Nullable
+	private String epicProviderSlotBookingSyncVisitTypeIdType;
 
 	public enum InstitutionId {
 		COBALT,
@@ -1446,6 +1462,15 @@ public class Institution {
 	}
 
 	@Nullable
+	public Integer getIntegratedCareOrderImportDelayInSeconds() {
+		return this.integratedCareOrderImportDelayInSeconds;
+	}
+
+	public void setIntegratedCareOrderImportDelayInSeconds(@Nullable Integer integratedCareOrderImportDelayInSeconds) {
+		this.integratedCareOrderImportDelayInSeconds = integratedCareOrderImportDelayInSeconds;
+	}
+
+	@Nullable
 	public String getTwilioAccountSid() {
 		return this.twilioAccountSid;
 	}
@@ -1479,5 +1504,59 @@ public class Institution {
 
 	public void setSmsMessagesEnabled(@Nullable Boolean smsMessagesEnabled) {
 		this.smsMessagesEnabled = smsMessagesEnabled;
+	}
+
+	@Nullable
+	public LocalTime getIntegratedCareOrderImportStartTimeWindow() {
+		return this.integratedCareOrderImportStartTimeWindow;
+	}
+
+	public void setIntegratedCareOrderImportStartTimeWindow(@Nullable LocalTime integratedCareOrderImportStartTimeWindow) {
+		this.integratedCareOrderImportStartTimeWindow = integratedCareOrderImportStartTimeWindow;
+	}
+
+	@Nullable
+	public LocalTime getIntegratedCareOrderImportEndTimeWindow() {
+		return this.integratedCareOrderImportEndTimeWindow;
+	}
+
+	public void setIntegratedCareOrderImportEndTimeWindow(@Nullable LocalTime integratedCareOrderImportEndTimeWindow) {
+		this.integratedCareOrderImportEndTimeWindow = integratedCareOrderImportEndTimeWindow;
+	}
+
+	@Nullable
+	public Boolean getEpicProviderSlotBookingSyncEnabled() {
+		return this.epicProviderSlotBookingSyncEnabled;
+	}
+
+	public void setEpicProviderSlotBookingSyncEnabled(@Nullable Boolean epicProviderSlotBookingSyncEnabled) {
+		this.epicProviderSlotBookingSyncEnabled = epicProviderSlotBookingSyncEnabled;
+	}
+
+	@Nullable
+	public String getEpicProviderSlotBookingSyncContactIdType() {
+		return this.epicProviderSlotBookingSyncContactIdType;
+	}
+
+	public void setEpicProviderSlotBookingSyncContactIdType(@Nullable String epicProviderSlotBookingSyncContactIdType) {
+		this.epicProviderSlotBookingSyncContactIdType = epicProviderSlotBookingSyncContactIdType;
+	}
+
+	@Nullable
+	public String getEpicProviderSlotBookingSyncDepartmentIdType() {
+		return this.epicProviderSlotBookingSyncDepartmentIdType;
+	}
+
+	public void setEpicProviderSlotBookingSyncDepartmentIdType(@Nullable String epicProviderSlotBookingSyncDepartmentIdType) {
+		this.epicProviderSlotBookingSyncDepartmentIdType = epicProviderSlotBookingSyncDepartmentIdType;
+	}
+
+	@Nullable
+	public String getEpicProviderSlotBookingSyncVisitTypeIdType() {
+		return this.epicProviderSlotBookingSyncVisitTypeIdType;
+	}
+
+	public void setEpicProviderSlotBookingSyncVisitTypeIdType(@Nullable String epicProviderSlotBookingSyncVisitTypeIdType) {
+		this.epicProviderSlotBookingSyncVisitTypeIdType = epicProviderSlotBookingSyncVisitTypeIdType;
 	}
 }

@@ -24,6 +24,7 @@ import com.cobaltplatform.api.model.db.Account;
 import com.cobaltplatform.api.model.db.Color.ColorId;
 import com.cobaltplatform.api.model.db.EpicDepartment;
 import com.cobaltplatform.api.model.db.EpicDepartmentSynonym;
+import com.cobaltplatform.api.model.db.EpicProviderSchedule;
 import com.cobaltplatform.api.model.db.Feature.FeatureId;
 import com.cobaltplatform.api.model.db.Institution;
 import com.cobaltplatform.api.model.db.Institution.InstitutionId;
@@ -358,7 +359,7 @@ public class InstitutionService {
 					< screeningFlowVersion.getRecommendationExpirationMinutes()))
 				screeningSessionId = mostRecentCompletedFeatureScreeningSession.getScreeningSessionId();
 
-		List<FeatureForInstitution> features = getDatabase().queryForList("SELECT f.feature_id, f.url_name, COALESCE(if.name_override, f.name) AS name, if.description, if.nav_description, if.nav_visible, if.landing_page_visible, if.treatment_description, " +
+		List<FeatureForInstitution> features = getDatabase().queryForList("SELECT f.feature_id, f.url_name, COALESCE(if.name_override, f.name) AS name, COALESCE(if.subtitle_override, f.subtitle) AS subtitle, if.description, if.nav_description, if.nav_visible, if.landing_page_visible, if.treatment_description, " +
 				"CASE WHEN ss.screening_session_id IS NOT NULL THEN true ELSE false END AS recommended, f.navigation_header_id " +
 				"FROM institution_feature if, feature f  " +
 				"LEFT OUTER JOIN screening_session_feature_recommendation ss " +
@@ -486,6 +487,19 @@ public class InstitutionService {
 				  AND pa.epic_department_id=ed.epic_department_id
 				  AND pa.date_time=?
 				""", EpicDepartment.class, providerId, timeslot);
+	}
+
+	@Nonnull
+	public List<EpicProviderSchedule> findEpicProviderSchedulesByInstitutionId(@Nullable InstitutionId institutionId) {
+		if (institutionId == null)
+			return List.of();
+
+		return getDatabase().queryForList("""
+				SELECT *
+				FROM epic_provider_schedule
+				WHERE institution_id=?
+				ORDER BY name
+				""", EpicProviderSchedule.class, institutionId);
 	}
 
 	@Immutable

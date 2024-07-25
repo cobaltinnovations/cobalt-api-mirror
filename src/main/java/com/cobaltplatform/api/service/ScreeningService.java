@@ -62,6 +62,7 @@ import com.cobaltplatform.api.model.db.PatientOrderResourcingStatus.PatientOrder
 import com.cobaltplatform.api.model.db.PatientOrderSafetyPlanningStatus.PatientOrderSafetyPlanningStatusId;
 import com.cobaltplatform.api.model.db.PatientOrderTriageOverrideReason.PatientOrderTriageOverrideReasonId;
 import com.cobaltplatform.api.model.db.PatientOrderTriageSource.PatientOrderTriageSourceId;
+import com.cobaltplatform.api.model.db.RawPatientOrder;
 import com.cobaltplatform.api.model.db.Role.RoleId;
 import com.cobaltplatform.api.model.db.Screening;
 import com.cobaltplatform.api.model.db.ScreeningAnswer;
@@ -355,7 +356,7 @@ public class ScreeningService {
 			return false;
 
 		// For now, templating data is only used for scenarios where this screening is tied to a patient order.
-		PatientOrder patientOrder = getPatientOrderService().findPatientOrderById(screeningSession.getPatientOrderId()).orElse(null);
+		RawPatientOrder patientOrder = getPatientOrderService().findRawPatientOrderById(screeningSession.getPatientOrderId()).orElse(null);
 
 		if (patientOrder == null)
 			return false;
@@ -620,8 +621,8 @@ public class ScreeningService {
 			return Collections.emptyList();
 
 		return getDatabase().queryForList("""
-						SELECT ss.* FROM screening_session ss, screening_flow_version sfv 
-						WHERE sfv.screening_flow_id=? AND ss.screening_flow_version_id=sfv.screening_flow_version_id 
+						SELECT ss.* FROM screening_session ss, screening_flow_version sfv
+						WHERE sfv.screening_flow_id=? AND ss.screening_flow_version_id=sfv.screening_flow_version_id
 						AND ss.patient_order_id=?
 						ORDER BY ss.created DESC
 						""",
@@ -741,7 +742,7 @@ public class ScreeningService {
 			if (patientOrderId == null) {
 				validationException.add(new FieldError("patientOrderId", getStrings().get("Patient Order ID is required.")));
 			} else {
-				PatientOrder patientOrder = getPatientOrderService().findPatientOrderById(patientOrderId).orElse(null);
+				RawPatientOrder patientOrder = getPatientOrderService().findRawPatientOrderById(patientOrderId).orElse(null);
 
 				if (patientOrder == null)
 					validationException.add(new FieldError("patientOrderId", getStrings().get("Patient Order ID is invalid.")));
@@ -1410,11 +1411,24 @@ public class ScreeningService {
 
 		UUID screeningSessionAnsweredScreeningQuestionId = UUID.randomUUID();
 
-		getDatabase().execute("""
-						INSERT INTO screening_session_answered_screening_question(screening_session_answered_screening_question_id, 
-						screening_session_screening_id, screening_question_id, created)
-						VALUES(?,?,?,?)
-				""", screeningSessionAnsweredScreeningQuestionId, screeningSessionScreeningId, screeningQuestionId, Instant.now());
+		try {
+			getDatabase().execute("""
+							INSERT INTO screening_session_answered_screening_question(screening_session_answered_screening_question_id,
+							screening_session_screening_id, screening_question_id, created)
+							VALUES(?,?,?,?)
+					""", screeningSessionAnsweredScreeningQuestionId, screeningSessionScreeningId, screeningQuestionId, Instant.now());
+		} catch (DatabaseException e) {
+			String contraintViolated = e.constraint().orElse(null);
+
+			if (Objects.equals(contraintViolated, "idx_screening_session_answered_screening_question_valid")) {
+				getErrorReporter().report(format("Detected idx_screening_session_answered_screening_question_valid violation for screening_session_screening_id %s and screening_question_id %s",
+						screeningSessionScreeningId, screeningQuestionId));
+
+				throw new ValidationException(getStrings().get("Sorry, we were temporarily unable to record your answer. Please try again. If the issue persists, try exiting this assessment and re-launching it."));
+			}
+
+			throw e;
+		}
 
 		List<UUID> screeningAnswerIds = new ArrayList<>(answers.size());
 		Instant now = Instant.now();
@@ -1439,12 +1453,26 @@ public class ScreeningService {
 				})
 				.collect(Collectors.toList());
 
-		// ...for an efficient INSERT.
-		getDatabase().executeBatch("""
-				INSERT INTO
-				screening_answer(screening_answer_id, screening_answer_option_id, screening_session_answered_screening_question_id, created_by_account_id, text, created)
-				VALUES(?,?,?,?,?,?)
-				""", answerParameters);
+		try {
+			// ...for an efficient INSERT.
+			getDatabase().executeBatch("""
+					INSERT INTO
+					screening_answer(screening_answer_id, screening_answer_option_id, screening_session_answered_screening_question_id, created_by_account_id, text, created)
+					VALUES(?,?,?,?,?,?)
+					""", answerParameters);
+		} catch (DatabaseException e) {
+			// Unfortunately this is the best way to find the `screening_answer_option_id_unique` violation
+			boolean constraintViolated = e.getMessage() != null && e.getMessage().contains("screening_answer_option_id_unique");
+
+			if (constraintViolated) {
+				getErrorReporter().report(format("Detected screening_answer_option_id_unique violation for screening_session_screening_id %s and screening_question_id %s",
+						screeningSessionScreeningId, screeningQuestionId));
+
+				throw new ValidationException(getStrings().get("Sorry, we were temporarily unable to record your answer. Please try again. If the issue persists, try exiting this assessment and re-launching it."));
+			}
+
+			throw e;
+		}
 
 		// Score the individual screening by calling its scoring function
 		List<ScreeningQuestionWithAnswerOptions> screeningQuestionsWithAnswerOptions =
@@ -1572,7 +1600,7 @@ public class ScreeningService {
 
 			// If this screening session is done for a patient order, mark the order as "crisis indicated"
 			if (screeningSession.getPatientOrderId() != null) {
-				PatientOrder patientOrder = getPatientOrderService().findPatientOrderById(screeningSession.getPatientOrderId()).get();
+				RawPatientOrder patientOrder = getPatientOrderService().findRawPatientOrderById(screeningSession.getPatientOrderId()).get();
 
 				if (patientOrder.getPatientOrderSafetyPlanningStatusId() != PatientOrderSafetyPlanningStatusId.NEEDS_SAFETY_PLANNING) {
 					getLogger().info("Patient order ID {} will be marked as 'needs safety planning'.", patientOrder.getPatientOrderId());
@@ -1782,7 +1810,7 @@ public class ScreeningService {
 				// Special handling for IC clinical flow
 				if (institution.getIntegratedCareEnabled()
 						&& Objects.equals(institution.getIntegratedCareScreeningFlowId(), screeningFlowVersion.getScreeningFlowId())) {
-					PatientOrder patientOrder = getPatientOrderService().findPatientOrderByScreeningSessionId(screeningSession.getScreeningSessionId()).orElse(null);
+					RawPatientOrder patientOrder = getPatientOrderService().findRawPatientOrderByScreeningSessionId(screeningSession.getScreeningSessionId()).orElse(null);
 
 					if (patientOrder == null) {
 						getLogger().warn("No patient order for target account ID {} and screening session ID {}, ignoring clinical results...", screeningSession.getTargetAccountId(), screeningSession.getScreeningSessionId());
@@ -1865,7 +1893,7 @@ public class ScreeningService {
 		boolean integratedCareClinicalScreeningFlow = institution.getIntegratedCareEnabled() && Objects.equals(screeningFlowVersion.getScreeningFlowId(), institution.getIntegratedCareScreeningFlowId());
 
 		if (integratedCareIntakeScreeningFlow || integratedCareClinicalScreeningFlow) {
-			PatientOrder patientOrder = getPatientOrderService().findPatientOrderByScreeningSessionId(screeningSessionId).get();
+			RawPatientOrder patientOrder = getPatientOrderService().findRawPatientOrderByScreeningSessionId(screeningSessionId).get();
 			patientOrderId = patientOrder.getPatientOrderId();
 		}
 
@@ -2272,7 +2300,7 @@ public class ScreeningService {
 		// patient is below a certain age
 		if (screeningSession.getPatientOrderId() != null) {
 			Institution institution = getInstitutionService().findInstitutionById(institutionId).get();
-			PatientOrder patientOrder = getPatientOrderService().findPatientOrderById(screeningSession.getPatientOrderId()).get();
+			RawPatientOrder patientOrder = getPatientOrderService().findRawPatientOrderById(screeningSession.getPatientOrderId()).get();
 			LocalDate currentDate = LocalDateTime.ofInstant(Instant.now(), institution.getTimeZone()).toLocalDate();
 
 			Long patientAgeInYears = Period.between(patientOrder.getPatientBirthdate(), currentDate)

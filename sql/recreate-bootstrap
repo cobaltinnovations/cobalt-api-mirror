@@ -172,6 +172,18 @@ PGPASSWORD=password psql -U cobalt -h postgres-cobalt -p 5432 < updates/164-stud
 PGPASSWORD=password psql -U cobalt -h postgres-cobalt -p 5432 < updates/165-pg14-last-updated-trigger.sql
 PGPASSWORD=password psql -U cobalt -h postgres-cobalt -p 5432 < updates/166-epic-department-synonyms.sql
 PGPASSWORD=password psql -U cobalt -h postgres-cobalt -p 5432 < updates/167-study-reporting.sql
+PGPASSWORD=password psql -U cobalt -h postgres-cobalt -p 5432 < updates/168-ic-updates.sql
+PGPASSWORD=password psql -U cobalt -h postgres-cobalt -p 5432 < updates/169-ic-updates-1.sql
+PGPASSWORD=password psql -U cobalt -h postgres-cobalt -p 5432 < updates/169-ic-updates-2.sql
+PGPASSWORD=password psql -U cobalt -h postgres-cobalt -p 5432 < updates/169-ic-updates-3.sql
+PGPASSWORD=password psql -U cobalt -h postgres-cobalt -p 5432 < updates/170-study-first-check-in-behavior.sql
+PGPASSWORD=password psql -U cobalt -h postgres-cobalt -p 5432 < updates/171-study-check-in-windows-fixed.sql
+PGPASSWORD=password psql -U cobalt -h postgres-cobalt -p 5432 < updates/172-unique-email-address.sql
+PGPASSWORD=password psql -U cobalt -h postgres-cobalt -p 5432 < updates/173-ic-department-scheduling-overrides.sql
+PGPASSWORD=password psql -U cobalt -h postgres-cobalt -p 5432 < updates/174-faq-enhancements.sql
+PGPASSWORD=password psql -U cobalt -h postgres-cobalt -p 5432 < updates/175-screening-session-constraints.sql
+PGPASSWORD=password psql -U cobalt -h postgres-cobalt -p 5432 < updates/176-darpa-notification-enhancements.sql
+PGPASSWORD=password psql -U cobalt -h postgres-cobalt -p 5432 < updates/177-epic-provider-blocks.sql
 
 if [ -f "initial/bootstrap.sql" ]; then
   echo "Loading bootstrap data..."

@@ -44,6 +44,10 @@ public class Faq {
 	@Nullable
 	private String answer;
 	@Nullable
+	private String shortAnswer;
+	@Nullable
+	private Boolean permitEllipsizing;
+	@Nullable
 	private Integer displayOrder;
 	@Nullable
 	private Instant created;
@@ -102,6 +106,24 @@ public class Faq {
 
 	public void setAnswer(@Nullable String answer) {
 		this.answer = answer;
+	}
+
+	@Nullable
+	public String getShortAnswer() {
+		return this.shortAnswer;
+	}
+
+	public void setShortAnswer(@Nullable String shortAnswer) {
+		this.shortAnswer = shortAnswer;
+	}
+
+	@Nullable
+	public Boolean getPermitEllipsizing() {
+		return this.permitEllipsizing;
+	}
+
+	public void setPermitEllipsizing(@Nullable Boolean permitEllipsizing) {
+		this.permitEllipsizing = permitEllipsizing;
 	}
 
 	@Nullable

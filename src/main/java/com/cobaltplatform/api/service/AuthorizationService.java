@@ -34,6 +34,7 @@ import com.cobaltplatform.api.model.db.Interaction;
 import com.cobaltplatform.api.model.db.InteractionInstance;
 import com.cobaltplatform.api.model.db.PatientOrder;
 import com.cobaltplatform.api.model.db.Provider;
+import com.cobaltplatform.api.model.db.RawPatientOrder;
 import com.cobaltplatform.api.model.db.ReportType.ReportTypeId;
 import com.cobaltplatform.api.model.db.Role.RoleId;
 import com.cobaltplatform.api.model.db.ScreeningFlow;
@@ -155,6 +156,7 @@ public class AuthorizationService {
 		Set<AccountCapabilityTypeId> accountCapabilityTypeIds = account.getAccountCapabilityTypeIds();
 
 		AccountCapabilityFlags accountCapabilityFlags = new AccountCapabilityFlags();
+		accountCapabilityFlags.setCanServiceIcOrders(account.getRoleId() == RoleId.MHIC && accountCapabilityTypeIds.contains(AccountCapabilityTypeId.MHIC_ORDER_SERVICER));
 		accountCapabilityFlags.setCanEditIcTriages(account.getRoleId() == RoleId.MHIC); // All MHICs can do this
 		accountCapabilityFlags.setCanEditIcSafetyPlanning(accountCapabilityTypeIds.contains(AccountCapabilityTypeId.MHIC_ADMIN)
 				|| accountCapabilityTypeIds.contains(AccountCapabilityTypeId.MHIC_SAFETY_PLANNING_ADMIN));
@@ -496,7 +498,7 @@ public class AuthorizationService {
 
 	@Nonnull
 	public Boolean canPerformScreening(@Nonnull Account performingAccount,
-																		 @Nonnull PatientOrder patientOrder) {
+																		 @Nonnull RawPatientOrder patientOrder) {
 		requireNonNull(performingAccount);
 		requireNonNull(patientOrder);
 
@@ -525,7 +527,7 @@ public class AuthorizationService {
 	}
 
 	@Nonnull
-	public Boolean canViewPatientOrder(@Nonnull PatientOrder patientOrder,
+	public Boolean canViewPatientOrder(@Nonnull RawPatientOrder patientOrder,
 																		 @Nonnull Account account) {
 		requireNonNull(patientOrder);
 		requireNonNull(account);
@@ -543,7 +545,7 @@ public class AuthorizationService {
 	}
 
 	@Nonnull
-	public Boolean canViewPatientOrderTriages(@Nonnull PatientOrder patientOrder,
+	public Boolean canViewPatientOrderTriages(@Nonnull RawPatientOrder patientOrder,
 																						@Nonnull Account account) {
 		requireNonNull(patientOrder);
 		requireNonNull(account);
@@ -557,7 +559,7 @@ public class AuthorizationService {
 	}
 
 	@Nonnull
-	public Boolean canUpdatePatientOrderTriages(@Nonnull PatientOrder patientOrder,
+	public Boolean canUpdatePatientOrderTriages(@Nonnull RawPatientOrder patientOrder,
 																							@Nonnull Account account) {
 		requireNonNull(patientOrder);
 		requireNonNull(account);
@@ -566,7 +568,7 @@ public class AuthorizationService {
 	}
 
 	@Nonnull
-	public Boolean canUpdatePatientOrderEncounterCsn(@Nonnull PatientOrder patientOrder,
+	public Boolean canUpdatePatientOrderEncounterCsn(@Nonnull RawPatientOrder patientOrder,
 																									 @Nonnull Account account) {
 		requireNonNull(patientOrder);
 		requireNonNull(account);
@@ -651,7 +653,7 @@ public class AuthorizationService {
 	}
 
 	@Nonnull
-	public Boolean canEditPatientOrder(@Nonnull PatientOrder patientOrder,
+	public Boolean canEditPatientOrder(@Nonnull RawPatientOrder patientOrder,
 																		 @Nonnull Account account) {
 		requireNonNull(patientOrder);
 		requireNonNull(account);
