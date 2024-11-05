@@ -87,6 +87,9 @@ public class PatientOrderActivityService {
 				AND fe.new_value->>'patient_order_id'=?
 				ORDER BY feg.created desc, fe.created desc
 				""", Object.class, patientOrderId, sortDirectionId);
+
+		// TODO
+		return null;
 	}
 
 	@Nonnull
