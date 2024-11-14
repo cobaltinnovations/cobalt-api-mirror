@@ -659,6 +659,20 @@ public class AuthorizationService {
 	}
 
 	@Nonnull
+	public Boolean canViewPatientOrderActivities(@Nonnull PatientOrder patientOrder,
+																							 @Nonnull Account account) {
+		requireNonNull(patientOrder);
+		requireNonNull(account);
+
+		// An admin or MHIC at the same institution is able to view order activity data at that institution.
+		if (Objects.equals(account.getInstitutionId(), patientOrder.getInstitutionId())
+				&& (account.getRoleId() == RoleId.ADMINISTRATOR || account.getRoleId() == RoleId.MHIC))
+			return true;
+
+		return false;
+	}
+
+	@Nonnull
 	public Boolean canEditPatientOrder(@Nonnull RawPatientOrder patientOrder,
 																		 @Nonnull Account account) {
 		requireNonNull(patientOrder);
@@ -744,7 +758,9 @@ public class AuthorizationService {
 	}
 
 	@Nonnull
-	protected StudyService getStudyService() { return this.studyServiceProvider.get(); }
+	protected StudyService getStudyService() {
+		return this.studyServiceProvider.get();
+	}
 
 	@Nonnull
 	protected Normalizer getNormalizer() {

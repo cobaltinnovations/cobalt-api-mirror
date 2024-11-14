@@ -108,6 +108,7 @@ import com.cobaltplatform.api.model.db.RawPatientOrder;
 import com.cobaltplatform.api.model.security.AuthenticationRequired;
 import com.cobaltplatform.api.model.service.Encounter;
 import com.cobaltplatform.api.model.service.FindResult;
+import com.cobaltplatform.api.model.service.PatientOrderActivity;
 import com.cobaltplatform.api.model.service.PatientOrderAssignmentStatusId;
 import com.cobaltplatform.api.model.service.PatientOrderAutocompleteResult;
 import com.cobaltplatform.api.model.service.PatientOrderContactTypeId;
@@ -123,6 +124,7 @@ import com.cobaltplatform.api.model.service.SortNullsId;
 import com.cobaltplatform.api.service.AccountService;
 import com.cobaltplatform.api.service.AuthorizationService;
 import com.cobaltplatform.api.service.InstitutionService;
+import com.cobaltplatform.api.service.PatientOrderActivityService;
 import com.cobaltplatform.api.service.PatientOrderService;
 import com.cobaltplatform.api.service.ProviderService;
 import com.cobaltplatform.api.service.ScreeningService;
@@ -188,6 +190,8 @@ public class PatientOrderResource {
 	@Nonnull
 	private final PatientOrderService patientOrderService;
 	@Nonnull
+	private final PatientOrderActivityService patientOrderActivityService;
+	@Nonnull
 	private final ProviderService providerService;
 	@Nonnull
 	private final AccountService accountService;
@@ -246,6 +250,7 @@ public class PatientOrderResource {
 
 	@Inject
 	public PatientOrderResource(@Nonnull PatientOrderService patientOrderService,
+															@Nonnull PatientOrderActivityService patientOrderActivityService,
 															@Nonnull ProviderService providerService,
 															@Nonnull AccountService accountService,
 															@Nonnull InstitutionService institutionService,
@@ -274,6 +279,7 @@ public class PatientOrderResource {
 															@Nonnull Provider<CurrentContext> currentContextProvider,
 															@Nonnull Strings strings) {
 		requireNonNull(patientOrderService);
+		requireNonNull(patientOrderActivityService);
 		requireNonNull(providerService);
 		requireNonNull(accountService);
 		requireNonNull(institutionService);
@@ -303,6 +309,7 @@ public class PatientOrderResource {
 		requireNonNull(strings);
 
 		this.patientOrderService = patientOrderService;
+		this.patientOrderActivityService = patientOrderActivityService;
 		this.providerService = providerService;
 		this.accountService = accountService;
 		this.institutionService = institutionService;
@@ -430,6 +437,7 @@ public class PatientOrderResource {
 	@Nonnull
 	@GET("/patient-orders/{patientOrderId}/clinical-report")
 	@AuthenticationRequired
+	@ReadReplica
 	public ApiResponse patientOrderClinicalReport(@Nonnull @PathParameter UUID patientOrderId) {
 		requireNonNull(patientOrderId);
 
@@ -446,6 +454,35 @@ public class PatientOrderResource {
 
 		return new ApiResponse(new HashMap<String, Object>() {{
 			put("clinicalReport", clinicalReport);
+		}});
+	}
+
+
+	@Nonnull
+	@GET("/patient-orders/{patientOrderId}/activities")
+	@AuthenticationRequired
+	@ReadReplica
+	public ApiResponse patientOrderActivities(@Nonnull @PathParameter UUID patientOrderId,
+																						@Nonnull @QueryParameter Optional<SortDirectionId> sortDirectionId) {
+		requireNonNull(patientOrderId);
+
+		Account account = getCurrentContext().getAccount().get();
+		PatientOrder patientOrder = getPatientOrderService().findPatientOrderById(patientOrderId).orElse(null);
+
+		if (patientOrder == null)
+			throw new NotFoundException();
+
+		if (!getAuthorizationService().canViewPatientOrderActivities(patientOrder, account))
+			throw new AuthorizationException();
+
+		List<PatientOrderActivity> patientOrderActivities = getPatientOrderActivityService().findPatientOrderActivitiesByPatientOrderId(
+				patientOrderId, sortDirectionId.orElse(SortDirectionId.DESCENDING)
+		);
+
+		// TODO: map to real API response type
+
+		return new ApiResponse(new HashMap<String, Object>() {{
+			put("patientOrderActivities", patientOrderActivities);
 		}});
 	}
 
@@ -2183,6 +2220,11 @@ public class PatientOrderResource {
 	@Nonnull
 	protected PatientOrderService getPatientOrderService() {
 		return this.patientOrderService;
+	}
+
+	@Nonnull
+	protected PatientOrderActivityService getPatientOrderActivityService() {
+		return this.patientOrderActivityService;
 	}
 
 	@Nonnull
