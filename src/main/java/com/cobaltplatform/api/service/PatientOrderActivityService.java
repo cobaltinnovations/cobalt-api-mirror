@@ -23,6 +23,8 @@ import com.cobaltplatform.api.model.db.FootprintEventGroupType.FootprintEventGro
 import com.cobaltplatform.api.model.db.FootprintEventOperationType.FootprintEventOperationTypeId;
 import com.cobaltplatform.api.model.db.RawPatientOrder;
 import com.cobaltplatform.api.model.service.PatientOrderActivity;
+import com.cobaltplatform.api.model.service.PatientOrderActivityMessage;
+import com.cobaltplatform.api.model.service.PatientOrderActivityMessageTypeId;
 import com.cobaltplatform.api.model.service.PatientOrderActivityTypeId;
 import com.cobaltplatform.api.model.service.SortDirectionId;
 import com.cobaltplatform.api.util.db.DatabaseProvider;
@@ -40,6 +42,7 @@ import javax.annotation.Nullable;
 import javax.annotation.concurrent.NotThreadSafe;
 import javax.annotation.concurrent.ThreadSafe;
 import javax.inject.Inject;
+import javax.inject.Provider;
 import javax.inject.Singleton;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -57,6 +60,10 @@ import static org.apache.commons.lang3.StringUtils.trimToNull;
 @ThreadSafe
 public class PatientOrderActivityService {
 	@Nonnull
+	private final Provider<PatientOrderService> patientOrderServiceProvider;
+	@Nonnull
+	private final Provider<AccountService> accountServiceProvider;
+	@Nonnull
 	private final DatabaseProvider databaseProvider;
 	@Nonnull
 	private final Strings strings;
@@ -64,11 +71,17 @@ public class PatientOrderActivityService {
 	private final Logger logger;
 
 	@Inject
-	public PatientOrderActivityService(@Nonnull DatabaseProvider databaseProvider,
+	public PatientOrderActivityService(@Nonnull Provider<PatientOrderService> patientOrderServiceProvider,
+																		 @Nonnull Provider<AccountService> accountServiceProvider,
+																		 @Nonnull DatabaseProvider databaseProvider,
 																		 @Nonnull Strings strings) {
+		requireNonNull(patientOrderServiceProvider);
+		requireNonNull(accountServiceProvider);
 		requireNonNull(databaseProvider);
 		requireNonNull(strings);
 
+		this.patientOrderServiceProvider = patientOrderServiceProvider;
+		this.accountServiceProvider = accountServiceProvider;
 		this.databaseProvider = databaseProvider;
 		this.strings = strings;
 		this.logger = LoggerFactory.getLogger(getClass());
@@ -87,12 +100,8 @@ public class PatientOrderActivityService {
 		if (patientOrderId == null)
 			return List.of();
 
-		// Verify order exists
-		RawPatientOrder rawPatientOrder = getReadReplicaDatabase().queryForObject("""
-				SELECT *
-				FROM patient_order
-				WHERE patient_order_id=?
-				""", RawPatientOrder.class, patientOrderId).orElse(null);
+		// Short-circuit if order does not exist
+		RawPatientOrder rawPatientOrder = getPatientOrderService().findRawPatientOrderById(patientOrderId).orElse(null);
 
 		if (rawPatientOrder == null)
 			return List.of();
@@ -145,20 +154,16 @@ public class PatientOrderActivityService {
 	protected PatientOrderActivity patientOrderActivityForPatientOrderImportCreate(@Nonnull PatientOrderFootprintEvent patientOrderFootprintEvent) {
 		requireNonNull(patientOrderFootprintEvent);
 
+		PatientOrderActivityMessage message = new PatientOrderActivityMessage();
+		message.setPatientOrderActivityMessageTypeId(PatientOrderActivityMessageTypeId.DEFAULT);
+		message.setDescription(getStrings().get("TODO"));
+
 		PatientOrderActivity patientOrderActivity = new PatientOrderActivity();
 		patientOrderActivity.setPatientOrderActivityTypeId(PatientOrderActivityTypeId.ORDER_IMPORTED);
-		patientOrderActivity.setDescription(getStrings().get("TODO"));
-
-		// 	@Nullable
-		//	private PatientOrderActivityTypeId patientOrderActivityTypeId;
-		//	@Nullable
-		//	private UUID initiatedByAccountId;
-		//	@Nullable
-		//	private String description;
-		//	@Nullable
-		//	private List<PatientOrderActivityMessage> patientOrderActivityMessages;
-		//	@Nullable
-		//	private Map<String, Object> metadata;
+		patientOrderActivity.setDescription(getStrings().get("Order Imported into Cobalt"));
+		patientOrderActivity.setInitiatedByAccountId(patientOrderFootprintEvent.getAccountId());
+		patientOrderActivity.setPatientOrderActivityMessages(List.of(message));
+		patientOrderActivity.setMetadata(Map.of());
 
 		return patientOrderActivity;
 	}
@@ -322,6 +327,16 @@ public class PatientOrderActivityService {
 		public void setTableName(@Nullable String tableName) {
 			this.tableName = tableName;
 		}
+	}
+
+	@Nonnull
+	protected PatientOrderService getPatientOrderService() {
+		return this.patientOrderServiceProvider.get();
+	}
+
+	@Nonnull
+	protected AccountService getAccountService() {
+		return this.accountServiceProvider.get();
 	}
 
 	@Nonnull
