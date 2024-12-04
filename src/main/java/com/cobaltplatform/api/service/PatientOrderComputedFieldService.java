@@ -70,24 +70,49 @@ public class PatientOrderComputedFieldService {
 
 		// Queries to convert to computed:
 		//
-		// left outer join poo_query pooq ON poq.patient_order_id = pooq.patient_order_id
-		// left outer join poomax_query poomaxq ON poq.patient_order_id = poomaxq.patient_order_id
-		// left outer join reason_for_referral_query rfrq on poq.patient_order_id=rfrq.patient_order_id
-		// left outer join smg_query smgq ON poq.patient_order_id = smgq.patient_order_id
-		// left outer join smgmax_query smgmaxq ON poq.patient_order_id = smgmaxq.patient_order_id
-		// left outer join next_resource_check_in_scheduled_message_group_query nrcismgq on poq.patient_order_id=nrcismgq.patient_order_id
-		// left outer join next_appt_query naq on poq.patient_order_id=naq.patient_order_id
-		// left outer join recent_voicemail_task_query rvtq on poq.patient_order_id=rvtq.patient_order_id
-		// left outer join next_scheduled_outreach_query nsoq ON poq.patient_order_id=nsoq.patient_order_id
-		// left outer join most_recent_message_delivered_query mrmdq on poq.patient_order_id=mrmdq.patient_order_id
-		// left outer join ss_query ssq ON poq.patient_order_id = ssq.patient_order_id
+		// XXX left outer join poo_query pooq ON poq.patient_order_id = pooq.patient_order_id
+		// XXX left outer join poomax_query poomaxq ON poq.patient_order_id = poomaxq.patient_order_id
+		// XXX left outer join reason_for_referral_query rfrq on poq.patient_order_id=rfrq.patient_order_id
+		// XXX left outer join smg_query smgq ON poq.patient_order_id = smgq.patient_order_id
+		// XXX left outer join smgmax_query smgmaxq ON poq.patient_order_id = smgmaxq.patient_order_id
+		// XXX left outer join next_resource_check_in_scheduled_message_group_query nrcismgq on poq.patient_order_id=nrcismgq.patient_order_id
+		// XXX left outer join next_appt_query naq on poq.patient_order_id=naq.patient_order_id
+		// XXX left outer join recent_voicemail_task_query rvtq on poq.patient_order_id=rvtq.patient_order_id
+		// XXX left outer join next_scheduled_outreach_query nsoq ON poq.patient_order_id=nsoq.patient_order_id
+		// XXX left outer join most_recent_message_delivered_query mrmdq on poq.patient_order_id=mrmdq.patient_order_id
+		// XXX left outer join ss_query ssq ON poq.patient_order_id = ssq.patient_order_id
 		// left outer join ss_intake_query ssiq ON poq.patient_order_id = ssiq.patient_order_id
 		// left join permitted_regions_query prq ON poq.institution_id = prq.institution_id
 		// left outer join recent_scheduled_screening_query rssq ON poq.patient_order_id = rssq.patient_order_id
 		// left outer join recent_po_query rpq ON poq.patient_order_id = rpq.patient_order_id
 
+		// poo_query (pooq)
+		// poomax_query (poomaxq)
 		refreshPatientOrderOutreachCountComputedFields(patientOrderId);
+
+		// reason_for_referral_query (rfrq)
 		refreshPatientOrderReasonForReferralCalculatedField(patientOrderId);
+
+		// smg_query (smgq)
+		// smgmax_query (smgmaxq)
+		// next_resource_check_in_scheduled_message_group_query (nrcismgq)
+		refreshPatientOrderScheduledMessageComputedFields(patientOrderId);
+
+		// next_appt_query (naq)
+		refreshPatientOrderAppointmentComputedFields(patientOrderId);
+
+		// recent_voicemail_task_query (rvtq)
+		refreshPatientOrderVoicemailTaskComputedFields(patientOrderId);
+
+		// next_scheduled_outreach_query (nsoq)
+		refreshPatientOrderScheduledOutreachComputedFields(patientOrderId);
+
+		// most_recent_message_delivered_query (mrmdq)
+		refreshPatientOrderMostRecentMessageDeliveredComputedFields(patientOrderId);
+
+		// ss_query (ssq)
+		// ss_intake_query (ssiq)
+		refreshPatientOrderScreeningSessionComputedFields(patientOrderId);
 
 		// TODO: other calls
 
@@ -341,6 +366,261 @@ public class PatientOrderComputedFieldService {
 		throw new UnsupportedOperationException();
 	}
 
+	public void refreshPatientOrderAppointmentComputedFields(@Nonnull UUID patientOrderId) {
+		requireNonNull(patientOrderId);
+
+		// Query:
+		// next_appt_query (naq)
+
+		// Use in computed fields:
+		// naq.appointment_start_time
+		// naq.provider_id
+		// naq.provider_name
+		// naq.appointment_id
+		// (...) appointment_scheduled
+		// (...) appointment_scheduled_by_patient
+
+		// Computed fields depend on:
+		// (none)
+
+		/*
+
+			next_appt_query AS (
+				select * from (
+					select
+						app.patient_order_id,
+						app.appointment_id,
+						app.canceled,
+						p.provider_id,
+						p.name as provider_name,
+						app.start_time as appointment_start_time,
+						app.created_by_account_id,
+						rank() OVER (PARTITION BY app.patient_order_id ORDER BY app.start_time, app.appointment_id) as ranked_value
+					from
+						patient_order poq, appointment app, provider p
+						where poq.patient_order_id = app.patient_order_id
+						and app.provider_id=p.provider_id
+						and app.canceled=false
+						-- Not filtering on "> now()" because there should only ever be 1 uncanceled appointment per order.
+						-- We also don't want the appointment to "disappear" in the UI as soon as it starts.
+				) subquery where ranked_value=1
+			)
+
+		 */
+
+		throw new UnsupportedOperationException();
+	}
+
+	public void refreshPatientOrderVoicemailTaskComputedFields(@Nonnull UUID patientOrderId) {
+		requireNonNull(patientOrderId);
+
+		// Query:
+		// recent_voicemail_task_query (rvtq)
+
+		// Use in computed fields:
+		// rvtq.patient_order_voicemail_task_id AS most_recent_patient_order_voicemail_task_id
+		// rvtq.patient_order_voicemail_task_completed AS most_recent_patient_order_voicemail_task_completed
+
+		// Computed fields depend on:
+		// (none)
+
+		/*
+
+			recent_voicemail_task_query AS (
+					-- Pick the most recent voicemail task for each patient order
+				select * from (
+					select
+						povt.patient_order_id,
+						povt.patient_order_voicemail_task_id,
+						povt.completed as patient_order_voicemail_task_completed,
+						rank() OVER (PARTITION BY povt.patient_order_id ORDER BY povt.created DESC, povt.patient_order_voicemail_task_id) as ranked_value
+					from
+						patient_order poq, patient_order_voicemail_task povt
+						where poq.patient_order_id = povt.patient_order_id
+							and povt.deleted = FALSE
+				) subquery where ranked_value=1
+			)
+
+		 */
+
+		throw new UnsupportedOperationException();
+	}
+
+	public void refreshPatientOrderScheduledOutreachComputedFields(@Nonnull UUID patientOrderId) {
+		requireNonNull(patientOrderId);
+
+		// Query:
+		// next_scheduled_outreach_query (nsoq)
+
+		// Use in computed fields:
+		// nsoq.next_scheduled_outreach_id
+		// nsoq.next_scheduled_outreach_scheduled_at_date_time
+		// nsoq.next_scheduled_outreach_type_id
+		// nsoq.next_scheduled_outreach_reason_id
+		// (...) next_contact_type_id
+		// (...) next_contact_scheduled_at
+
+		// Computed fields depend on:
+		// ss_query (ssq)
+		// recent_scheduled_screening_query (rssq)
+		// poomax_query (poomaxq)
+		// smgmax_query (smgmaxq)
+		// ss_intake_query (ssiq)
+		// next_resource_check_in_scheduled_message_group_query (nrcismgq)
+
+		/*
+
+			next_scheduled_outreach_query AS (
+					-- Pick the next active scheduled outreach for each patient order
+				select * from (
+					select
+						poso.patient_order_id,
+						poso.patient_order_scheduled_outreach_id as next_scheduled_outreach_id,
+						poso.scheduled_at_date_time as next_scheduled_outreach_scheduled_at_date_time,
+							poso.patient_order_outreach_type_id as next_scheduled_outreach_type_id,
+							poso.patient_order_scheduled_outreach_reason_id as next_scheduled_outreach_reason_id,
+						rank() OVER (PARTITION BY poso.patient_order_id ORDER BY poso.scheduled_at_date_time, poso.patient_order_scheduled_outreach_id) as ranked_value
+					from
+						patient_order poq, patient_order_scheduled_outreach poso
+						where poq.patient_order_id = poso.patient_order_id
+							and poso.patient_order_scheduled_outreach_status_id = 'SCHEDULED'
+				) subquery where ranked_value=1
+			)
+
+		 */
+
+		throw new UnsupportedOperationException();
+	}
+
+	public void refreshPatientOrderMostRecentMessageDeliveredComputedFields(@Nonnull UUID patientOrderId) {
+		requireNonNull(patientOrderId);
+
+		// Query:
+		// most_recent_message_delivered_query (mrmdq)
+
+		// Use in computed fields:
+		// mrmdq.most_recent_message_delivered_at
+		// (...) last_contacted_at
+
+		// Computed fields depend on:
+		// poomax_query (poomaxq)
+		// ss_query (ssq)
+
+	/*
+
+			most_recent_message_delivered_query AS (
+					-- Pick the message that has been most recently delivered to the patient
+				select * from (
+					select
+						posmg.patient_order_id,
+						ml.delivered as most_recent_message_delivered_at,
+						rank() OVER (PARTITION BY posmg.patient_order_id ORDER BY ml.delivered DESC) as ranked_value
+					from
+						patient_order poq, patient_order_scheduled_message_group posmg, patient_order_scheduled_message posm, scheduled_message sm, message_log ml
+						where poq.patient_order_id = posmg.patient_order_id
+						and posmg.patient_order_scheduled_message_group_id=posm.patient_order_scheduled_message_group_id
+							and posm.scheduled_message_id=sm.scheduled_message_id
+							and sm.message_id=ml.message_id
+							and ml.message_status_id='DELIVERED'
+				) subquery where ranked_value=1
+			)
+
+	 */
+
+		throw new UnsupportedOperationException();
+	}
+
+	public void refreshPatientOrderScreeningSessionComputedFields(@Nonnull UUID patientOrderId) {
+		requireNonNull(patientOrderId);
+
+		// Query:
+		// ss_query (ssq)
+
+		// Use in computed fields:
+		// ssq.screening_session_id AS most_recent_screening_session_id
+		// ssq.created AS most_recent_screening_session_created_at
+		// ssq.created_by_account_id AS most_recent_screening_session_created_by_account_id
+		// ssq.role_id AS most_recent_screening_session_created_by_account_role_id
+		// ssq.first_name AS most_recent_screening_session_created_by_account_first_name
+		// ssq.last_name AS most_recent_screening_session_created_by_account_last_name
+		// ssq.completed AS most_recent_screening_session_completed
+		// ssq.completed_at AS most_recent_screening_session_completed_at
+		// (...) patient_order_screening_status_id
+		// (...) patient_order_screening_status_description
+		// (...) most_recent_screening_session_by_patient
+		// (...) most_recent_screening_session_appears_abandoned
+		// (...) patient_order_encounter_documentation_status_id
+		// (...) most_recent_intake_and_clinical_screenings_satisfied
+		// (...) outreach_followup_needed
+		// (...) last_contacted_at
+		// (...) next_contact_type_id
+		// (...) next_contact_scheduled_at
+
+		// Computed fields depend on:
+		// recent_scheduled_screening_query (rssq)
+		// ss_intake_query (ssiq)
+		// poo_query (pooq)
+		// smg_query (smgq)
+		// poomax_query (poomaxq)
+		// smgmax_query (smgmaxq)
+		// most_recent_message_delivered_query (mrmdq)
+		// next_resource_check_in_scheduled_message_group_query (nrcismgq)
+
+		/*
+
+			ss_query AS (
+					-- Pick the most recently-created clinical screening session for the patient order
+				select * from (
+					select
+						ss.*,
+						a.first_name,
+						a.last_name,
+						a.role_id,
+						rank() OVER (PARTITION BY ss.patient_order_id ORDER BY ss.created DESC) as ranked_value
+					from
+						patient_order poq, screening_session ss, account a, institution i, screening_flow_version sfv
+						where poq.patient_order_id = ss.patient_order_id
+						and i.integrated_care_screening_flow_id=sfv.screening_flow_id
+						and sfv.screening_flow_version_id =ss.screening_flow_version_id
+						and ss.created_by_account_id =a.account_id
+						and i.institution_id = a.institution_id
+				) subquery where ranked_value=1
+			)
+
+		 */
+
+		// Query:
+		// ss_intake_query (ssiq)
+
+		// Use in computed fields:
+		// TODO
+
+		// Computed fields depend on:
+		// TODO
+
+		/*
+
+				ss_intake_query AS (
+						-- Pick the most recently-created intake screening session for the patient order
+					select * from (
+						select
+							ss.*,
+							a.first_name,
+							a.last_name,
+							a.role_id,
+							rank() OVER (PARTITION BY ss.patient_order_id ORDER BY ss.created DESC) as ranked_value
+						from
+							patient_order poq, screening_session ss, account a, institution i, screening_flow_version sfv
+							where poq.patient_order_id = ss.patient_order_id
+							and i.integrated_care_intake_screening_flow_id=sfv.screening_flow_id
+							and sfv.screening_flow_version_id =ss.screening_flow_version_id
+							and ss.created_by_account_id =a.account_id
+							and i.institution_id = a.institution_id
+					) subquery where ranked_value=1
+				)
+
+		 */
+	}
 
 	@Nonnull
 	protected PatientOrderService getPatientOrderService() {

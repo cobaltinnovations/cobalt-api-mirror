@@ -1,14 +1,14 @@
 BEGIN;
 SELECT _v.register_patch('196-patient-order-view-perf', NULL, NULL);
 
+-- We introduce new 'computed_*' columns to the patient_order table.
+-- We introduce new v_all_patient_order_v2 and v_patient_order_v2 views that rely on the computed columns.
+-- After verifying the _v2 views, we will cut over to them.
+
 -- TODO: add computed columns to patient_order table
 
--- With these new columns, we need to recreate our patient order views.
-drop view v_patient_order;
-drop view v_all_patient_order;
-
--- TODO: document changes for removing runtime computation and adding computed columns
-CREATE OR REPLACE VIEW v_all_patient_order AS WITH
+-- TODO: configure this view to use new computed columns
+CREATE VIEW v_all_patient_order_v2 AS WITH
 poo_query AS (
     -- Count up the patient outreach attempts for each patient order
     select
@@ -531,8 +531,8 @@ from
     left outer join next_resource_check_in_scheduled_message_group_query nrcismgq on poq.patient_order_id=nrcismgq.patient_order_id
     left outer join patient_order_scheduled_message_group posmg ON poq.resource_check_in_scheduled_message_group_id=posmg.patient_order_scheduled_message_group_id AND posmg.deleted = FALSE;
 
-CREATE or replace VIEW v_patient_order AS
-SELECT * FROM v_all_patient_order
+CREATE VIEW v_patient_order_v2 AS
+SELECT * FROM v_all_patient_order_v2
 WHERE patient_order_disposition_id != 'ARCHIVED';
 
 COMMIT;
