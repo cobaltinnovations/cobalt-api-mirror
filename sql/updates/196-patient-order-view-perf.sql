@@ -1,5 +1,5 @@
 BEGIN;
-SELECT _v.register_patch('195-patient-order-view-perf', NULL, NULL);
+SELECT _v.register_patch('196-patient-order-view-perf', NULL, NULL);
 
 -- TODO: add computed columns to patient_order table
 
