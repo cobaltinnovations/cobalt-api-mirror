@@ -81,10 +81,10 @@ public class PatientOrderComputedFieldService {
 		// XXX left outer join next_scheduled_outreach_query nsoq ON poq.patient_order_id=nsoq.patient_order_id
 		// XXX left outer join most_recent_message_delivered_query mrmdq on poq.patient_order_id=mrmdq.patient_order_id
 		// XXX left outer join ss_query ssq ON poq.patient_order_id = ssq.patient_order_id
-		// left outer join ss_intake_query ssiq ON poq.patient_order_id = ssiq.patient_order_id
-		// left join permitted_regions_query prq ON poq.institution_id = prq.institution_id
-		// left outer join recent_scheduled_screening_query rssq ON poq.patient_order_id = rssq.patient_order_id
-		// left outer join recent_po_query rpq ON poq.patient_order_id = rpq.patient_order_id
+		// XXX left outer join ss_intake_query ssiq ON poq.patient_order_id = ssiq.patient_order_id
+		// (not computing this one) left join permitted_regions_query prq ON poq.institution_id = prq.institution_id
+		// XXX left outer join recent_scheduled_screening_query rssq ON poq.patient_order_id = rssq.patient_order_id
+		// XXX left outer join recent_po_query rpq ON poq.patient_order_id = rpq.patient_order_id
 
 		// poo_query (pooq)
 		// poomax_query (poomaxq)
@@ -114,9 +114,11 @@ public class PatientOrderComputedFieldService {
 		// ss_intake_query (ssiq)
 		refreshPatientOrderScreeningSessionComputedFields(patientOrderId);
 
-		// TODO: other calls
+		// recent_scheduled_screening_query (rssq)
+		refreshPatientOrderScheduledScreeningComputedFields(patientOrderId);
 
-		throw new UnsupportedOperationException();
+		// recent_po_query (rpq)
+		refreshPatientOrderRecentPatientOrderComputedFields(patientOrderId);
 	}
 
 	public void refreshPatientOrderOutreachCountComputedFields(@Nonnull UUID patientOrderId) {
@@ -593,10 +595,27 @@ public class PatientOrderComputedFieldService {
 		// ss_intake_query (ssiq)
 
 		// Use in computed fields:
-		// TODO
+		// ssiq.screening_session_id AS most_recent_intake_screening_session_id
+		// ssiq.created AS most_recent_intake_screening_session_created_at
+		// ssiq.created_by_account_id AS most_recent_intake_screening_session_created_by_account_id
+		// ssiq.role_id AS most_recent_intake_screening_session_created_by_account_role_id
+		// ssiq.first_name AS most_recent_intake_screening_session_created_by_account_fn
+		// ssiq.last_name AS most_recent_intake_screening_session_created_by_account_ln
+		// ssiq.completed AS most_recent_intake_screening_session_completed
+		// ssiq.completed_at AS most_recent_intake_screening_session_completed_at
+		// (...) patient_order_intake_screening_status_id
+		// (...) most_recent_intake_screening_session_by_patient
+		// (...) most_recent_intake_screening_session_appears_abandoned
+		// (...) most_recent_intake_and_clinical_screenings_satisfied
+		// (...) next_contact_type_id
+		// (...) next_contact_scheduled_at
 
 		// Computed fields depend on:
-		// TODO
+		// ss_query (ssq)
+		// recent_scheduled_screening_query (rssq)
+		// next_scheduled_outreach_query (nsoq)
+		// poomax_query (poomaxq)
+		// smgmax_query (smgmaxq)
 
 		/*
 
@@ -620,6 +639,81 @@ public class PatientOrderComputedFieldService {
 				)
 
 		 */
+
+		throw new UnsupportedOperationException();
+	}
+
+	public void refreshPatientOrderScheduledScreeningComputedFields(@Nonnull UUID patientOrderId) {
+		requireNonNull(patientOrderId);
+
+		// Query:
+		// recent_scheduled_screening_query (rssq)
+
+		// Use in computed fields:
+		// (...) patient_order_screening_status_id
+		// (...) patient_order_screening_status_description
+		// rssq.patient_order_scheduled_screening_id
+		// rssq.scheduled_date_time AS patient_order_scheduled_screening_scheduled_date_time
+		// rssq.calendar_url AS patient_order_scheduled_screening_calendar_url
+		// (...) outreach_followup_needed
+		// (...) next_contact_type_id
+		// (...) next_contact_scheduled_at
+
+		// Computed fields depend on:
+		// ss_query (ssq)
+		// poo_query (pooq)
+		// smg_query (smgq)
+		// poomax_query (poomaxq)
+		// smgmax_query (smgmaxq)
+		// next_scheduled_outreach_query (nsoq)
+		// ss_intake_query (ssiq)
+
+		/*
+			recent_scheduled_screening_query AS (
+					-- Pick the most recently-scheduled screening for the patient order
+				select * from (
+					select
+						poss.*,
+						rank() OVER (PARTITION BY poss.patient_order_id ORDER BY poss.scheduled_date_time) as ranked_value
+					from
+						patient_order poq, patient_order_scheduled_screening poss
+						where poq.patient_order_id = poss.patient_order_id
+						and poss.canceled=FALSE
+				) subquery where ranked_value=1
+			)
+		 */
+
+		throw new UnsupportedOperationException();
+	}
+
+	public void refreshPatientOrderRecentPatientOrderComputedFields(@Nonnull UUID patientOrderId) {
+		requireNonNull(patientOrderId);
+
+		// Query:
+		// recent_po_query (rpq)
+
+		// Use in computed fields:
+		// rpq.most_recent_episode_closed_at
+		// DATE_PART('day', NOW() - rpq.most_recent_episode_closed_at)::INT < 30 AS most_recent_episode_closed_within_date_threshold
+
+		// Computed fields depend on:
+		// (none)
+
+		/*
+
+				recent_po_query AS (
+						-- Get the last order based on the order date for this patient
+						select
+								poq.patient_order_id,
+								lag(poq.episode_closed_at, 1) OVER
+									 (PARTITION BY  patient_mrn ORDER BY poq.order_date) as most_recent_episode_closed_at
+						from
+								patient_order poq
+				)
+
+		 */
+
+		throw new UnsupportedOperationException();
 	}
 
 	@Nonnull
