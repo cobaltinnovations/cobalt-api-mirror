@@ -86,6 +86,96 @@ public class PatientOrderComputedFieldService {
 		// XXX left outer join recent_scheduled_screening_query rssq ON poq.patient_order_id = rssq.patient_order_id
 		// XXX left outer join recent_po_query rpq ON poq.patient_order_id = rpq.patient_order_id
 
+		// GraphViz representation of dependencies for computed fields
+		//
+		// dot -Gstart=5 -Tsvg -Kneato test.dot > test.svg
+		//
+		//		digraph {
+		//			overlap=false; // scalexy, compress, ...
+		//			sep="0.1"; // 0.1, +1
+		//			splines = true;
+		//
+		//			outreach_count -> pooq
+		//			total_outreach_count -> pooq
+		//			total_outreach_count -> smgq
+		//			outreach_followup_needed -> pooq
+		//			outreach_followup_needed -> ssq
+		//			outreach_followup_needed -> rssq
+		//			outreach_followup_needed -> smgq
+		//			outreach_followup_needed -> poomaxq
+		//			outreach_followup_needed -> smgmaxq
+		//			most_recent_outreach_date_time -> poomaxq
+		//			most_recent_total_outreach_date_time -> poomaxq
+		//			most_recent_total_outreach_date_time -> smgmaxq
+		//			last_contacted_at -> mrmdq
+		//			last_contacted_at -> poomaxq
+		//			last_contacted_at -> ssq
+		//			next_contact_type_id -> ssq
+		//			next_contact_type_id -> rssq
+		//			next_contact_type_id -> nsoq
+		//			next_contact_type_id -> poomaxq
+		//			next_contact_type_id -> smgmaxq
+		//			next_contact_type_id -> ssiq
+		//			next_contact_type_id -> nrcismgq
+		//			next_contact_scheduled_at -> ssq
+		//			next_contact_scheduled_at -> rssq
+		//			next_contact_scheduled_at -> nsoq
+		//			next_contact_scheduled_at -> poomaxq
+		//			next_contact_scheduled_at -> smgmaxq
+		//			next_contact_scheduled_at -> ssiq
+		//			next_contact_scheduled_at -> nrcismgq
+		//			reason_for_referral -> rfrq
+		//			scheduled_message_group_delivered_count -> smgq
+		//			most_recent_delivered_scheduled_message_group_date_time -> smgmaxq
+		//			appointment_start_time -> naq
+		//			provider_id -> naq
+		//			provider_name -> naq
+		//			appointment_id -> naq
+		//			appointment_scheduled -> naq
+		//			appointment_scheduled_by_patient -> naq
+		//			most_recent_patient_order_voicemail_task_id -> rvtq
+		//			most_recent_patient_order_voicemail_task_completed -> rvtq
+		//			next_scheduled_outreach_id -> nsoq
+		//			next_scheduled_outreach_scheduled_at_date_time -> nsoq
+		//			next_scheduled_outreach_type_id -> nsoq
+		//			next_scheduled_outreach_reason_id -> nsoq
+		//			most_recent_message_delivered_at -> mrmdq
+		//			most_recent_screening_session_id -> ssq
+		//			most_recent_screening_session_created_at -> ssq
+		//			most_recent_screening_session_created_by_account_id -> ssq
+		//			most_recent_screening_session_created_by_account_role_id -> ssq
+		//			most_recent_screening_session_created_by_account_first_name -> ssq
+		//			most_recent_screening_session_created_by_account_last_name -> ssq
+		//			most_recent_screening_session_completed -> ssq
+		//			most_recent_screening_session_completed_at -> ssq
+		//			patient_order_screening_status_id -> ssq
+		//			patient_order_screening_status_id -> rssq
+		//			patient_order_screening_status_description -> ssq
+		//			patient_order_screening_status_description -> rssq
+		//			most_recent_screening_session_by_patient -> ssq
+		//			most_recent_screening_session_appears_abandoned -> ssq
+		//			patient_order_encounter_documentation_status_id -> ssq
+		//			most_recent_intake_and_clinical_screenings_satisfied -> ssiq
+		//			most_recent_intake_and_clinical_screenings_satisfied -> ssq
+		//			most_recent_intake_screening_session_id -> ssiq
+		//			most_recent_intake_screening_session_created_at -> ssiq
+		//			most_recent_intake_screening_session_created_by_account_id -> ssiq
+		//			most_recent_intake_screening_session_created_by_account_role_id -> ssiq
+		//			most_recent_intake_screening_session_created_by_account_fn -> ssiq
+		//			most_recent_intake_screening_session_created_by_account_ln -> ssiq
+		//			most_recent_intake_screening_session_completed -> ssiq
+		//			most_recent_intake_screening_session_completed_at -> ssiq
+		//			patient_order_intake_screening_status_id -> ssiq
+		//			patient_order_intake_screening_status_description -> ssiq
+		//			most_recent_intake_screening_session_by_patient -> ssiq
+		//			most_recent_intake_screening_session_appears_abandoned -> ssiq
+		//			patient_order_scheduled_screening_id -> rssq
+		//			patient_order_scheduled_screening_scheduled_date_time -> rssq
+		//			patient_order_scheduled_screening_calendar_url -> rssq
+		//			most_recent_episode_closed_at -> rpq
+		//			most_recent_episode_closed_within_date_threshold -> rpq
+		//		}
+
 		// poo_query (pooq)
 		// poomax_query (poomaxq)
 		refreshPatientOrderOutreachCountComputedFields(patientOrderId);
