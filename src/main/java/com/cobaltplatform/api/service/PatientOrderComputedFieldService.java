@@ -88,7 +88,7 @@ public class PatientOrderComputedFieldService {
 
 		// GraphViz representation of dependencies for computed fields
 		//
-		// dot -Gstart=5 -Tsvg -Kneato test.dot > test.svg
+		// dot -Tsvg -Kfdp test.dot > test.svg
 		//
 		//		digraph {
 		//			overlap=false; // scalexy, compress, ...

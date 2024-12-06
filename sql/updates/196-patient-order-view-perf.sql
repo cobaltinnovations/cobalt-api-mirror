@@ -5,7 +5,61 @@ SELECT _v.register_patch('196-patient-order-view-perf', NULL, NULL);
 -- We introduce new v_all_patient_order_v2 and v_patient_order_v2 views that rely on the computed columns.
 -- After verifying the _v2 views, we will cut over to them.
 
--- TODO: add computed columns to patient_order table
+ALTER TABLE patient_order ADD COLUMN computed_appointment_id UUID REFERENCES appointment(appointment_id);
+ALTER TABLE patient_order ADD COLUMN computed_appointment_scheduled BOOLEAN;
+ALTER TABLE patient_order ADD COLUMN computed_appointment_scheduled_by_patient BOOLEAN;
+ALTER TABLE patient_order ADD COLUMN computed_appointment_start_time TIMESTAMP WITHOUT TIME ZONE;
+ALTER TABLE patient_order ADD COLUMN computed_last_contacted_at TIMESTAMP WITH TIME ZONE;
+ALTER TABLE patient_order ADD COLUMN computed_most_recent_delivered_sm_group_date_time TIMESTAMP WITHOUT TIME ZONE; -- Maps to most_recent_delivered_scheduled_message_group_date_time
+ALTER TABLE patient_order ADD COLUMN computed_most_recent_episode_closed_at TIMESTAMP WITH TIME ZONE;
+ALTER TABLE patient_order ADD COLUMN computed_most_recent_episode_closed_within_date_threshold BOOLEAN;
+ALTER TABLE patient_order ADD COLUMN computed_most_recent_intake_and_cl_screenings_satisfied BOOLEAN; -- Maps to most_recent_intake_and_clinical_screenings_satisfied
+ALTER TABLE patient_order ADD COLUMN computed_most_recent_intake_ss_appears_abandoned BOOLEAN; -- Maps to most_recent_intake_screening_session_appears_abandoned
+ALTER TABLE patient_order ADD COLUMN computed_most_recent_intake_ss_by_patient BOOLEAN; -- Maps to most_recent_intake_screening_session_by_patient
+ALTER TABLE patient_order ADD COLUMN computed_most_recent_intake_ss_completed BOOLEAN; -- Maps to most_recent_intake_screening_session_completed
+ALTER TABLE patient_order ADD COLUMN computed_most_recent_intake_ss_completed_at TIMESTAMP WITH TIME ZONE; -- Maps to most_recent_intake_screening_session_completed_at
+ALTER TABLE patient_order ADD COLUMN computed_most_recent_intake_ss_created_at TIMESTAMP WITH TIME ZONE; -- Maps to most_recent_intake_screening_session_created_at
+ALTER TABLE patient_order ADD COLUMN computed_most_recent_intake_ss_created_by_account_fn TEXT; -- Maps to most_recent_intake_screening_session_created_by_account_fn
+ALTER TABLE patient_order ADD COLUMN computed_most_recent_intake_ss_created_by_account_id UUID; -- Maps to most_recent_intake_screening_session_created_by_account_id
+ALTER TABLE patient_order ADD COLUMN computed_most_recent_intake_ss_created_by_account_ln TEXT; -- Maps to most_recent_intake_screening_session_created_by_account_ln
+ALTER TABLE patient_order ADD COLUMN computed_most_recent_intake_ss_created_by_account_role_id TEXT; -- Maps to most_recent_intake_screening_session_created_by_account_role_id
+ALTER TABLE patient_order ADD COLUMN computed_most_recent_intake_ss_id UUID REFERENCES screening_session(screening_session_id); -- Maps to most_recent_intake_screening_session_id
+ALTER TABLE patient_order ADD COLUMN computed_most_recent_message_delivered_at TIMESTAMP WITH TIME ZONE;
+ALTER TABLE patient_order ADD COLUMN computed_most_recent_outreach_date_time TIMESTAMP WITHOUT TIME ZONE;
+ALTER TABLE patient_order ADD COLUMN computed_most_recent_povt_completed BOOLEAN; -- Maps to most_recent_patient_order_voicemail_task_completed
+ALTER TABLE patient_order ADD COLUMN computed_most_recent_povt_id UUID REFERENCES patient_order_voicemail_task(patient_order_voicemail_task_id); -- Maps to most_recent_patient_order_voicemail_task_id
+ALTER TABLE patient_order ADD COLUMN computed_most_recent_ss_appears_abandoned BOOLEAN; -- Maps to most_recent_screening_session_appears_abandoned
+ALTER TABLE patient_order ADD COLUMN computed_most_recent_ss_by_patient BOOLEAN; -- Maps to most_recent_screening_session_by_patient
+ALTER TABLE patient_order ADD COLUMN computed_most_recent_ss_completed BOOLEAN; -- Maps to most_recent_screening_session_completed
+ALTER TABLE patient_order ADD COLUMN computed_most_recent_ss_completed_at TIMESTAMP WITH TIME ZONE; -- Maps to most_recent_screening_session_completed_at
+ALTER TABLE patient_order ADD COLUMN computed_most_recent_ss_created_at TIMESTAMP WITH TIME ZONE; -- Maps to most_recent_screening_session_created_at
+ALTER TABLE patient_order ADD COLUMN computed_most_recent_ss_created_by_account_first_name TEXT; -- Maps to most_recent_screening_session_created_by_account_first_name
+ALTER TABLE patient_order ADD COLUMN computed_most_recent_ss_created_by_account_id UUID REFERENCES account(account_id); -- Maps to most_recent_screening_session_created_by_account_id
+ALTER TABLE patient_order ADD COLUMN computed_most_recent_ss_created_by_account_last_name TEXT; -- Maps to most_recent_screening_session_created_by_account_last_name
+ALTER TABLE patient_order ADD COLUMN computed_most_recent_ss_created_by_account_role_id TEXT REFERENCES role(role_id); -- Maps to most_recent_screening_session_created_by_account_role_id
+ALTER TABLE patient_order ADD COLUMN computed_most_recent_ss_id UUID REFERENCES screening_session(screening_session_id); -- Maps to most_recent_screening_session_id
+ALTER TABLE patient_order ADD COLUMN computed_most_recent_total_outreach_date_time TIMESTAMP WITHOUT TIME ZONE;
+ALTER TABLE patient_order ADD COLUMN computed_next_contact_scheduled_at TIMESTAMP WITHOUT TIME ZONE;
+ALTER TABLE patient_order ADD COLUMN computed_next_contact_type_id TEXT;
+ALTER TABLE patient_order ADD COLUMN computed_next_scheduled_outreach_id UUID REFERENCES patient_order_scheduled_outreach(patient_order_scheduled_outreach_id);
+ALTER TABLE patient_order ADD COLUMN computed_next_scheduled_outreach_reason_id TEXT REFERENCES patient_order_scheduled_outreach_reason(patient_order_scheduled_outreach_reason_id);
+ALTER TABLE patient_order ADD COLUMN computed_next_scheduled_outreach_scheduled_at_date_time TIMESTAMP WITHOUT TIME ZONE;
+ALTER TABLE patient_order ADD COLUMN computed_next_scheduled_outreach_type_id TEXT REFERENCES patient_order_outreach_type(patient_order_outreach_type_id);
+ALTER TABLE patient_order ADD COLUMN computed_outreach_count BIGINT;
+ALTER TABLE patient_order ADD COLUMN computed_outreach_followup_needed BOOLEAN;
+ALTER TABLE patient_order ADD COLUMN computed_patient_order_encounter_documentation_status_id TEXT;
+ALTER TABLE patient_order ADD COLUMN computed_patient_order_intake_screening_status_description TEXT;
+ALTER TABLE patient_order ADD COLUMN computed_patient_order_intake_screening_status_id TEXT REFERENCES patient_order_screening_status(patient_order_screening_status_id);
+ALTER TABLE patient_order ADD COLUMN computed_patient_order_scheduled_screening_calendar_url TEXT;
+ALTER TABLE patient_order ADD COLUMN computed_patient_order_scheduled_scr_id UUID REFERENCES patient_order_scheduled_screening(patient_order_scheduled_screening_id); -- Maps to patient_order_scheduled_screening_id
+ALTER TABLE patient_order ADD COLUMN computed_patient_order_scheduled_scr_scheduled_date_time TIMESTAMP WITHOUT TIME ZONE; -- Maps to patient_order_scheduled_screening_scheduled_date_time
+ALTER TABLE patient_order ADD COLUMN computed_patient_order_screening_status_description TEXT;
+ALTER TABLE patient_order ADD COLUMN computed_patient_order_screening_status_id TEXT REFERENCES patient_order_screening_status(patient_order_screening_status_id);
+ALTER TABLE patient_order ADD COLUMN computed_provider_id UUID REFERENCES provider(provider_id);
+ALTER TABLE patient_order ADD COLUMN computed_provider_name TEXT;
+ALTER TABLE patient_order ADD COLUMN computed_reason_for_referral TEXT;
+ALTER TABLE patient_order ADD COLUMN computed_scheduled_message_group_delivered_count BIGINT;
+ALTER TABLE patient_order ADD COLUMN computed_total_outreach_count BIGINT;
 
 -- TODO: configure this view to use new computed columns
 CREATE VIEW v_all_patient_order_v2 AS WITH
