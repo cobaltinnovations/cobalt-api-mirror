@@ -19,6 +19,7 @@
 
 package com.cobaltplatform.api.service;
 
+import com.cobaltplatform.api.model.db.MessageStatus.MessageStatusId;
 import com.cobaltplatform.api.util.db.DatabaseProvider;
 import com.lokalized.Strings;
 import com.pyranid.Database;
@@ -30,6 +31,7 @@ import javax.annotation.concurrent.ThreadSafe;
 import javax.inject.Inject;
 import javax.inject.Provider;
 import javax.inject.Singleton;
+import java.time.LocalDateTime;
 import java.util.UUID;
 
 import static java.util.Objects.requireNonNull;
@@ -229,6 +231,14 @@ public class PatientOrderComputedFieldService {
 		// smg_query (smgq)
 		// smgmax_query (smgmaxq)
 
+		// Performs poo_query logic
+		Integer outreachCount = getDatabase().queryForObject("""
+				SELECT count(*)
+				FROM patient_order_outreach
+				WHERE patient_order_id=?
+				AND deleted=FALSE
+				""", Integer.class, patientOrderId).get();
+
 		/*
 
 			poo_query AS (
@@ -263,6 +273,14 @@ public class PatientOrderComputedFieldService {
 		// smg_query (smgq)
 		// smgmax_query (smgmaxq)
 
+		// Performs poomax_query logic
+		LocalDateTime maxOutreachDateTime = getDatabase().queryForObject("""
+				SELECT MAX(outreach_date_time) as max_outreach_date_time
+				FROM patient_order_outreach
+				WHERE patient_order_id=?
+				AND deleted=FALSE
+				""", LocalDateTime.class, patientOrderId).orElse(null);
+
 		/*
 
 			poomax_query AS (
@@ -294,6 +312,14 @@ public class PatientOrderComputedFieldService {
 
 		// Computed fields depend on:
 		// (none)
+
+		// Performs reason_for_referral_query logic
+		String reasonForReferral = getDatabase().queryForObject("""
+				SELECT string_agg(porr.description, ', ' order by por.display_order) AS reason_for_referral
+				FROM patient_order_referral_reason porr, patient_order_referral por
+				WHERE por.patient_order_id=?
+				AND por.patient_order_referral_reason_id=porr.patient_order_referral_reason_id
+				""", String.class, patientOrderId).orElse(null);
 
 		/*
 
@@ -335,6 +361,36 @@ public class PatientOrderComputedFieldService {
 		// smg_query (smgq)
 		// smgmax_query (smgmaxq)
 		// poomax_query (poomaxq)
+
+		// Performs smg_query logic
+		Integer scheduledMessageGroupDeliveredCount = getDatabase().queryForObject("""
+				SELECT COUNT(DISTINCT posmg.patient_order_scheduled_message_group_id) AS scheduled_message_group_delivered_count
+				FROM patient_order_scheduled_message_group posmg, patient_order_scheduled_message posm, scheduled_message sm, message_log ml
+				WHERE posmg.patient_order_scheduled_message_group_id = posm.patient_order_scheduled_message_group_id
+				AND posm.scheduled_message_id = sm.scheduled_message_id
+				AND sm.message_id = ml.message_id
+				AND posmg.patient_order_id=?
+				AND posmg.deleted = FALSE
+				AND ml.message_status_id=?
+				""", Integer.class, patientOrderId, MessageStatusId.DELIVERED).get();
+
+		/* Inefficient - prefer the above
+		// Performs smg_query logic
+		Integer scheduledMessageGroupDeliveredCount = getDatabase().queryForObject("""
+				SELECT COUNT(posmg.*) AS scheduled_message_group_delivered_count
+				FROM patient_order_scheduled_message_group posmg
+				WHERE posmg.patient_order_id=?
+				AND posmg.deleted=FALSE
+				AND EXISTS (
+					SELECT ml.message_id
+					FROM patient_order_scheduled_message posm, scheduled_message sm, message_log ml
+					WHERE posmg.patient_order_scheduled_message_group_id = posm.patient_order_scheduled_message_group_id
+					AND posm.scheduled_message_id=sm.scheduled_message_id
+					AND sm.message_id=ml.message_id
+					AND ml.message_status_id='DELIVERED'
+				)
+				""", Integer.class, patientOrderId).orElse(0);
+*/
 
 		/*
 
