@@ -25,6 +25,7 @@ import com.cobaltplatform.api.cache.DistributedCache;
 import com.cobaltplatform.api.context.CurrentContext;
 import com.cobaltplatform.api.error.ErrorReporter;
 import com.cobaltplatform.api.messaging.email.EmailMessage;
+import com.cobaltplatform.api.messaging.email.EmailMessageContextKey;
 import com.cobaltplatform.api.messaging.email.EmailMessageTemplate;
 import com.cobaltplatform.api.model.api.request.AccountRoleRequest;
 import com.cobaltplatform.api.model.api.request.ApplyAccountEmailVerificationCodeRequest;
@@ -459,9 +460,9 @@ public class AccountService {
 				.messageContext(new HashMap<String, Object>() {{
 					put("verificationUrl", getLinkGenerator().generateAccountInviteLink(institution.getInstitutionId(),
 							userExperienceTypeId, ClientDeviceTypeId.WEB_BROWSER, accountInvite.getAccountInviteCode()));
+					put(EmailMessageContextKey.OVERRIDE_PLATFORM_NAME.name(), institution.getName());
 				}})
 				.build();
-
 		getMessageService().enqueueMessage(verificationEmail);
 	}
 
@@ -973,6 +974,8 @@ public class AccountService {
 			getDatabase().execute("INSERT INTO password_reset_request (account_id, password_reset_token, expiration_timestamp) VALUES (?, ?, ?)",
 					account.get().getAccountId(), passwordResetToken, expirationTimestamp);
 
+			Institution institution = getInstitutionService().findInstitutionById(institutionId).get();
+
 			EmailMessage passwordResetEmail = new EmailMessage.Builder(
 					account.get().getInstitutionId(), EmailMessageTemplate.PASSWORD_RESET, account.get().getLocale())
 					.toAddresses(new ArrayList<>() {{
@@ -981,6 +984,7 @@ public class AccountService {
 					.messageContext(new HashMap<String, Object>() {{
 						put("passwordResetLink", getLinkGenerator().generatePasswordResetLink(account.get().getInstitutionId(),
 								userExperienceTypeId, ClientDeviceTypeId.WEB_BROWSER, passwordResetToken));
+						put(EmailMessageContextKey.OVERRIDE_PLATFORM_NAME.name(), institution.getName());
 					}})
 					.build();
 
