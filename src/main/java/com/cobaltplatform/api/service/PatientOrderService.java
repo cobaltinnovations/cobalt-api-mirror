@@ -6213,12 +6213,10 @@ public class PatientOrderService implements AutoCloseable {
 		}
 
 		if (request.isShouldUpdatePatientEmailAddress()) {
-			if (patientEmailAddress == null)
-				validationException.add(new FieldError("patientEmailAddress", getStrings().get("Email address is required.")));
-			else if (!isValidEmailAddress(patientEmailAddress))
+			if (patientEmailAddress != null && !isValidEmailAddress(patientEmailAddress))
 				validationException.add(new FieldError("patientEmailAddress", getStrings().get("Email address is invalid.")));
 			else
-				columnNamesAndValues.add(Pair.of("patient_email_address", getNormalizer().normalizeEmailAddress(patientEmailAddress).get()));
+				columnNamesAndValues.add(Pair.of("patient_email_address", patientEmailAddress));
 		}
 
 		if (request.isShouldUpdatePatientPhoneNumber()) {
