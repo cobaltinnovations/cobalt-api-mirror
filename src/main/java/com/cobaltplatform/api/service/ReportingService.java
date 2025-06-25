@@ -1003,6 +1003,8 @@ public class ReportingService {
 		IcWhereClauseWithParameters whereClauseWithParameters = buildIcWhereClauseWithParameters(institutionId, startDateTime, endDateTime, payorName, referringPracticeIds, patientAgeFrom,
 				patientAgeTo, raceId, genderIdentityId, Optional.empty());
 
+		getLogger().debug("whereClauseWithParameters = " + whereClauseWithParameters.getWhereClause());
+
 		//All patient orders matching the report filters
 		List<PatientOrder> patientOrders = getDatabase().queryForList(
 				format("SELECT * FROM v_all_patient_order %s", whereClauseWithParameters.getWhereClause()), PatientOrder.class, whereClauseWithParameters.getParameters().toArray());
@@ -1240,15 +1242,18 @@ public class ReportingService {
 				  po.patient_first_name,
 				  po.patient_last_name,
 				  po.most_recent_intake_screening_session_created_by_account_role_id as assessments_performed_by,
+				  a.display_name as assessments_performed_by_name,
 				  po.most_recent_intake_screening_session_created_at as intake_assessment_started_at,
 				  po.most_recent_intake_screening_session_completed_at as intake_assessment_completed_at,
 				  po.most_recent_screening_session_created_at as clinical_assessment_started_at,
 				  po.most_recent_screening_session_completed_at as clinical_assessment_completed_at,
 				  po.patient_order_triage_status_id as triage
 				FROM
-				  v_all_patient_order po
+				  v_all_patient_order po,
+				  account a
 				WHERE
 				  po.institution_id=?
+				  AND most_recent_intake_screening_session_created_by_account_id = a.account_id
 				  AND po.most_recent_intake_and_clinical_screenings_satisfied=TRUE
 				  AND po.most_recent_intake_screening_session_created_at >= ?
 				  AND po.most_recent_intake_screening_session_created_at <= ?
@@ -1270,6 +1275,7 @@ public class ReportingService {
 					getStrings().get("Patient First Name"),
 					getStrings().get("Patient Last Name"),
 					getStrings().get("Assessments Performed By"),
+					getStrings().get("Assessments Performed By Name"),
 					getStrings().get("Intake Assessment Started At"),
 					getStrings().get("Intake Assessment Completed At"),
 					getStrings().get("Clinical Assessment Started At"),
@@ -1285,6 +1291,7 @@ public class ReportingService {
 				recordElements.add(record.getPatientFirstName());
 				recordElements.add(record.getPatientLastName());
 				recordElements.add(record.getAssessmentsPerformedBy());
+				recordElements.add(record.getAssessmentsPerformedByName());
 				recordElements.add(record.getIntakeAssessmentStartedAt() == null ? "" : dateTimeFormatter.format(record.getIntakeAssessmentStartedAt()));
 				recordElements.add(record.getIntakeAssessmentCompletedAt() == null ? "" : dateTimeFormatter.format(record.getIntakeAssessmentCompletedAt()));
 				recordElements.add(record.getClinicalAssessmentStartedAt() == null ? "" : dateTimeFormatter.format(record.getClinicalAssessmentStartedAt()));
@@ -1314,6 +1321,8 @@ public class ReportingService {
 		private String patientLastName;
 		@Nullable
 		private String assessmentsPerformedBy;
+		@Nullable
+		private String assessmentsPerformedByName;
 		@Nullable
 		private Instant intakeAssessmentStartedAt;
 		@Nullable
@@ -1422,6 +1431,15 @@ public class ReportingService {
 
 		public void setTriage(@Nullable String triage) {
 			this.triage = triage;
+		}
+
+		@Nullable
+		public String getAssessmentsPerformedByName() {
+			return assessmentsPerformedByName;
+		}
+
+		public void setAssessmentsPerformedByName(@Nullable String assessmentsPerformedByName) {
+			this.assessmentsPerformedByName = assessmentsPerformedByName;
 		}
 	}
 
