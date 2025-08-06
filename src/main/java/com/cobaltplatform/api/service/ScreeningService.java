@@ -42,6 +42,7 @@ import com.cobaltplatform.api.model.db.Account;
 import com.cobaltplatform.api.model.db.AccountCheckIn;
 import com.cobaltplatform.api.model.db.AccountCheckInAction;
 import com.cobaltplatform.api.model.db.AccountSession;
+import com.cobaltplatform.api.model.db.AccountSource;
 import com.cobaltplatform.api.model.db.Assessment;
 import com.cobaltplatform.api.model.db.AssessmentType.AssessmentTypeId;
 import com.cobaltplatform.api.model.db.CheckInActionStatus.CheckInActionStatusId;
@@ -89,6 +90,7 @@ import com.cobaltplatform.api.model.db.ScreeningSessionScreening;
 import com.cobaltplatform.api.model.db.ScreeningType;
 import com.cobaltplatform.api.model.db.ScreeningType.ScreeningTypeId;
 import com.cobaltplatform.api.model.db.ScreeningVersion;
+import com.cobaltplatform.api.model.db.Study;
 import com.cobaltplatform.api.model.db.SupportRole;
 import com.cobaltplatform.api.model.db.SupportRole.SupportRoleId;
 import com.cobaltplatform.api.model.service.ScreeningQuestionContext;
@@ -177,11 +179,11 @@ public class ScreeningService {
 	@Nonnull
 	private final Provider<MessageService> messageServiceProvider;
 	@Nonnull
+	private final Provider<StudyService> studyServiceProvider;
+	@Nonnull
 	private final Provider<CurrentContext> currentContextProvider;
 	@Nonnull
 	private final ScreeningConfirmationPromptApiResponseFactory screeningConfirmationPromptApiResponseFactory;
-	@Nonnull
-	private final StudyService studyService;
 	@Nonnull
 	private final JavascriptExecutor javascriptExecutor;
 	@Nonnull
@@ -208,8 +210,8 @@ public class ScreeningService {
 													@Nonnull Provider<CourseService> courseServiceProvider,
 													@Nonnull Provider<AuthorizationService> authorizationServiceProvider,
 													@Nonnull Provider<MessageService> messageServiceProvider,
+													@Nonnull Provider<StudyService> studyServiceProvider,
 													@Nonnull Provider<CurrentContext> currentContextProvider,
-													@Nonnull StudyService studyService,
 													@Nonnull ScreeningConfirmationPromptApiResponseFactory screeningConfirmationPromptApiResponseFactory,
 													@Nonnull JavascriptExecutor javascriptExecutor,
 													@Nonnull EnterprisePluginProvider enterprisePluginProvider,
@@ -226,8 +228,8 @@ public class ScreeningService {
 		requireNonNull(courseServiceProvider);
 		requireNonNull(authorizationServiceProvider);
 		requireNonNull(messageServiceProvider);
+		requireNonNull(studyServiceProvider);
 		requireNonNull(currentContextProvider);
-		requireNonNull(studyService);
 		requireNonNull(screeningConfirmationPromptApiResponseFactory);
 		requireNonNull(javascriptExecutor);
 		requireNonNull(enterprisePluginProvider);
@@ -245,8 +247,8 @@ public class ScreeningService {
 		this.courseServiceProvider = courseServiceProvider;
 		this.authorizationServiceProvider = authorizationServiceProvider;
 		this.messageServiceProvider = messageServiceProvider;
+		this.studyServiceProvider = studyServiceProvider;
 		this.currentContextProvider = currentContextProvider;
-		this.studyService = studyService;
 		this.screeningConfirmationPromptApiResponseFactory = screeningConfirmationPromptApiResponseFactory;
 		this.javascriptExecutor = javascriptExecutor;
 		this.enterprisePluginProvider = enterprisePluginProvider;
@@ -319,6 +321,20 @@ public class ScreeningService {
 
 		return getDatabase().queryForObject("SELECT * FROM screening_flow_version WHERE screening_flow_version_id=?",
 				ScreeningFlowVersion.class, screeningFlowVersionId);
+	}
+
+	@Nonnull
+	public List<AccountSource> findRequiredAccountSourcesByScreeningFlowVersionId(@Nullable UUID screeningFlowVersionId) {
+		if (screeningFlowVersionId == null)
+			return List.of();
+
+		return getDatabase().queryForList("""
+				SELECT asrc.*
+				FROM account_source asrc, screening_flow_version_account_source sfvas
+				WHERE asrc.account_source_id=sfvas.account_source_id
+				AND sfvas.screening_flow_version_id=?
+				ORDER BY sfvas.display_order
+				""", AccountSource.class, screeningFlowVersionId);
 	}
 
 	@Nonnull
@@ -799,7 +815,7 @@ public class ScreeningService {
 			if (targetAccountId == null) {
 				validationException.add(new FieldError("targetAccountId", getStrings().get("Target account ID is required.")));
 			} else {
-				Optional<AccountCheckInAction> accountCheckInAction = studyService.findAccountCheckInActionFoAccountAndCheckIn(targetAccountId, accountCheckInActionId);
+				Optional<AccountCheckInAction> accountCheckInAction = getStudyService().findAccountCheckInActionFoAccountAndCheckIn(targetAccountId, accountCheckInActionId);
 				if (!accountCheckInAction.isPresent())
 					validationException.add(new FieldError("accountCheckInActionId", getStrings().get("Account check-in is not valid for this account.")));
 			}
@@ -1386,6 +1402,7 @@ public class ScreeningService {
 		List<ScreeningAnswerOption> screeningAnswerOptions = new ArrayList<>();
 		Account createdByAccount = null;
 		boolean force = request.getForce() == null ? false : request.getForce();
+		String accountPhoneNumberToUpdate = null;
 		ValidationException validationException = new ValidationException();
 
 		if (screeningQuestionContextId == null) {
@@ -1460,6 +1477,8 @@ public class ScreeningService {
 
 												if (text == null)
 													validationException.add(new FieldError("text", getStrings().get("A valid phone number is required.")));
+												else if (screeningQuestion.getMetadata() != null && Objects.equals(Boolean.TRUE, screeningQuestion.getMetadata().get("shouldUpdateAccountPhoneNumber")))
+													accountPhoneNumberToUpdate = text;
 											}
 											case EMAIL_ADDRESS -> {
 												text = getNormalizer().normalizeEmailAddress(text).orElse(null);
@@ -1509,6 +1528,11 @@ public class ScreeningService {
 			throw validationException;
 
 		ScreeningSession screeningSession = findScreeningSessionById(screeningSessionScreening.getScreeningSessionId()).get();
+
+		if (accountPhoneNumberToUpdate != null) {
+			getLogger().info("Setting phone number for account ID {} to {}...", screeningSession.getTargetAccountId(), accountPhoneNumberToUpdate);
+			getDatabase().execute("UPDATE account SET phone_number=? WHERE account_id=?", accountPhoneNumberToUpdate, screeningSession.getTargetAccountId());
+		}
 
 		if (screeningSession.getCompleted())
 			throw new ValidationException(getStrings().get("This assessment is complete and cannot have its answers changed."));
@@ -2159,8 +2183,10 @@ getLogger().debug("orchestrationFunctionOutput.getCompleted() = " + orchestratio
 							boolean selfAdministered = account.getRoleId() == RoleId.PATIENT;
 							// Prevent self-referral IC institutions from scheduling appointment booking reminder messages
 							boolean providerReferred = patientOrder.getPatientOrderReferralSourceId() == PatientOrderReferralSourceId.PROVIDER;
+							// For now - disable appointment reminders.  We might re-enable in the future
+							boolean shouldAutomaticallyScheduleAppointmentReminder = false;
 
-							if (selfAdministered && providerReferred) {
+							if (selfAdministered && providerReferred && shouldAutomaticallyScheduleAppointmentReminder) {
 								LocalDateTime currentDateTime = LocalDateTime.now(institution.getTimeZone());
 								LocalDate reminderScheduledAtDate = currentDateTime.toLocalDate().plusDays(1);
 								LocalTime reminderScheduledAtTime = currentDateTime.toLocalTime();
@@ -2664,6 +2690,13 @@ getLogger().debug("orchestrationFunctionOutput.getCompleted() = " + orchestratio
 					.collect(Collectors.toSet());
 
 			context.put("patientOrderReferralReasonIds", patientOrderReferralReasonIds);
+
+			// If this order is part of one or more studies, expose study URL names for easy JS access
+			List<Study> studies = getStudyService().findStudiesByPatientOrderId(patientOrder.getPatientOrderId());
+
+			context.put("studyUrlNames", studies.stream()
+					.map(study -> study.getUrlName())
+					.collect(Collectors.toList()));
 		}
 
 		Account account = getCurrentContext().getAccount().orElse(null);
@@ -3350,13 +3383,13 @@ getLogger().debug("orchestrationFunctionOutput.getCompleted() = " + orchestratio
 	}
 
 	@Nonnull
-	protected CurrentContext getCurrentContext() {
-		return this.currentContextProvider.get();
+	protected StudyService getStudyService() {
+		return this.studyServiceProvider.get();
 	}
 
 	@Nonnull
-	protected StudyService getStudyService() {
-		return studyService;
+	protected CurrentContext getCurrentContext() {
+		return this.currentContextProvider.get();
 	}
 
 	@Nonnull
