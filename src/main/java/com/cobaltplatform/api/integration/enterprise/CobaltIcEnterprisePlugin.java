@@ -22,6 +22,8 @@ package com.cobaltplatform.api.integration.enterprise;
 import com.cobaltplatform.api.Configuration;
 import com.cobaltplatform.api.error.ErrorReporter;
 import com.cobaltplatform.api.integration.epic.EpicClient;
+import com.cobaltplatform.api.integration.epic.EpicErrorMessageExtractor;
+import com.cobaltplatform.api.integration.epic.EpicException;
 import com.cobaltplatform.api.integration.epic.request.AddFlowsheetValueRequest;
 import com.cobaltplatform.api.integration.hl7.model.section.Hl7OrderSection;
 import com.cobaltplatform.api.integration.hl7.model.segment.Hl7NotesAndCommentsSegment;
@@ -82,6 +84,8 @@ public class CobaltIcEnterprisePlugin extends DefaultEnterprisePlugin {
 	private final ErrorReporter errorReporter;
 	@Nonnull
 	private final Strings strings;
+	@Nonnull
+	private final EpicErrorMessageExtractor epicErrorMessageExtractor;
 
 	@Inject
 	public CobaltIcEnterprisePlugin(@Nonnull InstitutionService institutionService,
@@ -101,6 +105,7 @@ public class CobaltIcEnterprisePlugin extends DefaultEnterprisePlugin {
 		this.patientOrderService = patientOrderService;
 		this.errorReporter = errorReporter;
 		this.strings = strings;
+		this.epicErrorMessageExtractor = new EpicErrorMessageExtractor();
 	}
 
 	@Nonnull
@@ -244,8 +249,31 @@ public class CobaltIcEnterprisePlugin extends DefaultEnterprisePlugin {
 			request.setValue(flowsheetValuesByTypeId.get(flowsheetTypeId));
 			request.setInstantValueToken(completedScreeningSession.getCompletedAt());
 
-			epicClient.addFlowsheetValue(request);
+			try {
+				epicClient.addFlowsheetValue(request);
+			} catch (EpicException e) {
+				throw validationExceptionForEpicFlowsheetWritebackFailure(e);
+			}
 		}
+	}
+
+	@Nonnull
+	protected ValidationException validationExceptionForEpicFlowsheetWritebackFailure(@Nonnull EpicException epicException) {
+		requireNonNull(epicException);
+
+		getErrorReporter().report(epicException);
+
+		String epicMessage = getEpicErrorMessageExtractor().extract(epicException)
+				.flatMap(EpicErrorMessageExtractor.EpicErrorMessageDetails::preferredMessage)
+				.orElse(null);
+
+		if (epicMessage != null) {
+			return new ValidationException(getStrings().get("Unable to write Epic flowsheet. Epic responded with: {{epicMessage}}", Map.of(
+					"epicMessage", epicMessage
+			)));
+		}
+
+		return new ValidationException(getStrings().get("Unable to write Epic flowsheet."));
 	}
 
 	@Override
@@ -387,6 +415,11 @@ public class CobaltIcEnterprisePlugin extends DefaultEnterprisePlugin {
 	@Nonnull
 	protected ErrorReporter getErrorReporter() {
 		return this.errorReporter;
+	}
+
+	@Nonnull
+	protected EpicErrorMessageExtractor getEpicErrorMessageExtractor() {
+		return this.epicErrorMessageExtractor;
 	}
 
 	@Nonnull

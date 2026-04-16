@@ -2271,7 +2271,11 @@ public class AppointmentService {
 				// Perform any institution-specific customizations needed
 				enterprisePlugin.customizeCancelAppointmentRequest(cancelRequest, account);
 
-				epicClient.performCancelAppointment(cancelRequest);
+				try {
+					epicClient.performCancelAppointment(cancelRequest);
+				} catch (EpicException e) {
+					throw validationExceptionForEpicAppointmentCancelationFailure(e);
+				}
 
 				Map<String, Object> payload = new HashMap<>();
 				payload.put("csn", appointment.getEpicContactId());
@@ -2327,8 +2331,17 @@ public class AppointmentService {
 		return canceled;
 	}
 
+	@Nonnull
+	protected ValidationException validationExceptionForEpicAppointmentCancelationFailure(@Nonnull EpicException epicException) {
+		requireNonNull(epicException);
+
+		getErrorReporter().report(epicException);
+
+		return new ValidationException(getStrings().get("Sorry, this appointment was not able to be directly canceled. Please call us to cancel the appointment."));
+	}
+
 	public void rescheduleAppointmentFromWebhook(@Nonnull AcuityAppointment acuityAppointment,
-																							 @Nonnull Appointment localAppointment) {
+																								 @Nonnull Appointment localAppointment) {
 		requireNonNull(acuityAppointment);
 		requireNonNull(localAppointment);
 
