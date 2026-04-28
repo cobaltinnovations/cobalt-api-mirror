@@ -130,8 +130,6 @@ import static org.apache.commons.lang3.StringUtils.trimToNull;
 @Singleton
 @ThreadSafe
 public class PageService {
-	private static final String DEFAULT_CUSTOM_ROW_COLUMN_DESCRIPTION = "Lorem ipsum dolor sit amet, consectetur adipiscing elit.";
-
 	@Nonnull
 	private final DatabaseProvider databaseProvider;
 	@Nonnull
@@ -1578,11 +1576,6 @@ public class PageService {
 
 		if (validationException.hasErrors())
 			throw validationException;
-
-		if (request.getUsePlaceholderImage() == null)
-			request.setUsePlaceholderImage(trimToNull(request.getImageFileUploadId()) == null);
-		if (trimToNull(request.getDescription()) == null)
-			request.setDescription(DEFAULT_CUSTOM_ROW_COLUMN_DESCRIPTION);
 
 		request.setColumnDisplayOrder(pageRowColumns.size());
 
