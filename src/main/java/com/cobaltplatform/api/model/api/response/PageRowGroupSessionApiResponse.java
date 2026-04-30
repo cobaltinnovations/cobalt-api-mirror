@@ -55,7 +55,9 @@ public class PageRowGroupSessionApiResponse {
 	@Nonnull
 	private final BackgroundColorId backgroundColorId;
 	@Nonnull
-	private final PaddingId paddingId;
+	private final PaddingId paddingTopId;
+	@Nonnull
+	private final PaddingId paddingBottomId;
 	@Nullable
 	private Integer displayOrder;
 	@Nonnull
@@ -91,7 +93,8 @@ public class PageRowGroupSessionApiResponse {
 		this.pageSectionId = pageRow.getPageSectionId();
 		this.name = pageRow.getName() == null ? defaultRowNameForRowType(pageRow.getRowTypeId()) : pageRow.getName();
 		this.backgroundColorId = pageRow.getBackgroundColorId() == null ? BackgroundColorId.WHITE : pageRow.getBackgroundColorId();
-		this.paddingId = pageRow.getPaddingId() == null ? PaddingId.MEDIUM : pageRow.getPaddingId();
+		this.paddingTopId = pageRow.getPaddingTopId() == null ? PaddingId.MEDIUM : pageRow.getPaddingTopId();
+		this.paddingBottomId = pageRow.getPaddingBottomId() == null ? PaddingId.MEDIUM : pageRow.getPaddingBottomId();
 		//If this page is published only show ADDED group sessions
 		this.groupSessions = pageService.findGroupSessionsByPageRowId(pageRow.getPageRowId(), page.getPageStatusId().equals(PageStatus.PageStatusId.LIVE) ? true: false).stream()
 				.map(groupSession -> groupSessionApiResponseFactory.create(groupSession)).collect(Collectors.toList());
@@ -127,8 +130,13 @@ public class PageRowGroupSessionApiResponse {
 	}
 
 	@Nonnull
-	public PaddingId getPaddingId() {
-		return paddingId;
+	public PaddingId getPaddingTopId() {
+		return paddingTopId;
+	}
+
+	@Nonnull
+	public PaddingId getPaddingBottomId() {
+		return paddingBottomId;
 	}
 
 	@Nullable

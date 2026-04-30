@@ -73,7 +73,9 @@ public class PageRowApiResponse {
 	@Nonnull
 	private final BackgroundColorId backgroundColorId;
 	@Nonnull
-	private final PaddingId paddingId;
+	private final PaddingId paddingTopId;
+	@Nonnull
+	private final PaddingId paddingBottomId;
 	@Nonnull
 	private final Integer displayOrder;
 	@Nonnull
@@ -159,7 +161,8 @@ public class PageRowApiResponse {
 		this.rowTypeId = pageRow.getRowTypeId();
 		this.name = pageRow.getName() == null ? defaultRowNameForRowType(pageRow.getRowTypeId()) : pageRow.getName();
 		this.backgroundColorId = pageRow.getBackgroundColorId() == null ? BackgroundColorId.WHITE : pageRow.getBackgroundColorId();
-		this.paddingId = pageRow.getPaddingId() == null ? PaddingId.MEDIUM : pageRow.getPaddingId();
+		this.paddingTopId = pageRow.getPaddingTopId() == null ? PaddingId.MEDIUM : pageRow.getPaddingTopId();
+		this.paddingBottomId = pageRow.getPaddingBottomId() == null ? PaddingId.MEDIUM : pageRow.getPaddingBottomId();
 		this.displayOrder = pageRow.getDisplayOrder();
 		this.tagGroupColorId = null;
 		this.displayRow = true;
@@ -267,8 +270,13 @@ public class PageRowApiResponse {
 	}
 
 	@Nonnull
-	public PaddingId getPaddingId() {
-		return paddingId;
+	public PaddingId getPaddingTopId() {
+		return paddingTopId;
+	}
+
+	@Nonnull
+	public PaddingId getPaddingBottomId() {
+		return paddingBottomId;
 	}
 
 	@Nonnull

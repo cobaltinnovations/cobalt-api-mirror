@@ -43,6 +43,10 @@ public class CreatePageRowRequest {
 	@Nullable
 	private PaddingId paddingId;
 	@Nullable
+	private PaddingId paddingTopId;
+	@Nullable
+	private PaddingId paddingBottomId;
+	@Nullable
 	private Integer displayOrder;
 	@Nullable
 	private UUID createdByAccountId;
@@ -89,6 +93,24 @@ public class CreatePageRowRequest {
 
 	public void setPaddingId(@Nullable PaddingId paddingId) {
 		this.paddingId = paddingId;
+	}
+
+	@Nullable
+	public PaddingId getPaddingTopId() {
+		return paddingTopId;
+	}
+
+	public void setPaddingTopId(@Nullable PaddingId paddingTopId) {
+		this.paddingTopId = paddingTopId;
+	}
+
+	@Nullable
+	public PaddingId getPaddingBottomId() {
+		return paddingBottomId;
+	}
+
+	public void setPaddingBottomId(@Nullable PaddingId paddingBottomId) {
+		this.paddingBottomId = paddingBottomId;
 	}
 
 	@Nullable

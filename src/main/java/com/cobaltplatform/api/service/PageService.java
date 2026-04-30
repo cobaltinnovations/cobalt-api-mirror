@@ -1064,6 +1064,8 @@ public class PageService {
 		String name = trimToNull(request.getName());
 		BackgroundColorId backgroundColorId = request.getBackgroundColorId();
 		PaddingId paddingId = request.getPaddingId();
+		PaddingId paddingTopId = request.getPaddingTopId();
+		PaddingId paddingBottomId = request.getPaddingBottomId();
 		UUID createdByAccountId = request.getCreatedByAccountId();
 		Integer displayOrder = request.getDisplayOrder();
 		ValidationException validationException = new ValidationException();
@@ -1089,8 +1091,14 @@ public class PageService {
 
 		if (backgroundColorId == null)
 			backgroundColorId = BackgroundColorId.WHITE;
-		if (paddingId == null)
-			paddingId = PaddingId.MEDIUM;
+		if (paddingTopId == null)
+			paddingTopId = paddingId;
+		if (paddingBottomId == null)
+			paddingBottomId = paddingId;
+		if (paddingTopId == null)
+			paddingTopId = PaddingId.MEDIUM;
+		if (paddingBottomId == null)
+			paddingBottomId = PaddingId.MEDIUM;
 
 		if (displayOrder == null)
 			displayOrder = getDatabase().queryForObject("""
@@ -1101,10 +1109,10 @@ public class PageService {
 
 		getDatabase().execute("""
 				INSERT INTO page_row
-				  (page_row_id, page_section_id, row_type_id, name, background_color_id, padding_id, created_by_account_id, display_order)
+				  (page_row_id, page_section_id, row_type_id, name, background_color_id, padding_id, padding_top_id, padding_bottom_id, created_by_account_id, display_order)
 				VALUES
-				  (?,?,?,?,?,?,?,?)
-				""", pageRowId, pageSectionId, rowTypeId, name, backgroundColorId, paddingId, createdByAccountId, displayOrder);
+				  (?,?,?,?,?,?,?,?,?,?)
+				""", pageRowId, pageSectionId, rowTypeId, name, backgroundColorId, paddingTopId, paddingTopId, paddingBottomId, createdByAccountId, displayOrder);
 
 		return pageRowId;
 	}
@@ -1196,9 +1204,16 @@ public class PageService {
 		String name = trimToNull(request.getName());
 		BackgroundColorId backgroundColorId = request.getBackgroundColorId();
 		PaddingId paddingId = request.getPaddingId();
+		PaddingId paddingTopId = request.getPaddingTopId();
+		PaddingId paddingBottomId = request.getPaddingBottomId();
 		ValidationException validationException = new ValidationException();
 
 		Optional<PageRow> pageRow = findPageRowById(pageRowId, institutionId);
+
+		if (paddingTopId == null)
+			paddingTopId = paddingId;
+		if (paddingBottomId == null)
+			paddingBottomId = paddingId;
 
 		if (!pageRow.isPresent())
 			validationException.add(new FieldError("pageRow", getStrings().get("Could not find page row.")));
@@ -1206,17 +1221,19 @@ public class PageService {
 			validationException.add(new FieldError("name", getStrings().get("Name is required.")));
 		if (backgroundColorId == null)
 			validationException.add(new FieldError("backgroundColorId", getStrings().get("Background Color is required.")));
-		if (paddingId == null)
-			validationException.add(new FieldError("paddingId", getStrings().get("Padding is required.")));
+		if (paddingTopId == null)
+			validationException.add(new FieldError("paddingTopId", getStrings().get("Top padding is required.")));
+		if (paddingBottomId == null)
+			validationException.add(new FieldError("paddingBottomId", getStrings().get("Bottom padding is required.")));
 
 		if (validationException.hasErrors())
 			throw validationException;
 
 		getDatabase().execute("""
 				UPDATE page_row SET
-				  name=?, background_color_id=?, padding_id=?
+				  name=?, background_color_id=?, padding_id=?, padding_top_id=?, padding_bottom_id=?
 				WHERE page_row_id=?
-				""", name, backgroundColorId, paddingId, pageRowId);
+				""", name, backgroundColorId, paddingTopId, paddingTopId, paddingBottomId, pageRowId);
 
 		return pageRowId;
 	}
@@ -2772,8 +2789,8 @@ public class PageService {
 
 				getDatabase().execute("""
 						INSERT INTO page_row
-						(page_row_id,page_section_id,row_type_id,name,background_color_id,padding_id,deleted_flag,display_order,created_by_account_id)
-						SELECT ?, ?, row_type_id,name,background_color_id,padding_id,deleted_flag,display_order, ?
+						(page_row_id,page_section_id,row_type_id,name,background_color_id,padding_id,padding_top_id,padding_bottom_id,deleted_flag,display_order,created_by_account_id)
+						SELECT ?, ?, row_type_id,name,background_color_id,padding_id,padding_top_id,padding_bottom_id,deleted_flag,display_order, ?
 						FROM page_row
 						WHERE page_row_id = ?
 						""", newPageRowId, newPageSectionId, accountId, pageRow.getPageRowId());

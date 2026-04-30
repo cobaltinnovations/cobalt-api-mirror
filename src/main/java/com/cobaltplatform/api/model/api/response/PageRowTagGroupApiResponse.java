@@ -50,7 +50,9 @@ public class PageRowTagGroupApiResponse {
 	@Nonnull
 	private final BackgroundColorId backgroundColorId;
 	@Nonnull
-	private final PaddingId paddingId;
+	private final PaddingId paddingTopId;
+	@Nonnull
+	private final PaddingId paddingBottomId;
 	@Nonnull
 	private final Integer displayOrder;
 	@Nonnull
@@ -82,7 +84,8 @@ public class PageRowTagGroupApiResponse {
 		this.pageSectionId = pageRow.getPageSectionId();
 		this.name = pageRow.getName() == null ? defaultRowNameForRowType(pageRow.getRowTypeId()) : pageRow.getName();
 		this.backgroundColorId = pageRow.getBackgroundColorId() == null ? BackgroundColorId.WHITE : pageRow.getBackgroundColorId();
-		this.paddingId = pageRow.getPaddingId() == null ? PaddingId.MEDIUM : pageRow.getPaddingId();
+		this.paddingTopId = pageRow.getPaddingTopId() == null ? PaddingId.MEDIUM : pageRow.getPaddingTopId();
+		this.paddingBottomId = pageRow.getPaddingBottomId() == null ? PaddingId.MEDIUM : pageRow.getPaddingBottomId();
 		this.displayOrder = pageRow.getDisplayOrder();
 		this.tagGroup = tagGroupApiResponseFactory.create(pageService.findTagGroupByRowId(pageRow.getPageRowId()).orElse(null));
 		this.rowTypeId = pageRow.getRowTypeId();
@@ -116,8 +119,13 @@ public class PageRowTagGroupApiResponse {
 	}
 
 	@Nonnull
-	public PaddingId getPaddingId() {
-		return paddingId;
+	public PaddingId getPaddingTopId() {
+		return paddingTopId;
+	}
+
+	@Nonnull
+	public PaddingId getPaddingBottomId() {
+		return paddingBottomId;
 	}
 
 	@Nonnull

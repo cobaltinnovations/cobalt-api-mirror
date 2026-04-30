@@ -39,6 +39,10 @@ public class UpdatePageRowRequest {
 	private BackgroundColorId backgroundColorId;
 	@Nullable
 	private PaddingId paddingId;
+	@Nullable
+	private PaddingId paddingTopId;
+	@Nullable
+	private PaddingId paddingBottomId;
 
 	@Nullable
 	public UUID getPageRowId() {
@@ -74,5 +78,23 @@ public class UpdatePageRowRequest {
 
 	public void setPaddingId(@Nullable PaddingId paddingId) {
 		this.paddingId = paddingId;
+	}
+
+	@Nullable
+	public PaddingId getPaddingTopId() {
+		return paddingTopId;
+	}
+
+	public void setPaddingTopId(@Nullable PaddingId paddingTopId) {
+		this.paddingTopId = paddingTopId;
+	}
+
+	@Nullable
+	public PaddingId getPaddingBottomId() {
+		return paddingBottomId;
+	}
+
+	public void setPaddingBottomId(@Nullable PaddingId paddingBottomId) {
+		this.paddingBottomId = paddingBottomId;
 	}
 }
