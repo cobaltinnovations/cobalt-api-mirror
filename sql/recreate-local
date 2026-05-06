@@ -261,6 +261,7 @@ PGPASSWORD=password psql -U cobalt -h localhost -p 5501 < updates/250-autism-cli
 PGPASSWORD=password psql -U cobalt -h localhost -p 5501 < updates/251-ip-geolocation-radius-double.sql
 PGPASSWORD=password psql -U cobalt -h localhost -p 5501 < updates/252-page-group-table.sql
 PGPASSWORD=password psql -U cobalt -h localhost -p 5501 < updates/253-account-alert.sql
+PGPASSWORD=password psql -U cobalt -h localhost -p 5501 < updates/254-group-topic-archived.sql
 
 if [ -f "initial/bootstrap.sql" ]; then
   echo "Loading bootstrap data..."
