@@ -470,6 +470,7 @@ public class Institution {
 		COBALT,
 		COBALT_IC,
 		COBALT_IC_SELF_REFERRAL,
+		COBALT_EASE,
 		COBALT_FHIR,
 		COBALT_COURSES
 	}

@@ -683,6 +683,8 @@ public class AccountResource {
 		}});
 
 		Account account = getAccountService().findAccountById(accountId).get();
+		EnterprisePlugin enterprisePlugin = getEnterprisePluginProvider().enterprisePluginForInstitutionId(institutionId);
+		enterprisePlugin.applyCustomProcessingForAnonymousAccountCreation(account);
 
 		AuditLog auditLog = new AuditLog();
 		auditLog.setAccountId(account.getAccountId());

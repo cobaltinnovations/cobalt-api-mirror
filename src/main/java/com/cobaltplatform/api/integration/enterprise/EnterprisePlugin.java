@@ -273,6 +273,11 @@ public interface EnterprisePlugin {
 		// No-op by default
 	}
 
+	default void applyCustomProcessingForAnonymousAccountCreation(@Nonnull Account account) {
+		requireNonNull(account);
+		// No-op by default
+	}
+
 	default void customizeScheduleAppointmentWithInsuranceRequest(@Nonnull ScheduleAppointmentWithInsuranceRequest request,
 																																@Nonnull Account account) {
 		requireNonNull(request);
