@@ -3028,7 +3028,7 @@ public class ReportingService {
 										AND ss_completed.completed = TRUE
 								)
 						),
-						account_analytics_metrics AS (
+						account_analytics_metrics AS MATERIALIZED (
 							SELECT
 								ra.account_id,
 								COUNT(DISTINCT mv.session_id)::BIGINT AS bb_n_sitevisit,
@@ -3043,7 +3043,7 @@ public class ReportingService {
 								AND mv.page_viewed_at <= rw.report_end_at
 							GROUP BY ra.account_id
 						),
-						account_email_metrics AS (
+						account_email_metrics AS MATERIALIZED (
 							SELECT
 								ra.account_id,
 								first_invite.email_entered_at,
@@ -3071,7 +3071,7 @@ public class ReportingService {
 								LIMIT 1
 							) first_claimed ON TRUE
 						),
-						account_referrer AS (
+						account_referrer AS MATERIALIZED (
 							SELECT
 								ra.account_id,
 								first_referrer.bb_referrer
@@ -3141,7 +3141,7 @@ public class ReportingService {
 							FROM screening_question_answers
 							ORDER BY account_id, reporting_key, answered_at DESC, screening_session_answered_screening_question_id DESC
 						),
-						account_screening_values AS (
+						account_screening_values AS MATERIALIZED (
 							SELECT
 								account_id,
 								COALESCE(jsonb_object_agg(reporting_key, reporting_value), '{}'::jsonb) AS screening_values_json
@@ -3248,7 +3248,7 @@ public class ReportingService {
 								visit_count
 							FROM account_video_course_time_rows
 						),
-						account_content_metric_maps AS (
+						account_content_metric_maps AS MATERIALIZED (
 							SELECT
 								account_id,
 								COALESCE(jsonb_object_agg(reporting_key, complete_value::TEXT), '{}'::jsonb) AS metric_complete_values_json,
@@ -3424,7 +3424,7 @@ public class ReportingService {
 									AND a.role_id = ?
 									AND a.test_account = FALSE
 							),
-								account_site_metrics AS (
+								account_site_metrics AS MATERIALIZED (
 									SELECT
 										ra.account_id,
 										COUNT(DISTINCT mv.session_id)::BIGINT AS bb_n_sitevisit
@@ -3438,7 +3438,7 @@ public class ReportingService {
 										AND mv.page_viewed_at <= rw.report_end_at
 									GROUP BY ra.account_id
 								),
-							account_tot_time AS (
+							account_tot_time AS MATERIALIZED (
 								SELECT
 									ra.account_id,
 									COALESCE(SUM(mv.dwell_time_seconds), 0)::DOUBLE PRECISION AS bb_tot_time_seconds
@@ -3452,7 +3452,7 @@ public class ReportingService {
 									AND mv.page_viewed_at <= rw.report_end_at
 								GROUP BY ra.account_id
 							),
-							account_email_metrics AS (
+							account_email_metrics AS MATERIALIZED (
 								SELECT
 									ra.account_id,
 									MIN(ai.created) AS email_entered_at,
@@ -3471,7 +3471,7 @@ public class ReportingService {
 									AND ai_claimed.last_updated <= rw.report_end_at
 								GROUP BY ra.account_id
 							),
-							account_referrer AS (
+							account_referrer AS MATERIALIZED (
 								SELECT
 									ra.account_id,
 									first_referrer.bb_referrer
@@ -3513,9 +3513,9 @@ public class ReportingService {
 								JOIN course_unit cu
 									ON cu.course_unit_id = csu.course_unit_id
 							WHERE NULLIF(REGEXP_REPLACE(cu.reporting_key, '\\s+', '', 'g'), '') IS NOT NULL
-							GROUP BY ra.account_id, reporting_key
+							GROUP BY 1, 2
 						),
-							account_unit_page_metrics AS (
+							account_unit_page_metrics AS MATERIALIZED (
 								SELECT
 									ra.account_id,
 									NULLIF(REGEXP_REPLACE(cu.reporting_key, '\\s+', '', 'g'), '') AS unit_reporting_key,
@@ -3542,7 +3542,7 @@ public class ReportingService {
 							WHERE
 								NULLIF(REGEXP_REPLACE(cu.reporting_key, '\\s+', '', 'g'), '') IS NOT NULL
 								OR NULLIF(REGEXP_REPLACE(c.reporting_key, '\\s+', '', 'g'), '') IS NOT NULL
-							GROUP BY ra.account_id, unit_reporting_key, unit_type, course_reporting_key
+							GROUP BY 1, 2, 3, 4
 						),
 						account_unit_visit_rows AS (
 							SELECT
@@ -3553,7 +3553,7 @@ public class ReportingService {
 								SUM(visit_count)::BIGINT AS visit_count
 							FROM account_unit_page_metrics
 							WHERE unit_reporting_key IS NOT NULL
-							GROUP BY account_id, unit_reporting_key
+							GROUP BY 1, 2
 						),
 						account_non_video_unit_time_rows AS (
 							SELECT
@@ -3565,7 +3565,7 @@ public class ReportingService {
 							FROM account_unit_page_metrics
 							WHERE unit_reporting_key IS NOT NULL
 								AND unit_type <> 'VIDEO'
-							GROUP BY account_id, unit_reporting_key
+							GROUP BY 1, 2
 						),
 							account_video_unit_metric_rows AS (
 								SELECT
@@ -3613,7 +3613,7 @@ public class ReportingService {
 								SUM(time_seconds)::DOUBLE PRECISION AS time_seconds,
 								SUM(visit_count)::BIGINT AS visit_count
 							FROM account_unit_metric_rows
-							GROUP BY account_id, reporting_key
+							GROUP BY 1, 2
 						),
 							account_course_completions AS (
 								SELECT
@@ -3629,7 +3629,7 @@ public class ReportingService {
 								JOIN course c
 									ON c.course_id = cs.course_id
 								WHERE NULLIF(REGEXP_REPLACE(c.reporting_key, '\\s+', '', 'g'), '') IS NOT NULL
-								GROUP BY ra.account_id, reporting_key
+								GROUP BY 1, 2
 						),
 						account_course_visit_rows AS (
 							SELECT
@@ -3640,7 +3640,7 @@ public class ReportingService {
 								SUM(visit_count)::BIGINT AS visit_count
 							FROM account_unit_page_metrics
 							WHERE course_reporting_key IS NOT NULL
-							GROUP BY account_id, course_reporting_key
+							GROUP BY 1, 2
 						),
 						account_non_video_course_time_rows AS (
 							SELECT
@@ -3652,7 +3652,7 @@ public class ReportingService {
 							FROM account_unit_page_metrics
 							WHERE course_reporting_key IS NOT NULL
 								AND unit_type <> 'VIDEO'
-							GROUP BY account_id, course_reporting_key
+							GROUP BY 1, 2
 						),
 							account_video_course_time_rows AS (
 								SELECT
@@ -3704,14 +3704,14 @@ public class ReportingService {
 								SUM(time_seconds)::DOUBLE PRECISION AS time_seconds,
 								SUM(visit_count)::BIGINT AS visit_count
 							FROM account_course_metric_rows
-							GROUP BY account_id, reporting_key
+							GROUP BY 1, 2
 						),
 						account_content_metrics AS (
 							SELECT * FROM account_unit_metrics
 							UNION ALL
 							SELECT * FROM account_course_metrics
 						),
-						account_content_metric_maps AS (
+						account_content_metric_maps AS MATERIALIZED (
 							SELECT
 								account_id,
 								COALESCE(jsonb_object_agg(reporting_key, complete_value::TEXT), '{}'::jsonb) AS metric_complete_values_json,
@@ -3725,7 +3725,7 @@ public class ReportingService {
 									SUM(time_seconds)::DOUBLE PRECISION AS time_seconds,
 									SUM(visit_count)::BIGINT AS visit_count
 								FROM account_content_metrics
-								GROUP BY account_id, reporting_key
+								GROUP BY 1, 2
 							) metrics
 							GROUP BY account_id
 						),
@@ -3758,7 +3758,7 @@ public class ReportingService {
 									AND ss.created >= ra.account_created_at
 									AND ss.created <= rw.report_end_at
 									AND NULLIF(REGEXP_REPLACE(sq.metadata->'reporting'->>'key', '\\s+', '', 'g'), '') IS NOT NULL
-								GROUP BY ss.target_account_id, reporting_key, ssasq.screening_session_answered_screening_question_id
+								GROUP BY 1, 2, 3
 							),
 						latest_screening_values AS (
 							SELECT DISTINCT ON (account_id, reporting_key)
@@ -3805,7 +3805,7 @@ public class ReportingService {
 								reporting_value
 							FROM account_derived_screening_values
 						),
-						account_screening_values AS (
+						account_screening_values AS MATERIALIZED (
 							SELECT
 								account_id,
 								COALESCE(jsonb_object_agg(reporting_key, reporting_value), '{}'::jsonb) AS screening_values_json
