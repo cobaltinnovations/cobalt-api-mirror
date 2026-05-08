@@ -3026,8 +3026,6 @@ public class ReportingService {
 									WHERE ss_completed.target_account_id = a.account_id
 										AND sfv_completed.screening_flow_id = io.onboarding_screening_flow_id
 										AND ss_completed.completed = TRUE
-										AND ss_completed.completed_at IS NOT NULL
-										AND ss_completed.completed_at <= rw.report_end_at
 								)
 						),
 						account_analytics_metrics AS (
@@ -3133,7 +3131,7 @@ public class ReportingService {
 								AND ss.created >= ra.account_created_at
 								AND ss.created <= rw.report_end_at
 								AND NULLIF(REGEXP_REPLACE(sq.metadata->'reporting'->>'key', '\\s+', '', 'g'), '') LIKE 'bb_onboarding_%'
-							GROUP BY ss.target_account_id, reporting_key, ssasq.screening_session_answered_screening_question_id
+							GROUP BY 1, 2, 3
 						),
 						latest_screening_values AS (
 							SELECT DISTINCT ON (account_id, reporting_key)
@@ -3165,7 +3163,7 @@ public class ReportingService {
 								ON c.course_id = cs.course_id
 							JOIN target_course_keys tck
 								ON tck.reporting_key = NULLIF(REGEXP_REPLACE(c.reporting_key, '\\s+', '', 'g'), '')
-							GROUP BY ra.account_id, reporting_key
+							GROUP BY 1, 2
 						),
 						account_course_page_metrics AS (
 							SELECT
@@ -3197,7 +3195,7 @@ public class ReportingService {
 								ON c.course_id = cm.course_id
 							JOIN target_course_keys tck
 								ON tck.reporting_key = NULLIF(REGEXP_REPLACE(c.reporting_key, '\\s+', '', 'g'), '')
-							GROUP BY ra.account_id, reporting_key
+							GROUP BY 1, 2
 						),
 						account_video_course_time_rows AS (
 							SELECT
@@ -3223,7 +3221,7 @@ public class ReportingService {
 							JOIN target_course_keys tck
 								ON tck.reporting_key = NULLIF(REGEXP_REPLACE(c.reporting_key, '\\s+', '', 'g'), '')
 							WHERE cu.course_unit_type_id = 'VIDEO'
-							GROUP BY ra.account_id, reporting_key
+							GROUP BY 1, 2
 						),
 						account_course_metric_rows AS (
 							SELECT
@@ -3264,7 +3262,7 @@ public class ReportingService {
 									SUM(time_seconds)::DOUBLE PRECISION AS time_seconds,
 									SUM(visit_count)::BIGINT AS visit_count
 								FROM account_course_metric_rows
-								GROUP BY account_id, reporting_key
+								GROUP BY 1, 2
 							) metrics
 							GROUP BY account_id
 						)
