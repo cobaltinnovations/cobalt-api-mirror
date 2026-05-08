@@ -2013,14 +2013,7 @@ public class ReportingService {
 			"email_address",
 			"account_created_at",
 			"role_id",
-			"account_source_id",
-			"account_invite_id",
-			"invite_claimed",
-			"invite_created_at",
-			"invite_last_updated_at",
 			"ip_address",
-			"analytics_event_count",
-			"analytics_session_count",
 			"first_analytics_event_at",
 			"last_analytics_event_at",
 			"ip_geolocation_status_id",
@@ -2082,8 +2075,6 @@ public class ReportingService {
 								ane.account_id,
 								ane.ip_address AS ip_address_inet,
 								host(ane.ip_address) AS ip_address,
-								COUNT(*)::BIGINT AS analytics_event_count,
-								COUNT(DISTINCT ane.session_id)::BIGINT AS analytics_session_count,
 								MIN(ane.timestamp) AS first_analytics_event_at,
 								MAX(ane.timestamp) AS last_analytics_event_at
 							FROM analytics_native_event ane
@@ -2099,17 +2090,10 @@ public class ReportingService {
 							a.email_address,
 							a.created AS account_created_at,
 							a.role_id,
-							a.account_source_id,
-							ai.account_invite_id,
-							ai.claimed AS invite_claimed,
-							ai.created AS invite_created_at,
-							ai.last_updated AS invite_last_updated_at,
 							eia.ip_address,
-							eia.analytics_event_count,
-							eia.analytics_session_count,
 							eia.first_analytics_event_at,
 							eia.last_analytics_event_at,
-							ipg.ip_geolocation_status_id,
+							COALESCE(ipg.ip_geolocation_status_id, 'PENDING') AS ip_geolocation_status_id,
 							ipg.ip_type,
 							ipg.continent_code,
 							ipg.continent_name,
@@ -2145,14 +2129,6 @@ public class ReportingService {
 						JOIN account a
 							ON a.account_id = eia.account_id
 							AND a.institution_id = ?
-						LEFT JOIN LATERAL (
-							SELECT ai.*
-							FROM account_invite ai
-							WHERE ai.institution_id = a.institution_id
-								AND LOWER(ai.email_address) = LOWER(a.email_address)
-							ORDER BY ai.created DESC
-							LIMIT 1
-						) ai ON TRUE
 						LEFT JOIN ip_geolocation ipg
 							ON ipg.ip_address = eia.ip_address_inet
 						ORDER BY eia.last_analytics_event_at DESC, a.created DESC, a.account_id, eia.ip_address
@@ -2170,14 +2146,7 @@ public class ReportingService {
 				recordElements.add(record.getEmailAddress());
 				recordElements.add(record.getAccountCreatedAt() == null ? "" : dateTimeFormatter.format(record.getAccountCreatedAt()));
 				recordElements.add(record.getRoleId() == null ? "" : record.getRoleId().name());
-				recordElements.add(record.getAccountSourceId() == null ? "" : record.getAccountSourceId().name());
-				recordElements.add(record.getAccountInviteId() == null ? "" : record.getAccountInviteId().toString());
-				recordElements.add(record.getInviteClaimed() == null ? "" : record.getInviteClaimed().toString());
-				recordElements.add(record.getInviteCreatedAt() == null ? "" : dateTimeFormatter.format(record.getInviteCreatedAt()));
-				recordElements.add(record.getInviteLastUpdatedAt() == null ? "" : dateTimeFormatter.format(record.getInviteLastUpdatedAt()));
 				recordElements.add(record.getIpAddress());
-				recordElements.add(record.getAnalyticsEventCount() == null ? "" : record.getAnalyticsEventCount().toString());
-				recordElements.add(record.getAnalyticsSessionCount() == null ? "" : record.getAnalyticsSessionCount().toString());
 				recordElements.add(record.getFirstAnalyticsEventAt() == null ? "" : dateTimeFormatter.format(record.getFirstAnalyticsEventAt()));
 				recordElements.add(record.getLastAnalyticsEventAt() == null ? "" : dateTimeFormatter.format(record.getLastAnalyticsEventAt()));
 				recordElements.add(record.getIpGeolocationStatusId());
