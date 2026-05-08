@@ -262,6 +262,7 @@ PGPASSWORD=password psql -U cobalt -h localhost -p 5501 < updates/251-ip-geoloca
 PGPASSWORD=password psql -U cobalt -h localhost -p 5501 < updates/252-page-group-table.sql
 PGPASSWORD=password psql -U cobalt -h localhost -p 5501 < updates/253-account-alert.sql
 PGPASSWORD=password psql -U cobalt -h localhost -p 5501 < updates/254-group-topic-archived.sql
+PGPASSWORD=password psql -U cobalt -h localhost -p 5501 < updates/255-account-onboarding-complete-v2-report.sql
 
 if [ -f "initial/bootstrap.sql" ]; then
   echo "Loading bootstrap data..."

@@ -215,6 +215,12 @@ public class ReportingService {
 					if (reportType.getReportTypeId() == ReportTypeId.ACCOUNT_ONBOARDING_COMPLETE)
 						return accountCapabilityFlags.isCanViewAnalytics();
 
+					if (reportType.getReportTypeId() == ReportTypeId.ACCOUNT_ONBOARDING_COMPLETE_V2)
+						return accountCapabilityFlags.isCanViewAnalytics();
+
+					if (reportType.getReportTypeId() == ReportTypeId.ACCOUNT_GEOLOCATION)
+						return accountCapabilityFlags.isCanViewAnalytics();
+
 					if (reportType.getReportTypeId() == ReportTypeId.COURSE_MCB_DOWNLOAD)
 						return accountCapabilityFlags.isCanViewAnalytics();
 
@@ -2002,6 +2008,221 @@ public class ReportingService {
 	}
 
 	@Nonnull
+	private static final List<String> ACCOUNT_GEOLOCATION_HEADER_COLUMNS = List.of(
+			"account_id",
+			"email_address",
+			"account_created_at",
+			"role_id",
+			"account_source_id",
+			"account_invite_id",
+			"invite_claimed",
+			"invite_created_at",
+			"invite_last_updated_at",
+			"ip_address",
+			"analytics_event_count",
+			"analytics_session_count",
+			"first_analytics_event_at",
+			"last_analytics_event_at",
+			"ip_geolocation_status_id",
+			"ip_type",
+			"continent_code",
+			"continent_name",
+			"country_code",
+			"country_name",
+			"region_code",
+			"region_name",
+			"city",
+			"postal_code",
+			"latitude",
+			"longitude",
+			"msa",
+			"dma",
+			"radius",
+			"ip_routing_type",
+			"connection_type",
+			"connection_asn",
+			"connection_isp",
+			"connection_organization_type",
+			"connection_home",
+			"hostname",
+			"time_zone_id",
+			"time_zone_gmt_offset",
+			"time_zone_code",
+			"location_geoname_id",
+			"location_is_eu",
+			"provider_error_code",
+			"provider_error_type",
+			"provider_error_message",
+			"last_lookup_attempted_at",
+			"last_lookup_succeeded_at"
+	);
+
+	public void runAccountGeolocationReportCsv(@Nonnull InstitutionId institutionId,
+																						 @Nonnull LocalDateTime startDateTime,
+																						 @Nonnull LocalDateTime endDateTime,
+																						 @Nonnull ZoneId reportTimeZone,
+																						 @Nonnull Locale reportLocale,
+																						 @Nonnull Writer writer) {
+		requireNonNull(institutionId);
+		requireNonNull(startDateTime);
+		requireNonNull(endDateTime);
+		requireNonNull(reportTimeZone);
+		requireNonNull(reportLocale);
+		requireNonNull(writer);
+
+		Institution institution = getInstitutionService().findInstitutionById(institutionId).get();
+		ZoneId institutionTimeZone = institution.getTimeZone() != null ? institution.getTimeZone() : reportTimeZone;
+
+		Instant startInstant = startDateTime.atZone(institutionTimeZone).toInstant();
+		Instant endInstant = endDateTime.atZone(institutionTimeZone).toInstant();
+
+		List<AccountGeolocationReportRecord> records = getDatabase().queryForList("""
+						WITH event_ip_aggregates AS (
+							SELECT
+								ane.account_id,
+								ane.ip_address AS ip_address_inet,
+								host(ane.ip_address) AS ip_address,
+								COUNT(*)::BIGINT AS analytics_event_count,
+								COUNT(DISTINCT ane.session_id)::BIGINT AS analytics_session_count,
+								MIN(ane.timestamp) AS first_analytics_event_at,
+								MAX(ane.timestamp) AS last_analytics_event_at
+							FROM analytics_native_event ane
+							WHERE ane.institution_id = ?
+								AND ane.timestamp >= ?
+								AND ane.timestamp <= ?
+								AND ane.account_id IS NOT NULL
+								AND ane.ip_address IS NOT NULL
+							GROUP BY ane.account_id, ane.ip_address
+						)
+						SELECT
+							a.account_id,
+							a.email_address,
+							a.created AS account_created_at,
+							a.role_id,
+							a.account_source_id,
+							ai.account_invite_id,
+							ai.claimed AS invite_claimed,
+							ai.created AS invite_created_at,
+							ai.last_updated AS invite_last_updated_at,
+							eia.ip_address,
+							eia.analytics_event_count,
+							eia.analytics_session_count,
+							eia.first_analytics_event_at,
+							eia.last_analytics_event_at,
+							ipg.ip_geolocation_status_id,
+							ipg.ip_type,
+							ipg.continent_code,
+							ipg.continent_name,
+							ipg.country_code,
+							ipg.country_name,
+							ipg.region_code,
+							ipg.region_name,
+							ipg.city,
+							ipg.postal_code,
+							ipg.latitude,
+							ipg.longitude,
+							ipg.msa,
+							ipg.dma,
+							ipg.radius,
+							ipg.ip_routing_type,
+							ipg.connection_type,
+							ipg.connection_asn,
+							ipg.connection_isp,
+							ipg.connection_organization_type,
+							ipg.connection_home,
+							ipg.hostname,
+							ipg.time_zone_id,
+							ipg.time_zone_gmt_offset,
+							ipg.time_zone_code,
+							ipg.location_geoname_id,
+							ipg.location_is_eu,
+							ipg.provider_error_code,
+							ipg.provider_error_type,
+							ipg.provider_error_message,
+							ipg.last_lookup_attempted_at,
+							ipg.last_lookup_succeeded_at
+						FROM event_ip_aggregates eia
+						JOIN account a
+							ON a.account_id = eia.account_id
+							AND a.institution_id = ?
+						LEFT JOIN LATERAL (
+							SELECT ai.*
+							FROM account_invite ai
+							WHERE ai.institution_id = a.institution_id
+								AND LOWER(ai.email_address) = LOWER(a.email_address)
+							ORDER BY ai.created DESC
+							LIMIT 1
+						) ai ON TRUE
+						LEFT JOIN ip_geolocation ipg
+							ON ipg.ip_address = eia.ip_address_inet
+						ORDER BY eia.last_analytics_event_at DESC, a.created DESC, a.account_id, eia.ip_address
+						""", AccountGeolocationReportRecord.class, institutionId, startInstant, endInstant, institutionId);
+
+		DateTimeFormatter dateTimeFormatter = DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM, FormatStyle.SHORT)
+				.withZone(institutionTimeZone)
+				.withLocale(reportLocale);
+
+		try (CSVPrinter csvPrinter = new CSVPrinter(writer, CSVFormat.DEFAULT.withHeader(ACCOUNT_GEOLOCATION_HEADER_COLUMNS.toArray(new String[0])))) {
+			for (AccountGeolocationReportRecord record : records) {
+				List<String> recordElements = new ArrayList<>(ACCOUNT_GEOLOCATION_HEADER_COLUMNS.size());
+
+				recordElements.add(record.getAccountId() == null ? "" : record.getAccountId().toString());
+				recordElements.add(record.getEmailAddress());
+				recordElements.add(record.getAccountCreatedAt() == null ? "" : dateTimeFormatter.format(record.getAccountCreatedAt()));
+				recordElements.add(record.getRoleId() == null ? "" : record.getRoleId().name());
+				recordElements.add(record.getAccountSourceId() == null ? "" : record.getAccountSourceId().name());
+				recordElements.add(record.getAccountInviteId() == null ? "" : record.getAccountInviteId().toString());
+				recordElements.add(record.getInviteClaimed() == null ? "" : record.getInviteClaimed().toString());
+				recordElements.add(record.getInviteCreatedAt() == null ? "" : dateTimeFormatter.format(record.getInviteCreatedAt()));
+				recordElements.add(record.getInviteLastUpdatedAt() == null ? "" : dateTimeFormatter.format(record.getInviteLastUpdatedAt()));
+				recordElements.add(record.getIpAddress());
+				recordElements.add(record.getAnalyticsEventCount() == null ? "" : record.getAnalyticsEventCount().toString());
+				recordElements.add(record.getAnalyticsSessionCount() == null ? "" : record.getAnalyticsSessionCount().toString());
+				recordElements.add(record.getFirstAnalyticsEventAt() == null ? "" : dateTimeFormatter.format(record.getFirstAnalyticsEventAt()));
+				recordElements.add(record.getLastAnalyticsEventAt() == null ? "" : dateTimeFormatter.format(record.getLastAnalyticsEventAt()));
+				recordElements.add(record.getIpGeolocationStatusId());
+				recordElements.add(record.getIpType());
+				recordElements.add(record.getContinentCode());
+				recordElements.add(record.getContinentName());
+				recordElements.add(record.getCountryCode());
+				recordElements.add(record.getCountryName());
+				recordElements.add(record.getRegionCode());
+				recordElements.add(record.getRegionName());
+				recordElements.add(record.getCity());
+				recordElements.add(record.getPostalCode());
+				recordElements.add(record.getLatitude() == null ? "" : record.getLatitude().toString());
+				recordElements.add(record.getLongitude() == null ? "" : record.getLongitude().toString());
+				recordElements.add(record.getMsa());
+				recordElements.add(record.getDma());
+				recordElements.add(record.getRadius() == null ? "" : record.getRadius().toString());
+				recordElements.add(record.getIpRoutingType());
+				recordElements.add(record.getConnectionType());
+				recordElements.add(record.getConnectionAsn() == null ? "" : record.getConnectionAsn().toString());
+				recordElements.add(record.getConnectionIsp());
+				recordElements.add(record.getConnectionOrganizationType());
+				recordElements.add(record.getConnectionHome() == null ? "" : record.getConnectionHome().toString());
+				recordElements.add(record.getHostname());
+				recordElements.add(record.getTimeZoneId());
+				recordElements.add(record.getTimeZoneGmtOffset() == null ? "" : record.getTimeZoneGmtOffset().toString());
+				recordElements.add(record.getTimeZoneCode());
+				recordElements.add(record.getLocationGeonameId() == null ? "" : record.getLocationGeonameId().toString());
+				recordElements.add(record.getLocationIsEu() == null ? "" : record.getLocationIsEu().toString());
+				recordElements.add(record.getProviderErrorCode() == null ? "" : record.getProviderErrorCode().toString());
+				recordElements.add(record.getProviderErrorType());
+				recordElements.add(record.getProviderErrorMessage());
+				recordElements.add(record.getLastLookupAttemptedAt() == null ? "" : dateTimeFormatter.format(record.getLastLookupAttemptedAt()));
+				recordElements.add(record.getLastLookupSucceededAt() == null ? "" : dateTimeFormatter.format(record.getLastLookupSucceededAt()));
+
+				csvPrinter.printRecord(recordElements.toArray(new Object[0]));
+			}
+
+			csvPrinter.flush();
+		} catch (IOException e) {
+			throw new UncheckedIOException(e);
+		}
+	}
+
+	@Nonnull
 	private static final String METRIC_COMPLETE_COLUMN_SUFFIX = "_complete";
 	@Nonnull
 	private static final String METRIC_TIME_COLUMN_SUFFIX = "_time";
@@ -2213,6 +2434,21 @@ public class ReportingService {
 			"bb_mcb_additional_info_time",
 			"bb_mcb_additional_info_visit"
 	);
+
+	@Nonnull
+	private static final List<String> ACCOUNT_ONBOARDING_COMPLETE_V2_HEADER_COLUMNS = courseMcbDownloadHeaderColumnsThrough("bb_mcb_visit");
+
+	@Nonnull
+	private static List<String> courseMcbDownloadHeaderColumnsThrough(@Nonnull String headerColumn) {
+		requireNonNull(headerColumn);
+
+		int headerColumnIndex = COURSE_MCB_DOWNLOAD_HEADER_COLUMNS.indexOf(headerColumn);
+
+		if (headerColumnIndex < 0)
+			throw new IllegalStateException(format("Missing expected COURSE_MCB_DOWNLOAD header column '%s'", headerColumn));
+
+		return List.copyOf(COURSE_MCB_DOWNLOAD_HEADER_COLUMNS.subList(0, headerColumnIndex + 1));
+	}
 
 	@Nonnull
 	private static final List<String> ACCOUNT_TIMELINE_HEADER_COLUMNS = List.of(
@@ -2755,18 +2991,55 @@ public class ReportingService {
 																			@Nonnull ZoneId reportTimeZone,
 																			@Nonnull Locale reportLocale,
 																			@Nonnull Writer writer) {
+		runCourseMcbDownloadStyleReportCsv(institutionId, startDateTime, endDateTime, reportTimeZone, reportLocale, writer,
+				COURSE_MCB_DOWNLOAD_HEADER_COLUMNS, false);
+	}
+
+	public void runAccountOnboardingCompleteV2ReportCsv(@Nonnull InstitutionId institutionId,
+																											@Nonnull LocalDateTime startDateTime,
+																											@Nonnull LocalDateTime endDateTime,
+																											@Nonnull ZoneId reportTimeZone,
+																											@Nonnull Locale reportLocale,
+																											@Nonnull Writer writer) {
+		runCourseMcbDownloadStyleReportCsv(institutionId, startDateTime, endDateTime, reportTimeZone, reportLocale, writer,
+				ACCOUNT_ONBOARDING_COMPLETE_V2_HEADER_COLUMNS, true);
+	}
+
+	private void runCourseMcbDownloadStyleReportCsv(@Nonnull InstitutionId institutionId,
+																									@Nonnull LocalDateTime startDateTime,
+																									@Nonnull LocalDateTime endDateTime,
+																									@Nonnull ZoneId reportTimeZone,
+																									@Nonnull Locale reportLocale,
+																									@Nonnull Writer writer,
+																									@Nonnull List<String> headerColumns,
+																									boolean completedOnboardingOnly) {
 		requireNonNull(institutionId);
 		requireNonNull(startDateTime);
 		requireNonNull(endDateTime);
 		requireNonNull(reportTimeZone);
 		requireNonNull(reportLocale);
 		requireNonNull(writer);
+		requireNonNull(headerColumns);
 
 		Institution institution = getInstitutionService().findInstitutionById(institutionId).get();
 		ZoneId institutionTimeZone = institution.getTimeZone() != null ? institution.getTimeZone() : reportTimeZone;
 
 		Instant startInstant = startDateTime.atZone(institutionTimeZone).toInstant();
 		Instant endInstant = endDateTime.atZone(institutionTimeZone).toInstant();
+
+		String completedOnboardingAccountFilter = completedOnboardingOnly ? """
+										AND EXISTS (
+											SELECT 1
+											FROM screening_session ss_completed
+											JOIN screening_flow_version sfv_completed
+												ON sfv_completed.screening_flow_version_id = ss_completed.screening_flow_version_id
+											JOIN institution_onboarding io_completed
+												ON io_completed.onboarding_screening_flow_id = sfv_completed.screening_flow_id
+											WHERE ss_completed.target_account_id = a.account_id
+												AND ss_completed.completed = TRUE
+												AND ss_completed.completed_at <= rw.report_end_at
+										)
+				""" : "";
 
 		List<CourseMcbDownloadReportRecord> records = getDatabase().queryForList("""
 							WITH institution_onboarding AS (
@@ -2850,6 +3123,7 @@ public class ReportingService {
 									AND a.created <= rw.report_end_at
 									AND a.role_id = ?
 									AND a.test_account = FALSE
+				""" + completedOnboardingAccountFilter + """
 							),
 								account_site_metrics AS (
 									SELECT
@@ -3274,16 +3548,16 @@ public class ReportingService {
 				.withZone(institutionTimeZone)
 				.withLocale(reportLocale);
 
-		try (CSVPrinter csvPrinter = new CSVPrinter(writer, CSVFormat.DEFAULT.withHeader(COURSE_MCB_DOWNLOAD_HEADER_COLUMNS.toArray(new String[0])))) {
+		try (CSVPrinter csvPrinter = new CSVPrinter(writer, CSVFormat.DEFAULT.withHeader(headerColumns.toArray(new String[0])))) {
 			for (CourseMcbDownloadReportRecord record : records) {
 				Map<String, String> screeningValues = parseJsonObjectAsStringMap(record.getScreeningValuesJson());
 				Map<String, String> metricCompleteValues = parseJsonObjectAsStringMap(record.getMetricCompleteValuesJson());
 				Map<String, String> metricTimeValues = parseJsonObjectAsStringMap(record.getMetricTimeValuesJson());
 				Map<String, String> metricVisitValues = parseJsonObjectAsStringMap(record.getMetricVisitValuesJson());
 
-				List<String> recordElements = new ArrayList<>(COURSE_MCB_DOWNLOAD_HEADER_COLUMNS.size());
+				List<String> recordElements = new ArrayList<>(headerColumns.size());
 
-				for (String headerColumn : COURSE_MCB_DOWNLOAD_HEADER_COLUMNS)
+				for (String headerColumn : headerColumns)
 					recordElements.add(resolveCourseMcbDownloadColumnValue(headerColumn, record, dateFormatter, screeningValues, metricCompleteValues, metricTimeValues, metricVisitValues));
 
 				csvPrinter.printRecord(recordElements.toArray(new Object[0]));
@@ -4100,6 +4374,516 @@ public class ReportingService {
 
 		public void setDetailsJson(@Nullable String detailsJson) {
 			this.detailsJson = detailsJson;
+		}
+	}
+
+	@NotThreadSafe
+	protected static class AccountGeolocationReportRecord {
+		@Nullable
+		private UUID accountId;
+		@Nullable
+		private String emailAddress;
+		@Nullable
+		private Instant accountCreatedAt;
+		@Nullable
+		private RoleId roleId;
+		@Nullable
+		private AccountSourceId accountSourceId;
+		@Nullable
+		private UUID accountInviteId;
+		@Nullable
+		private Boolean inviteClaimed;
+		@Nullable
+		private Instant inviteCreatedAt;
+		@Nullable
+		private Instant inviteLastUpdatedAt;
+		@Nullable
+		private String ipAddress;
+		@Nullable
+		private Long analyticsEventCount;
+		@Nullable
+		private Long analyticsSessionCount;
+		@Nullable
+		private Instant firstAnalyticsEventAt;
+		@Nullable
+		private Instant lastAnalyticsEventAt;
+		@Nullable
+		private String ipGeolocationStatusId;
+		@Nullable
+		private String ipType;
+		@Nullable
+		private String continentCode;
+		@Nullable
+		private String continentName;
+		@Nullable
+		private String countryCode;
+		@Nullable
+		private String countryName;
+		@Nullable
+		private String regionCode;
+		@Nullable
+		private String regionName;
+		@Nullable
+		private String city;
+		@Nullable
+		private String postalCode;
+		@Nullable
+		private Double latitude;
+		@Nullable
+		private Double longitude;
+		@Nullable
+		private String msa;
+		@Nullable
+		private String dma;
+		@Nullable
+		private Double radius;
+		@Nullable
+		private String ipRoutingType;
+		@Nullable
+		private String connectionType;
+		@Nullable
+		private Long connectionAsn;
+		@Nullable
+		private String connectionIsp;
+		@Nullable
+		private String connectionOrganizationType;
+		@Nullable
+		private Boolean connectionHome;
+		@Nullable
+		private String hostname;
+		@Nullable
+		private String timeZoneId;
+		@Nullable
+		private Integer timeZoneGmtOffset;
+		@Nullable
+		private String timeZoneCode;
+		@Nullable
+		private Long locationGeonameId;
+		@Nullable
+		private Boolean locationIsEu;
+		@Nullable
+		private Integer providerErrorCode;
+		@Nullable
+		private String providerErrorType;
+		@Nullable
+		private String providerErrorMessage;
+		@Nullable
+		private Instant lastLookupAttemptedAt;
+		@Nullable
+		private Instant lastLookupSucceededAt;
+
+		@Nullable
+		public UUID getAccountId() {
+			return accountId;
+		}
+
+		public void setAccountId(@Nullable UUID accountId) {
+			this.accountId = accountId;
+		}
+
+		@Nullable
+		public String getEmailAddress() {
+			return emailAddress;
+		}
+
+		public void setEmailAddress(@Nullable String emailAddress) {
+			this.emailAddress = emailAddress;
+		}
+
+		@Nullable
+		public Instant getAccountCreatedAt() {
+			return accountCreatedAt;
+		}
+
+		public void setAccountCreatedAt(@Nullable Instant accountCreatedAt) {
+			this.accountCreatedAt = accountCreatedAt;
+		}
+
+		@Nullable
+		public RoleId getRoleId() {
+			return roleId;
+		}
+
+		public void setRoleId(@Nullable RoleId roleId) {
+			this.roleId = roleId;
+		}
+
+		@Nullable
+		public AccountSourceId getAccountSourceId() {
+			return accountSourceId;
+		}
+
+		public void setAccountSourceId(@Nullable AccountSourceId accountSourceId) {
+			this.accountSourceId = accountSourceId;
+		}
+
+		@Nullable
+		public UUID getAccountInviteId() {
+			return accountInviteId;
+		}
+
+		public void setAccountInviteId(@Nullable UUID accountInviteId) {
+			this.accountInviteId = accountInviteId;
+		}
+
+		@Nullable
+		public Boolean getInviteClaimed() {
+			return inviteClaimed;
+		}
+
+		public void setInviteClaimed(@Nullable Boolean inviteClaimed) {
+			this.inviteClaimed = inviteClaimed;
+		}
+
+		@Nullable
+		public Instant getInviteCreatedAt() {
+			return inviteCreatedAt;
+		}
+
+		public void setInviteCreatedAt(@Nullable Instant inviteCreatedAt) {
+			this.inviteCreatedAt = inviteCreatedAt;
+		}
+
+		@Nullable
+		public Instant getInviteLastUpdatedAt() {
+			return inviteLastUpdatedAt;
+		}
+
+		public void setInviteLastUpdatedAt(@Nullable Instant inviteLastUpdatedAt) {
+			this.inviteLastUpdatedAt = inviteLastUpdatedAt;
+		}
+
+		@Nullable
+		public String getIpAddress() {
+			return ipAddress;
+		}
+
+		public void setIpAddress(@Nullable String ipAddress) {
+			this.ipAddress = ipAddress;
+		}
+
+		@Nullable
+		public Long getAnalyticsEventCount() {
+			return analyticsEventCount;
+		}
+
+		public void setAnalyticsEventCount(@Nullable Long analyticsEventCount) {
+			this.analyticsEventCount = analyticsEventCount;
+		}
+
+		@Nullable
+		public Long getAnalyticsSessionCount() {
+			return analyticsSessionCount;
+		}
+
+		public void setAnalyticsSessionCount(@Nullable Long analyticsSessionCount) {
+			this.analyticsSessionCount = analyticsSessionCount;
+		}
+
+		@Nullable
+		public Instant getFirstAnalyticsEventAt() {
+			return firstAnalyticsEventAt;
+		}
+
+		public void setFirstAnalyticsEventAt(@Nullable Instant firstAnalyticsEventAt) {
+			this.firstAnalyticsEventAt = firstAnalyticsEventAt;
+		}
+
+		@Nullable
+		public Instant getLastAnalyticsEventAt() {
+			return lastAnalyticsEventAt;
+		}
+
+		public void setLastAnalyticsEventAt(@Nullable Instant lastAnalyticsEventAt) {
+			this.lastAnalyticsEventAt = lastAnalyticsEventAt;
+		}
+
+		@Nullable
+		public String getIpGeolocationStatusId() {
+			return ipGeolocationStatusId;
+		}
+
+		public void setIpGeolocationStatusId(@Nullable String ipGeolocationStatusId) {
+			this.ipGeolocationStatusId = ipGeolocationStatusId;
+		}
+
+		@Nullable
+		public String getIpType() {
+			return ipType;
+		}
+
+		public void setIpType(@Nullable String ipType) {
+			this.ipType = ipType;
+		}
+
+		@Nullable
+		public String getContinentCode() {
+			return continentCode;
+		}
+
+		public void setContinentCode(@Nullable String continentCode) {
+			this.continentCode = continentCode;
+		}
+
+		@Nullable
+		public String getContinentName() {
+			return continentName;
+		}
+
+		public void setContinentName(@Nullable String continentName) {
+			this.continentName = continentName;
+		}
+
+		@Nullable
+		public String getCountryCode() {
+			return countryCode;
+		}
+
+		public void setCountryCode(@Nullable String countryCode) {
+			this.countryCode = countryCode;
+		}
+
+		@Nullable
+		public String getCountryName() {
+			return countryName;
+		}
+
+		public void setCountryName(@Nullable String countryName) {
+			this.countryName = countryName;
+		}
+
+		@Nullable
+		public String getRegionCode() {
+			return regionCode;
+		}
+
+		public void setRegionCode(@Nullable String regionCode) {
+			this.regionCode = regionCode;
+		}
+
+		@Nullable
+		public String getRegionName() {
+			return regionName;
+		}
+
+		public void setRegionName(@Nullable String regionName) {
+			this.regionName = regionName;
+		}
+
+		@Nullable
+		public String getCity() {
+			return city;
+		}
+
+		public void setCity(@Nullable String city) {
+			this.city = city;
+		}
+
+		@Nullable
+		public String getPostalCode() {
+			return postalCode;
+		}
+
+		public void setPostalCode(@Nullable String postalCode) {
+			this.postalCode = postalCode;
+		}
+
+		@Nullable
+		public Double getLatitude() {
+			return latitude;
+		}
+
+		public void setLatitude(@Nullable Double latitude) {
+			this.latitude = latitude;
+		}
+
+		@Nullable
+		public Double getLongitude() {
+			return longitude;
+		}
+
+		public void setLongitude(@Nullable Double longitude) {
+			this.longitude = longitude;
+		}
+
+		@Nullable
+		public String getMsa() {
+			return msa;
+		}
+
+		public void setMsa(@Nullable String msa) {
+			this.msa = msa;
+		}
+
+		@Nullable
+		public String getDma() {
+			return dma;
+		}
+
+		public void setDma(@Nullable String dma) {
+			this.dma = dma;
+		}
+
+		@Nullable
+		public Double getRadius() {
+			return radius;
+		}
+
+		public void setRadius(@Nullable Double radius) {
+			this.radius = radius;
+		}
+
+		@Nullable
+		public String getIpRoutingType() {
+			return ipRoutingType;
+		}
+
+		public void setIpRoutingType(@Nullable String ipRoutingType) {
+			this.ipRoutingType = ipRoutingType;
+		}
+
+		@Nullable
+		public String getConnectionType() {
+			return connectionType;
+		}
+
+		public void setConnectionType(@Nullable String connectionType) {
+			this.connectionType = connectionType;
+		}
+
+		@Nullable
+		public Long getConnectionAsn() {
+			return connectionAsn;
+		}
+
+		public void setConnectionAsn(@Nullable Long connectionAsn) {
+			this.connectionAsn = connectionAsn;
+		}
+
+		@Nullable
+		public String getConnectionIsp() {
+			return connectionIsp;
+		}
+
+		public void setConnectionIsp(@Nullable String connectionIsp) {
+			this.connectionIsp = connectionIsp;
+		}
+
+		@Nullable
+		public String getConnectionOrganizationType() {
+			return connectionOrganizationType;
+		}
+
+		public void setConnectionOrganizationType(@Nullable String connectionOrganizationType) {
+			this.connectionOrganizationType = connectionOrganizationType;
+		}
+
+		@Nullable
+		public Boolean getConnectionHome() {
+			return connectionHome;
+		}
+
+		public void setConnectionHome(@Nullable Boolean connectionHome) {
+			this.connectionHome = connectionHome;
+		}
+
+		@Nullable
+		public String getHostname() {
+			return hostname;
+		}
+
+		public void setHostname(@Nullable String hostname) {
+			this.hostname = hostname;
+		}
+
+		@Nullable
+		public String getTimeZoneId() {
+			return timeZoneId;
+		}
+
+		public void setTimeZoneId(@Nullable String timeZoneId) {
+			this.timeZoneId = timeZoneId;
+		}
+
+		@Nullable
+		public Integer getTimeZoneGmtOffset() {
+			return timeZoneGmtOffset;
+		}
+
+		public void setTimeZoneGmtOffset(@Nullable Integer timeZoneGmtOffset) {
+			this.timeZoneGmtOffset = timeZoneGmtOffset;
+		}
+
+		@Nullable
+		public String getTimeZoneCode() {
+			return timeZoneCode;
+		}
+
+		public void setTimeZoneCode(@Nullable String timeZoneCode) {
+			this.timeZoneCode = timeZoneCode;
+		}
+
+		@Nullable
+		public Long getLocationGeonameId() {
+			return locationGeonameId;
+		}
+
+		public void setLocationGeonameId(@Nullable Long locationGeonameId) {
+			this.locationGeonameId = locationGeonameId;
+		}
+
+		@Nullable
+		public Boolean getLocationIsEu() {
+			return locationIsEu;
+		}
+
+		public void setLocationIsEu(@Nullable Boolean locationIsEu) {
+			this.locationIsEu = locationIsEu;
+		}
+
+		@Nullable
+		public Integer getProviderErrorCode() {
+			return providerErrorCode;
+		}
+
+		public void setProviderErrorCode(@Nullable Integer providerErrorCode) {
+			this.providerErrorCode = providerErrorCode;
+		}
+
+		@Nullable
+		public String getProviderErrorType() {
+			return providerErrorType;
+		}
+
+		public void setProviderErrorType(@Nullable String providerErrorType) {
+			this.providerErrorType = providerErrorType;
+		}
+
+		@Nullable
+		public String getProviderErrorMessage() {
+			return providerErrorMessage;
+		}
+
+		public void setProviderErrorMessage(@Nullable String providerErrorMessage) {
+			this.providerErrorMessage = providerErrorMessage;
+		}
+
+		@Nullable
+		public Instant getLastLookupAttemptedAt() {
+			return lastLookupAttemptedAt;
+		}
+
+		public void setLastLookupAttemptedAt(@Nullable Instant lastLookupAttemptedAt) {
+			this.lastLookupAttemptedAt = lastLookupAttemptedAt;
+		}
+
+		@Nullable
+		public Instant getLastLookupSucceededAt() {
+			return lastLookupSucceededAt;
+		}
+
+		public void setLastLookupSucceededAt(@Nullable Instant lastLookupSucceededAt) {
+			this.lastLookupSucceededAt = lastLookupSucceededAt;
 		}
 	}
 
