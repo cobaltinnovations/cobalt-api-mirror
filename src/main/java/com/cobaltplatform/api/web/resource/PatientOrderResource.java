@@ -1941,7 +1941,9 @@ public class PatientOrderResource {
 		LocalDateTime endOfDayToday = LocalDateTime.of(today.toLocalDate(), LocalTime.MAX);
 
 		// Pull all the orders for the "today" view and chunk them up into the sections needed for the UI
-		List<PatientOrder> patientOrders = getPatientOrderService().findOpenPatientOrdersForPanelAccountId(panelAccount.getAccountId());
+		List<PatientOrder> patientOrders = usePanelTodayPerfOptimization
+				? getPatientOrderService().findOpenPatientOrdersForPanelAccountIdOptimized(panelAccount.getAccountId())
+				: getPatientOrderService().findOpenPatientOrdersForPanelAccountId(panelAccount.getAccountId());
 		List<PatientOrderApiResponse> safetyPlanningPatientOrders;
 		List<PatientOrderApiResponse> outreachReviewPatientOrders;
 		List<PatientOrderApiResponse> voicemailTaskPatientOrders;

@@ -3061,6 +3061,533 @@ public class PatientOrderService implements AutoCloseable {
 	}
 
 	@Nonnull
+	public List<PatientOrder> findOpenPatientOrdersForPanelAccountIdOptimized(@Nullable UUID panelAccountId) {
+		if (panelAccountId == null)
+			return List.of();
+
+		// Same filter-first CTE structure as findPatientOrdersOptimized; keep the enrichment CTEs in sync
+		return getDatabase().queryForList("""
+					WITH raw_base AS MATERIALIZED (
+						SELECT raw_po.*
+						FROM patient_order raw_po
+						WHERE raw_po.panel_account_id=?
+						AND raw_po.patient_order_disposition_id=?
+					),
+					inst AS (
+						SELECT i.*
+						FROM institution i
+						WHERE i.institution_id = (SELECT rb.institution_id FROM raw_base rb LIMIT 1)
+					),
+					permitted_regions_query AS (
+						SELECT iicr.institution_id,
+									ARRAY_AGG(iicr.region_abbreviation) AS permitted_region_abbreviations
+						FROM institution_integrated_care_region iicr
+						WHERE iicr.institution_id = (SELECT rb.institution_id FROM raw_base rb LIMIT 1)
+						GROUP BY iicr.institution_id
+					),
+				poo AS (
+					SELECT patient_order_outreach.patient_order_id,
+								COUNT(*) AS outreach_count,
+								MAX(patient_order_outreach.outreach_date_time) AS max_outreach_date_time
+					FROM patient_order_outreach
+					JOIN raw_base bo
+					ON bo.patient_order_id = patient_order_outreach.patient_order_id
+					WHERE patient_order_outreach.deleted = FALSE
+					GROUP BY patient_order_outreach.patient_order_id
+				),
+				reason_for_referral_query AS (
+					SELECT por.patient_order_id,
+								STRING_AGG(porr.description, ', ' ORDER BY por.display_order) AS reason_for_referral
+					FROM patient_order_referral por
+					JOIN raw_base bo
+					ON bo.patient_order_id = por.patient_order_id
+					JOIN patient_order_referral_reason porr
+					ON por.patient_order_referral_reason_id = porr.patient_order_referral_reason_id
+					GROUP BY por.patient_order_id
+				),
+				delivered_message_groups AS MATERIALIZED (
+					SELECT
+						posmg_1.patient_order_scheduled_message_group_id,
+						posmg_1.patient_order_id,
+						posmg_1.scheduled_at_date_time,
+						MAX(ml.delivered) AS most_recent_message_delivered_at
+					FROM patient_order_scheduled_message_group posmg_1
+					JOIN raw_base bo
+					ON bo.patient_order_id = posmg_1.patient_order_id
+					JOIN patient_order_scheduled_message posm
+					ON posm.patient_order_scheduled_message_group_id = posmg_1.patient_order_scheduled_message_group_id
+					JOIN scheduled_message sm
+					ON sm.scheduled_message_id = posm.scheduled_message_id
+					JOIN message_log ml
+					ON ml.message_id = sm.message_id
+					AND ml.message_status_id = 'DELIVERED'
+					WHERE posmg_1.deleted = FALSE
+					GROUP BY
+						posmg_1.patient_order_scheduled_message_group_id,
+						posmg_1.patient_order_id,
+						posmg_1.scheduled_at_date_time
+				),
+				message_rollup AS MATERIALIZED (
+					SELECT
+						dmg.patient_order_id,
+						COUNT(*) AS scheduled_message_group_delivered_count,
+						MAX(dmg.scheduled_at_date_time) AS max_delivered_scheduled_message_group_date_time,
+						MAX(dmg.most_recent_message_delivered_at) AS most_recent_message_delivered_at
+					FROM delivered_message_groups dmg
+					GROUP BY dmg.patient_order_id
+				),
+				next_resource_check_in_scheduled_message_group_query AS (
+					SELECT DISTINCT ON (posmg_1.patient_order_id)
+						posmg_1.patient_order_id,
+						posmg_1.patient_order_scheduled_message_group_id AS next_resource_check_in_scheduled_message_group_id,
+						posmg_1.scheduled_at_date_time AS next_resource_check_in_scheduled_at_date_time
+					FROM patient_order_scheduled_message_group posmg_1
+					JOIN raw_base bo
+					ON bo.patient_order_id = posmg_1.patient_order_id
+					JOIN inst i_1
+					ON bo.institution_id = i_1.institution_id
+					LEFT JOIN delivered_message_groups dmg
+					ON dmg.patient_order_scheduled_message_group_id = posmg_1.patient_order_scheduled_message_group_id
+					WHERE posmg_1.patient_order_scheduled_message_type_id = 'RESOURCE_CHECK_IN'
+						AND posmg_1.deleted = FALSE
+						AND (posmg_1.scheduled_at_date_time AT TIME ZONE i_1.time_zone) > NOW()
+						AND dmg.patient_order_scheduled_message_group_id IS NULL
+					ORDER BY posmg_1.patient_order_id, posmg_1.scheduled_at_date_time, posmg_1.patient_order_scheduled_message_group_id
+				),
+				next_appt_query AS (
+					SELECT DISTINCT ON (app.patient_order_id)
+						app.patient_order_id,
+						app.appointment_id,
+						app.canceled,
+						p.provider_id,
+						p.name AS provider_name,
+						app.start_time AS appointment_start_time,
+						app.created_by_account_id
+					FROM appointment app
+					JOIN raw_base bo
+					ON bo.patient_order_id = app.patient_order_id
+					JOIN provider p
+					ON app.provider_id = p.provider_id
+					WHERE app.canceled = FALSE
+					ORDER BY app.patient_order_id, app.start_time, app.appointment_id
+				),
+				recent_voicemail_task_query AS (
+					SELECT DISTINCT ON (povt.patient_order_id)
+						povt.patient_order_id,
+						povt.patient_order_voicemail_task_id,
+						povt.completed AS patient_order_voicemail_task_completed
+					FROM patient_order_voicemail_task povt
+					JOIN raw_base bo
+					ON bo.patient_order_id = povt.patient_order_id
+					WHERE povt.deleted = FALSE
+					ORDER BY povt.patient_order_id, povt.created DESC, povt.patient_order_voicemail_task_id
+				),
+				next_scheduled_outreach_query AS (
+					SELECT DISTINCT ON (poso.patient_order_id)
+						poso.patient_order_id,
+						poso.patient_order_scheduled_outreach_id AS next_scheduled_outreach_id,
+						poso.scheduled_at_date_time AS next_scheduled_outreach_scheduled_at_date_time,
+						poso.patient_order_outreach_type_id AS next_scheduled_outreach_type_id,
+						poso.patient_order_scheduled_outreach_reason_id AS next_scheduled_outreach_reason_id
+					FROM patient_order_scheduled_outreach poso
+					JOIN raw_base bo
+					ON bo.patient_order_id = poso.patient_order_id
+					WHERE poso.patient_order_scheduled_outreach_status_id = 'SCHEDULED'
+					ORDER BY poso.patient_order_id, poso.scheduled_at_date_time, poso.patient_order_scheduled_outreach_id
+				),
+				ss_query AS (
+					SELECT DISTINCT ON (ss.patient_order_id)
+						ss.screening_session_id,
+						ss.screening_flow_version_id,
+						ss.target_account_id,
+						ss.created_by_account_id,
+						ss.completed,
+						ss.crisis_indicated,
+						ss.created,
+						ss.last_updated,
+						ss.skipped,
+						ss.skipped_at,
+						ss.completed_at,
+						ss.crisis_indicated_at,
+						ss.patient_order_id,
+						ss.group_session_id,
+						ss.account_check_in_action_id,
+						ss.metadata,
+						a.first_name,
+						a.last_name,
+						a.role_id
+					FROM screening_session ss
+					JOIN screening_flow_version sfv
+					ON ss.screening_flow_version_id = sfv.screening_flow_version_id
+					JOIN inst i_1
+					ON sfv.screening_flow_id = i_1.integrated_care_screening_flow_id
+					JOIN raw_base bo
+					ON bo.patient_order_id = ss.patient_order_id
+					JOIN account a
+					ON ss.created_by_account_id = a.account_id
+					WHERE i_1.institution_id = a.institution_id
+						AND ss.skipped = FALSE
+					ORDER BY ss.patient_order_id, ss.created DESC
+				),
+				ss_intake_query AS (
+					SELECT DISTINCT ON (ss.patient_order_id)
+						ss.screening_session_id,
+						ss.screening_flow_version_id,
+						ss.target_account_id,
+						ss.created_by_account_id,
+						ss.completed,
+						ss.crisis_indicated,
+						ss.created,
+						ss.last_updated,
+						ss.skipped,
+						ss.skipped_at,
+						ss.completed_at,
+						ss.crisis_indicated_at,
+						ss.patient_order_id,
+						ss.group_session_id,
+						ss.account_check_in_action_id,
+						ss.metadata,
+						a.first_name,
+						a.last_name,
+						a.role_id
+					FROM screening_session ss
+					JOIN screening_flow_version sfv
+					ON ss.screening_flow_version_id = sfv.screening_flow_version_id
+					JOIN inst i_1
+					ON sfv.screening_flow_id = i_1.integrated_care_intake_screening_flow_id
+					JOIN raw_base bo
+					ON bo.patient_order_id = ss.patient_order_id
+					JOIN account a
+					ON ss.created_by_account_id = a.account_id
+					WHERE i_1.institution_id = a.institution_id
+						AND ss.skipped = FALSE
+					ORDER BY ss.patient_order_id, ss.created DESC
+				),
+				recent_scheduled_screening_query AS (
+					SELECT DISTINCT ON (poss.patient_order_id)
+						poss.patient_order_scheduled_screening_id,
+						poss.patient_order_id,
+						poss.account_id,
+						poss.scheduled_date_time,
+						poss.calendar_url,
+						poss.canceled,
+						poss.canceled_at,
+						poss.created,
+						poss.last_updated
+					FROM patient_order_scheduled_screening poss
+					JOIN raw_base bo
+					ON bo.patient_order_id = poss.patient_order_id
+					WHERE poss.canceled = FALSE
+					ORDER BY poss.patient_order_id, poss.scheduled_date_time
+				),
+				patient_mrns AS MATERIALIZED (
+					SELECT DISTINCT
+						bo.institution_id,
+						bo.patient_mrn
+					FROM raw_base bo
+				),
+				patient_order_history AS MATERIALIZED (
+					SELECT
+						po.patient_order_id,
+						po.institution_id,
+						po.patient_mrn,
+						LAG(po.episode_closed_at) OVER (
+							PARTITION BY po.institution_id, po.patient_mrn
+							ORDER BY po.order_date, po.patient_order_id
+						) AS most_recent_episode_closed_at
+					FROM patient_order po
+					JOIN patient_mrns pm
+					ON pm.institution_id = po.institution_id
+					AND pm.patient_mrn = po.patient_mrn
+				),
+				recent_po_query AS (
+					SELECT
+						bo.patient_order_id,
+						poh.most_recent_episode_closed_at
+					FROM raw_base bo
+					LEFT JOIN patient_order_history poh
+					ON poh.patient_order_id = bo.patient_order_id
+				),
+				enriched AS (
+					SELECT
+						tr.patient_order_care_type_id,
+						poct.description AS patient_order_care_type_description,
+						tr.patient_order_triage_source_id,
+						COALESCE(poo.outreach_count, 0::bigint) AS outreach_count,
+						poo.max_outreach_date_time AS most_recent_outreach_date_time,
+						COALESCE(mrq.scheduled_message_group_delivered_count, 0::bigint) AS scheduled_message_group_delivered_count,
+						mrq.max_delivered_scheduled_message_group_date_time AS most_recent_delivered_scheduled_message_group_date_time,
+						COALESCE(poo.outreach_count, 0::bigint) + COALESCE(mrq.scheduled_message_group_delivered_count, 0::bigint) AS total_outreach_count,
+						GREATEST(poo.max_outreach_date_time, mrq.max_delivered_scheduled_message_group_date_time) AS most_recent_total_outreach_date_time,
+						ssq.screening_session_id AS most_recent_screening_session_id,
+						ssq.created AS most_recent_screening_session_created_at,
+						ssq.created_by_account_id AS most_recent_screening_session_created_by_account_id,
+						ssq.role_id AS most_recent_screening_session_created_by_account_role_id,
+						ssq.first_name AS most_recent_screening_session_created_by_account_first_name,
+						ssq.last_name AS most_recent_screening_session_created_by_account_last_name,
+						ssq.completed AS most_recent_screening_session_completed,
+						ssq.completed_at AS most_recent_screening_session_completed_at,
+						CASE
+							WHEN ssq.completed = TRUE THEN 'COMPLETE'
+							WHEN ssq.screening_session_id IS NOT NULL THEN 'IN_PROGRESS'
+							WHEN rssq.scheduled_date_time IS NOT NULL THEN 'SCHEDULED'
+							ELSE 'NOT_SCREENED'
+						END AS patient_order_screening_status_id,
+						CASE
+							WHEN ssq.completed = TRUE THEN 'Complete'
+							WHEN ssq.screening_session_id IS NOT NULL THEN 'In Progress'
+							WHEN rssq.scheduled_date_time IS NOT NULL THEN 'Scheduled'
+							ELSE 'Not Screened'
+						END AS patient_order_screening_status_description,
+						CASE
+							WHEN bo.patient_account_id = ssq.created_by_account_id THEN TRUE
+							ELSE FALSE
+						END AS most_recent_screening_session_by_patient,
+						(ssq.screening_session_id IS NOT NULL AND ssq.completed = FALSE AND ssq.created < (NOW() - INTERVAL '1 hour')) AS most_recent_screening_session_appears_abandoned,
+						CASE
+							WHEN ssq.completed = TRUE AND bo.encounter_synced_at IS NULL THEN 'NEEDS_DOCUMENTATION'
+							WHEN ssq.completed = TRUE AND bo.encounter_synced_at IS NOT NULL THEN 'DOCUMENTED'
+							ELSE 'NOT_DOCUMENTED'
+						END AS patient_order_encounter_documentation_status_id,
+						ssiq.screening_session_id AS most_recent_intake_screening_session_id,
+						ssiq.created AS most_recent_intake_screening_session_created_at,
+						ssiq.created_by_account_id AS most_recent_intake_screening_session_created_by_account_id,
+						ssiq.role_id AS most_recent_intake_screening_session_created_by_account_role_id,
+						ssiq.first_name AS most_recent_intake_screening_session_created_by_account_fn,
+						ssiq.last_name AS most_recent_intake_screening_session_created_by_account_ln,
+						ssiq.completed AS most_recent_intake_screening_session_completed,
+						ssiq.completed_at AS most_recent_intake_screening_session_completed_at,
+						CASE
+							WHEN ssiq.completed = TRUE THEN 'COMPLETE'
+							WHEN ssiq.screening_session_id IS NOT NULL THEN 'IN_PROGRESS'
+							ELSE 'NOT_SCREENED'
+						END AS patient_order_intake_screening_status_id,
+						CASE
+							WHEN ssiq.completed = TRUE THEN 'Complete'
+							WHEN ssiq.screening_session_id IS NOT NULL THEN 'In Progress'
+							ELSE 'Not Screened'
+						END AS patient_order_intake_screening_status_description,
+						CASE
+							WHEN bo.patient_account_id = ssiq.created_by_account_id THEN TRUE
+							ELSE FALSE
+						END AS most_recent_intake_screening_session_by_patient,
+						(ssiq.screening_session_id IS NOT NULL AND ssiq.completed = FALSE AND ssiq.created < (NOW() - INTERVAL '1 hour')) AS most_recent_intake_screening_session_appears_abandoned,
+						(ssiq.screening_session_id IS NOT NULL AND ssiq.completed = TRUE
+							AND ((ssq.screening_session_id IS NOT NULL AND ssq.completed = TRUE)
+								OR ssq.screening_session_id IS NULL
+								OR (ssq.screening_session_id IS NOT NULL AND ssq.completed = FALSE AND ssiq.created > ssq.created))) AS most_recent_intake_and_clinical_screenings_satisfied,
+						panel_account.first_name AS panel_account_first_name,
+						panel_account.last_name AS panel_account_last_name,
+						pod.description AS patient_order_disposition_description,
+						CASE
+							WHEN tr.patient_order_care_type_id = 'SPECIALTY' THEN 'SPECIALTY_CARE'
+							WHEN tr.patient_order_care_type_id = 'SUBCLINICAL' THEN 'SUBCLINICAL'
+							WHEN tr.patient_order_care_type_id = 'COLLABORATIVE' THEN 'MHP'
+							ELSE 'NOT_TRIAGED'
+						END AS patient_order_triage_status_id,
+						CASE
+							WHEN tr.patient_order_care_type_id = 'SPECIALTY' THEN 'Specialty Care'
+							WHEN tr.patient_order_care_type_id = 'SUBCLINICAL' THEN 'Subclinical'
+							WHEN tr.patient_order_care_type_id = 'COLLABORATIVE' THEN 'MHP'
+							ELSE 'Not Triaged'
+						END AS patient_order_triage_status_description,
+						pocr.description AS patient_order_closure_reason_description,
+						DATE_PART('year', AGE(bo.order_date::timestamptz, bo.patient_birthdate::timestamptz))::integer AS patient_age_on_order_date,
+						(DATE_PART('year', AGE(bo.order_date::timestamptz, bo.patient_birthdate::timestamptz))::integer < 18) AS patient_below_age_threshold,
+						rpq.most_recent_episode_closed_at,
+						(DATE_PART('day', NOW() - rpq.most_recent_episode_closed_at)::integer < 30) AS most_recent_episode_closed_within_date_threshold,
+						rssq.patient_order_scheduled_screening_id,
+						rssq.scheduled_date_time AS patient_order_scheduled_screening_scheduled_date_time,
+						rssq.calendar_url AS patient_order_scheduled_screening_calendar_url,
+						(
+							(bo.patient_order_disposition_id = 'OPEN'
+								AND (bo.patient_order_intake_wants_services_status_id = 'NO'
+									OR bo.patient_order_intake_location_status_id = 'INVALID'
+									OR bo.patient_order_intake_insurance_status_id IN ('INVALID', 'CHANGED_RECENTLY')))
+							OR (bo.patient_order_disposition_id = 'OPEN'
+								AND ssq.screening_session_id IS NULL
+								AND rssq.scheduled_date_time IS NULL
+								AND (COALESCE(poo.outreach_count, 0::bigint) + COALESCE(mrq.scheduled_message_group_delivered_count, 0::bigint)) > 0
+								AND ((GREATEST(poo.max_outreach_date_time, mrq.max_delivered_scheduled_message_group_date_time) + MAKE_INTERVAL(days => i.integrated_care_outreach_followup_day_offset)) AT TIME ZONE i.time_zone) <= NOW())
+						) AS outreach_followup_needed,
+						naq.appointment_start_time,
+						naq.provider_id,
+						naq.provider_name,
+						naq.appointment_id,
+						(naq.appointment_id IS NOT NULL) AS appointment_scheduled,
+						(naq.created_by_account_id = bo.patient_account_id) AS appointment_scheduled_by_patient,
+						rvtq.patient_order_voicemail_task_id AS most_recent_patient_order_voicemail_task_id,
+						rvtq.patient_order_voicemail_task_completed AS most_recent_patient_order_voicemail_task_completed,
+						rfrq.reason_for_referral,
+						patient_address.street_address_1 AS patient_address_street_address_1,
+						patient_address.locality AS patient_address_locality,
+						patient_address.region AS patient_address_region,
+						patient_address.postal_code AS patient_address_postal_code,
+						patient_address.country_code AS patient_address_country_code,
+						(patient_address.region = ANY (prq.permitted_region_abbreviations)) AS patient_address_region_accepted,
+						(bo.patient_first_name IS NOT NULL
+							AND bo.patient_last_name IS NOT NULL
+							AND bo.patient_phone_number IS NOT NULL
+							AND bo.patient_email_address IS NOT NULL
+							AND bo.patient_birthdate IS NOT NULL
+							AND patient_address.street_address_1 IS NOT NULL
+							AND patient_address.locality IS NOT NULL
+							AND patient_address.region IS NOT NULL
+							AND patient_address.postal_code IS NOT NULL) AS patient_demographics_completed,
+						(bo.patient_first_name IS NOT NULL
+							AND bo.patient_last_name IS NOT NULL
+							AND bo.patient_phone_number IS NOT NULL
+							AND bo.patient_email_address IS NOT NULL
+							AND bo.patient_birthdate IS NOT NULL
+							AND patient_address.street_address_1 IS NOT NULL
+							AND patient_address.locality IS NOT NULL
+							AND (patient_address.region = ANY (prq.permitted_region_abbreviations))
+							AND patient_address.postal_code IS NOT NULL) AS patient_demographics_accepted,
+						posmg.scheduled_at_date_time AS resource_check_in_scheduled_at_date_time,
+						(bo.patient_order_resource_check_in_response_status_id = 'NONE'
+							AND posmg.scheduled_at_date_time IS NOT NULL
+							AND (posmg.scheduled_at_date_time AT TIME ZONE i.time_zone) < NOW()) AS resource_check_in_response_needed,
+						porcirs.description AS patient_order_resource_check_in_response_status_description,
+						(bo.patient_demographics_confirmed_at IS NOT NULL) AS patient_demographics_confirmed,
+						DATE_PART('day', COALESCE(bo.episode_closed_at, NOW()) - (bo.order_date + MAKE_INTERVAL(mins => bo.order_age_in_minutes))::timestamptz) AS episode_duration_in_days,
+						ed.name AS epic_department_name,
+						ed.department_id AS epic_department_department_id,
+						mrq.most_recent_message_delivered_at,
+						nsoq.next_scheduled_outreach_id,
+						nsoq.next_scheduled_outreach_scheduled_at_date_time,
+						nsoq.next_scheduled_outreach_type_id,
+						nsoq.next_scheduled_outreach_reason_id,
+						GREATEST(
+							mrq.most_recent_message_delivered_at,
+							CASE
+								WHEN (poo.max_outreach_date_time AT TIME ZONE i.time_zone) < NOW() THEN (poo.max_outreach_date_time AT TIME ZONE i.time_zone)
+								ELSE NULL::timestamptz
+							END,
+							CASE
+								WHEN ssq.screening_session_id IS NOT NULL
+									AND (ssq.target_account_id IS NULL OR ssq.target_account_id <> ssq.created_by_account_id)
+								THEN ssq.created
+								ELSE NULL::timestamptz
+							END
+						) AS last_contacted_at,
+						CASE
+							WHEN ssq.screening_session_id IS NULL
+								AND rssq.scheduled_date_time = LEAST(rssq.scheduled_date_time, nsoq.next_scheduled_outreach_scheduled_at_date_time)
+							THEN 'ASSESSMENT'
+							WHEN nsoq.next_scheduled_outreach_scheduled_at_date_time = LEAST(
+								CASE
+									WHEN ssq.screening_session_id IS NULL THEN rssq.scheduled_date_time::timestamptz
+									ELSE '9999-12-31 23:59:59+00'::timestamptz
+								END,
+								nsoq.next_scheduled_outreach_scheduled_at_date_time::timestamptz
+							) AND nsoq.next_scheduled_outreach_reason_id = 'RESOURCE_FOLLOWUP'
+							THEN 'RESOURCE_FOLLOWUP'
+							WHEN nsoq.next_scheduled_outreach_scheduled_at_date_time = LEAST(
+								CASE
+									WHEN ssq.screening_session_id IS NULL THEN rssq.scheduled_date_time::timestamptz
+									ELSE '9999-12-31 23:59:59+00'::timestamptz
+								END,
+								nsoq.next_scheduled_outreach_scheduled_at_date_time::timestamptz
+							) AND nsoq.next_scheduled_outreach_reason_id = 'OTHER'
+							THEN 'OTHER'
+							WHEN poo.max_outreach_date_time IS NULL
+								AND mrq.max_delivered_scheduled_message_group_date_time IS NULL
+								AND ssiq.screening_session_id IS NULL
+							THEN 'WELCOME_MESSAGE'
+							WHEN ssq.screening_session_id IS NULL
+								AND rssq.scheduled_date_time IS NULL
+								AND (poo.max_outreach_date_time IS NOT NULL OR mrq.max_delivered_scheduled_message_group_date_time IS NOT NULL)
+								AND ((GREATEST(poo.max_outreach_date_time, mrq.max_delivered_scheduled_message_group_date_time) + MAKE_INTERVAL(days => i.integrated_care_outreach_followup_day_offset)) AT TIME ZONE i.time_zone) <= NOW()
+							THEN 'ASSESSMENT_OUTREACH'
+							WHEN nrcismgq.next_resource_check_in_scheduled_message_group_id IS NOT NULL
+							THEN 'RESOURCE_CHECK_IN'
+							ELSE NULL
+						END AS next_contact_type_id,
+						CASE
+							WHEN ssq.screening_session_id IS NULL
+								AND rssq.scheduled_date_time = LEAST(rssq.scheduled_date_time, nsoq.next_scheduled_outreach_scheduled_at_date_time)
+							THEN rssq.scheduled_date_time
+							WHEN nsoq.next_scheduled_outreach_scheduled_at_date_time = LEAST(
+								CASE
+									WHEN ssq.screening_session_id IS NULL THEN rssq.scheduled_date_time::timestamptz
+									ELSE '9999-12-31 23:59:59+00'::timestamptz
+								END,
+								nsoq.next_scheduled_outreach_scheduled_at_date_time::timestamptz
+							) THEN nsoq.next_scheduled_outreach_scheduled_at_date_time
+							WHEN poo.max_outreach_date_time IS NULL
+								AND mrq.max_delivered_scheduled_message_group_date_time IS NULL
+								AND ssiq.screening_session_id IS NULL
+							THEN NULL::timestamp
+							WHEN ssq.screening_session_id IS NULL
+								AND rssq.scheduled_date_time IS NULL
+								AND (poo.max_outreach_date_time IS NOT NULL OR mrq.max_delivered_scheduled_message_group_date_time IS NOT NULL)
+								AND ((GREATEST(poo.max_outreach_date_time, mrq.max_delivered_scheduled_message_group_date_time) + MAKE_INTERVAL(days => i.integrated_care_outreach_followup_day_offset)) AT TIME ZONE i.time_zone) <= NOW()
+							THEN NULL::timestamp
+							WHEN nrcismgq.next_resource_check_in_scheduled_message_group_id IS NOT NULL
+							THEN nrcismgq.next_resource_check_in_scheduled_at_date_time
+							ELSE NULL::timestamp
+						END AS next_contact_scheduled_at,
+						bo.*
+					FROM raw_base bo
+					LEFT JOIN patient_order_disposition pod
+						ON bo.patient_order_disposition_id = pod.patient_order_disposition_id
+					LEFT JOIN patient_order_closure_reason pocr
+						ON bo.patient_order_closure_reason_id = pocr.patient_order_closure_reason_id
+					LEFT JOIN inst i
+						ON bo.institution_id = i.institution_id
+					LEFT JOIN permitted_regions_query prq
+						ON bo.institution_id = prq.institution_id
+					LEFT JOIN patient_order_resource_check_in_response_status porcirs
+						ON bo.patient_order_resource_check_in_response_status_id = porcirs.patient_order_resource_check_in_response_status_id
+					LEFT JOIN epic_department ed
+						ON bo.epic_department_id = ed.epic_department_id
+					LEFT JOIN address patient_address
+						ON bo.patient_address_id = patient_address.address_id
+					LEFT JOIN poo
+						ON bo.patient_order_id = poo.patient_order_id
+					LEFT JOIN message_rollup mrq
+						ON bo.patient_order_id = mrq.patient_order_id
+					LEFT JOIN ss_query ssq
+						ON bo.patient_order_id = ssq.patient_order_id
+					LEFT JOIN ss_intake_query ssiq
+						ON bo.patient_order_id = ssiq.patient_order_id
+					LEFT JOIN patient_order_triage_group tr
+						ON bo.patient_order_id = tr.patient_order_id
+					AND tr.active = TRUE
+					LEFT JOIN patient_order_care_type poct
+						ON tr.patient_order_care_type_id = poct.patient_order_care_type_id::text
+					LEFT JOIN account panel_account
+						ON bo.panel_account_id = panel_account.account_id
+					LEFT JOIN recent_po_query rpq
+						ON bo.patient_order_id = rpq.patient_order_id
+					LEFT JOIN recent_scheduled_screening_query rssq
+						ON bo.patient_order_id = rssq.patient_order_id
+					LEFT JOIN next_appt_query naq
+						ON bo.patient_order_id = naq.patient_order_id
+					LEFT JOIN recent_voicemail_task_query rvtq
+						ON bo.patient_order_id = rvtq.patient_order_id
+					LEFT JOIN reason_for_referral_query rfrq
+						ON bo.patient_order_id = rfrq.patient_order_id
+					LEFT JOIN next_scheduled_outreach_query nsoq
+						ON bo.patient_order_id = nsoq.patient_order_id
+					LEFT JOIN next_resource_check_in_scheduled_message_group_query nrcismgq
+						ON bo.patient_order_id = nrcismgq.patient_order_id
+					LEFT JOIN patient_order_scheduled_message_group posmg
+						ON bo.resource_check_in_scheduled_message_group_id = posmg.patient_order_scheduled_message_group_id
+					AND posmg.deleted = FALSE
+				),
+				base_query AS (
+					SELECT po.*
+					FROM enriched po
+					WHERE 1=1
+				)
+				SELECT bq.*
+				FROM base_query bq
+				ORDER BY bq.order_date DESC, bq.order_age_in_minutes, bq.patient_first_name, bq.patient_last_name
+				""", PatientOrder.class, panelAccountId, PatientOrderDispositionId.OPEN);
+	}
+
+	@Nonnull
 	public List<PatientOrderAutocompleteResult> findPatientOrderAutocompleteResults(@Nullable String searchQuery,
 																																									@Nullable InstitutionId institutionId) {
 		searchQuery = trimToNull(searchQuery);
