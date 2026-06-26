@@ -21,16 +21,21 @@ package com.cobaltplatform.api.web.resource;
 
 import com.cobaltplatform.api.context.CurrentContext;
 import com.cobaltplatform.api.model.api.request.CreateMediaImagePresignedUploadRequest;
+import com.cobaltplatform.api.model.api.response.MediaImageGalleryItemApiResponse.MediaImageGalleryItemApiResponseFactory;
 import com.cobaltplatform.api.model.api.response.MediaImageApiResponse.MediaImageApiResponseFactory;
 import com.cobaltplatform.api.model.api.response.MediaImageUploadResultApiResponse.MediaImageUploadResultApiResponseFactory;
 import com.cobaltplatform.api.model.db.Account;
 import com.cobaltplatform.api.model.db.Image;
 import com.cobaltplatform.api.model.security.AuthenticationRequired;
+import com.cobaltplatform.api.model.service.FindResult;
+import com.cobaltplatform.api.model.service.MediaImageGalleryItem;
 import com.cobaltplatform.api.model.service.MediaImageUploadResult;
 import com.cobaltplatform.api.service.MediaService;
 import com.cobaltplatform.api.web.request.RequestBodyParser;
+import com.soklet.web.annotation.GET;
 import com.soklet.web.annotation.POST;
 import com.soklet.web.annotation.PathParameter;
+import com.soklet.web.annotation.QueryParameter;
 import com.soklet.web.annotation.RequestBody;
 import com.soklet.web.annotation.Resource;
 import com.soklet.web.response.ApiResponse;
@@ -41,7 +46,10 @@ import javax.inject.Inject;
 import javax.inject.Provider;
 import javax.inject.Singleton;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import static java.util.Objects.requireNonNull;
 
@@ -62,24 +70,48 @@ public class MediaResource {
 	private final MediaImageUploadResultApiResponseFactory mediaImageUploadResultApiResponseFactory;
 	@Nonnull
 	private final MediaImageApiResponseFactory mediaImageApiResponseFactory;
+	@Nonnull
+	private final MediaImageGalleryItemApiResponseFactory mediaImageGalleryItemApiResponseFactory;
 
 	@Inject
 	public MediaResource(@Nonnull MediaService mediaService,
 											 @Nonnull RequestBodyParser requestBodyParser,
 											 @Nonnull Provider<CurrentContext> currentContextProvider,
 											 @Nonnull MediaImageUploadResultApiResponseFactory mediaImageUploadResultApiResponseFactory,
-											 @Nonnull MediaImageApiResponseFactory mediaImageApiResponseFactory) {
+											 @Nonnull MediaImageApiResponseFactory mediaImageApiResponseFactory,
+											 @Nonnull MediaImageGalleryItemApiResponseFactory mediaImageGalleryItemApiResponseFactory) {
 		requireNonNull(mediaService);
 		requireNonNull(requestBodyParser);
 		requireNonNull(currentContextProvider);
 		requireNonNull(mediaImageUploadResultApiResponseFactory);
 		requireNonNull(mediaImageApiResponseFactory);
+		requireNonNull(mediaImageGalleryItemApiResponseFactory);
 
 		this.mediaService = mediaService;
 		this.requestBodyParser = requestBodyParser;
 		this.currentContextProvider = currentContextProvider;
 		this.mediaImageUploadResultApiResponseFactory = mediaImageUploadResultApiResponseFactory;
 		this.mediaImageApiResponseFactory = mediaImageApiResponseFactory;
+		this.mediaImageGalleryItemApiResponseFactory = mediaImageGalleryItemApiResponseFactory;
+	}
+
+	@Nonnull
+	@GET("/media/images")
+	@AuthenticationRequired
+	public ApiResponse mediaImages(@Nonnull @QueryParameter Optional<Integer> pageNumber,
+																 @Nonnull @QueryParameter Optional<Integer> pageSize) {
+		requireNonNull(pageNumber);
+		requireNonNull(pageSize);
+
+		Account account = getCurrentContext().getAccount().get();
+		FindResult<MediaImageGalleryItem> findResult = getMediaService().findMediaImageGalleryItems(account, pageNumber.orElse(null), pageSize.orElse(null));
+
+		return new ApiResponse(new LinkedHashMap<String, Object>() {{
+			put("totalCount", findResult.getTotalCount());
+			put("images", findResult.getResults().stream()
+					.map(mediaImageGalleryItem -> getMediaImageGalleryItemApiResponseFactory().create(mediaImageGalleryItem))
+					.collect(Collectors.toList()));
+		}});
 	}
 
 	@Nonnull
@@ -134,5 +166,10 @@ public class MediaResource {
 	@Nonnull
 	protected MediaImageApiResponseFactory getMediaImageApiResponseFactory() {
 		return this.mediaImageApiResponseFactory;
+	}
+
+	@Nonnull
+	protected MediaImageGalleryItemApiResponseFactory getMediaImageGalleryItemApiResponseFactory() {
+		return this.mediaImageGalleryItemApiResponseFactory;
 	}
 }
