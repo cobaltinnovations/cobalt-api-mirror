@@ -66,12 +66,6 @@ public class MediaImageApiResponse {
 	private final String contentType;
 	@Nonnull
 	private final String url;
-	@Nullable
-	private final String storageBucket;
-	@Nonnull
-	private final String storageKey;
-	@Nullable
-	private final String storageRegion;
 	@Nonnull
 	private final Instant created;
 	@Nonnull
@@ -107,9 +101,6 @@ public class MediaImageApiResponse {
 		this.filesizeInBytes = image.getFilesizeInBytes();
 		this.contentType = image.getContentType();
 		this.url = image.getUrl();
-		this.storageBucket = image.getStorageBucket();
-		this.storageKey = image.getStorageKey();
-		this.storageRegion = image.getStorageRegion();
 		this.created = image.getCreated();
 		this.createdDescription = formatter.formatTimestamp(image.getCreated());
 		this.lastUpdated = image.getLastUpdated();
@@ -179,21 +170,6 @@ public class MediaImageApiResponse {
 	@Nonnull
 	public String getUrl() {
 		return this.url;
-	}
-
-	@Nullable
-	public String getStorageBucket() {
-		return this.storageBucket;
-	}
-
-	@Nonnull
-	public String getStorageKey() {
-		return this.storageKey;
-	}
-
-	@Nullable
-	public String getStorageRegion() {
-		return this.storageRegion;
 	}
 
 	@Nonnull
