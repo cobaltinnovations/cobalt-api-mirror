@@ -722,6 +722,72 @@ public class SystemService {
 		if (fileUploadStorageKeyPrefix != null)
 			storageKey = format("%s/%s", fileUploadStorageKeyPrefix, storageKey);
 
+		return createFileUploadAtStorageKey(fileUploadId, request, account, filename, contentType, storageKey);
+	}
+
+	@Nonnull
+	public FileUploadResult createFileUploadAtStorageKey(@Nonnull UUID fileUploadId,
+																											 @Nonnull CreateFileUploadRequest request,
+																											 @Nonnull String storageKey) {
+		requireNonNull(fileUploadId);
+		requireNonNull(request);
+		requireNonNull(storageKey);
+
+		UUID accountId = request.getAccountId();
+		FileUploadTypeId fileUploadTypeId = request.getFileUploadTypeId();
+		String filename = trimToNull(request.getFilename());
+		String contentType = trimToNull(request.getContentType());
+		Account account = null;
+
+		ValidationException validationException = new ValidationException();
+
+		if (accountId == null) {
+			validationException.add(new FieldError("accountId", getStrings().get("Account ID is required.")));
+		} else {
+			account = getAccountService().findAccountById(accountId).orElse(null);
+
+			if (account == null)
+				validationException.add(new FieldError("accountId", getStrings().get("Account ID is invalid.")));
+		}
+
+		if (fileUploadTypeId == null)
+			validationException.add(new FieldError("fileUploadTypeId", getStrings().get("File Upload Type ID is required.")));
+
+		if (filename == null)
+			validationException.add(new FieldError("filename", getStrings().get("Filename is required.")));
+
+		if (contentType == null)
+			validationException.add(new FieldError("contentType", getStrings().get("Content type is required.")));
+
+		if (trimToNull(storageKey) == null)
+			validationException.add(new FieldError("storageKey", getStrings().get("Storage key is required.")));
+
+		if (validationException.hasErrors())
+			throw validationException;
+
+		return createFileUploadAtStorageKey(fileUploadId, request, account, filename, contentType, storageKey);
+	}
+
+	@Nonnull
+	protected FileUploadResult createFileUploadAtStorageKey(@Nonnull UUID fileUploadId,
+																													@Nonnull CreateFileUploadRequest request,
+																													@Nonnull Account account,
+																													@Nonnull String filename,
+																													@Nonnull String contentType,
+																													@Nonnull String storageKey) {
+		requireNonNull(fileUploadId);
+		requireNonNull(request);
+		requireNonNull(account);
+		requireNonNull(filename);
+		requireNonNull(contentType);
+		requireNonNull(storageKey);
+
+		FileUploadTypeId fileUploadTypeId = request.getFileUploadTypeId();
+		UUID accountId = request.getAccountId();
+		Boolean publicRead = request.getPublicRead() == null ? false : request.getPublicRead();
+		Map<String, String> metadata = request.getMetadata() == null ? Map.of() : request.getMetadata();
+		Number filesize = request.getFilesize();
+
 		contentType = contentType.toLowerCase(Locale.ENGLISH);
 
 		PresignedUpload presignedUpload = getUploadManager().createPresignedUpload(storageKey, contentType, publicRead, metadata);
@@ -731,13 +797,17 @@ public class SystemService {
 				  file_upload_id,
 				  file_upload_type_id,
 				  account_id,
+				  institution_id,
 				  url,
+				  storage_bucket,
 				  storage_key,
+				  storage_region,
 				  filename,
 				  content_type,
 				  filesize
-				) VALUES (?,?,?,?,?,?,?,?)
-				""", fileUploadId, fileUploadTypeId, accountId, presignedUpload.getAccessUrl(), storageKey, filename, contentType, filesize);
+				) VALUES (?,?,?,?,?,?,?,?,?,?,?)
+				""", fileUploadId, fileUploadTypeId, accountId, account.getInstitutionId(), presignedUpload.getAccessUrl(),
+				getConfiguration().getAmazonS3BucketName(), storageKey, getConfiguration().getAmazonS3Region().id(), filename, contentType, filesize);
 
 		return new FileUploadResult(fileUploadId, presignedUpload);
 	}

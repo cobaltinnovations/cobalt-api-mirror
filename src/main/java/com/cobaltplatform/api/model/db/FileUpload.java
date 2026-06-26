@@ -19,7 +19,9 @@
 
 package com.cobaltplatform.api.model.db;
 
+import com.cobaltplatform.api.model.db.FileUploadStatus.FileUploadStatusId;
 import com.cobaltplatform.api.model.db.FileUploadType.FileUploadTypeId;
+import com.cobaltplatform.api.model.db.Institution.InstitutionId;
 
 import javax.annotation.Nullable;
 import javax.annotation.concurrent.NotThreadSafe;
@@ -36,15 +38,25 @@ public class FileUpload {
 	@Nullable
 	private FileUploadTypeId fileUploadTypeId;
 	@Nullable
+	private FileUploadStatusId fileUploadStatusId;
+	@Nullable
 	private UUID accountId;
+	@Nullable
+	private InstitutionId institutionId;
 	@Nullable
 	private String url;
 	@Nullable
+	private String storageBucket;
+	@Nullable
 	private String storageKey;
+	@Nullable
+	private String storageRegion;
 	@Nullable
 	private String filename;
 	@Nullable
 	private String contentType;
+	@Nullable
+	private Number filesize;
 	@Nullable
 	private Instant created;
 	@Nullable
@@ -69,12 +81,30 @@ public class FileUpload {
 	}
 
 	@Nullable
+	public FileUploadStatusId getFileUploadStatusId() {
+		return this.fileUploadStatusId;
+	}
+
+	public void setFileUploadStatusId(@Nullable FileUploadStatusId fileUploadStatusId) {
+		this.fileUploadStatusId = fileUploadStatusId;
+	}
+
+	@Nullable
 	public UUID getAccountId() {
 		return this.accountId;
 	}
 
 	public void setAccountId(@Nullable UUID accountId) {
 		this.accountId = accountId;
+	}
+
+	@Nullable
+	public InstitutionId getInstitutionId() {
+		return this.institutionId;
+	}
+
+	public void setInstitutionId(@Nullable InstitutionId institutionId) {
+		this.institutionId = institutionId;
 	}
 
 	@Nullable
@@ -87,12 +117,30 @@ public class FileUpload {
 	}
 
 	@Nullable
+	public String getStorageBucket() {
+		return this.storageBucket;
+	}
+
+	public void setStorageBucket(@Nullable String storageBucket) {
+		this.storageBucket = storageBucket;
+	}
+
+	@Nullable
 	public String getStorageKey() {
 		return this.storageKey;
 	}
 
 	public void setStorageKey(@Nullable String storageKey) {
 		this.storageKey = storageKey;
+	}
+
+	@Nullable
+	public String getStorageRegion() {
+		return this.storageRegion;
+	}
+
+	public void setStorageRegion(@Nullable String storageRegion) {
+		this.storageRegion = storageRegion;
 	}
 
 	@Nullable
@@ -111,6 +159,15 @@ public class FileUpload {
 
 	public void setContentType(@Nullable String contentType) {
 		this.contentType = contentType;
+	}
+
+	@Nullable
+	public Number getFilesize() {
+		return this.filesize;
+	}
+
+	public void setFilesize(@Nullable Number filesize) {
+		this.filesize = filesize;
 	}
 
 	@Nullable

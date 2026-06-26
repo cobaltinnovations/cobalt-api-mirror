@@ -22,76 +22,44 @@ package com.cobaltplatform.api.model.db;
 import javax.annotation.Nullable;
 import javax.annotation.concurrent.NotThreadSafe;
 
+import static java.lang.String.format;
+
 /**
  * @author Transmogrify, LLC.
  */
 @NotThreadSafe
-public class FileUploadType {
+public class FileUploadStatus {
 	@Nullable
-	private FileUploadTypeId fileUploadTypeId;
+	private FileUploadStatusId fileUploadStatusId;
 	@Nullable
 	private String description;
-	@Nullable
-	private String storageKey;
 
-	public enum FileUploadTypeId {
-		UNSPECIFIED,
-		CONTENT,
-		CONTENT_IMAGE,
-		GROUP_SESSION_IMAGE,
-		IMAGE_RAW,
-		IMAGE_4X3,
-		IMAGE_16X9,
-		IMAGE_1X1,
-		IMAGE_THUMBNAIL_4X3,
-		IMAGE_THUMBNAIL_16X9,
-		IMAGE_THUMBNAIL_1X1,
-		VIDEO,
-		AUDIO,
-		ACCELEROMETER,
-		GPS,
-		STEPS,
-		PHONE_CALL,
-		TEXT_MESSAGE,
-		PROXIMITY,
-		MAGNETOMETER,
-		DEVICE_MOTION,
-		REACHABILITY,
-		WIFI,
-		BLUETOOTH,
-		POWER_STATE,
-		PAGE_IMAGE
+	public enum FileUploadStatusId {
+		CREATED,
+		UPLOADED,
+		ABANDONED
 	}
 
 	@Override
 	public String toString() {
-		return String.format("%s{fileUploadTypeId=%s, description=%s}", getClass().getSimpleName(), getFileUploadTypeId(), getDescription());
+		return format("%s{fileUploadStatusId=%s, description=%s}", getClass().getSimpleName(), getFileUploadStatusId(), getDescription());
 	}
 
 	@Nullable
-	public FileUploadTypeId getFileUploadTypeId() {
-		return this.fileUploadTypeId;
+	public FileUploadStatusId getFileUploadStatusId() {
+		return this.fileUploadStatusId;
 	}
 
-	public void setFileUploadTypeId(@Nullable FileUploadTypeId fileUploadTypeId) {
-		this.fileUploadTypeId = fileUploadTypeId;
+	public void setFileUploadStatusId(@Nullable FileUploadStatusId fileUploadStatusId) {
+		this.fileUploadStatusId = fileUploadStatusId;
 	}
 
 	@Nullable
 	public String getDescription() {
-		return description;
+		return this.description;
 	}
 
 	public void setDescription(@Nullable String description) {
 		this.description = description;
-	}
-
-	@Nullable
-	public String getStorageKey() {
-		return this.storageKey;
-	}
-
-	public void setStorageKey(@Nullable String storageKey) {
-		this.storageKey = storageKey;
 	}
 }

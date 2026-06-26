@@ -326,9 +326,9 @@ public class DataSyncService implements AutoCloseable {
 			//Pull over any file upload rows that are used by content that we'll be pulling over
 			getDatabase().execute("""
 					INSERT INTO file_upload
-					(file_upload_id, account_id, url, storage_key,
+					(file_upload_id, account_id, institution_id, url, storage_key,
 					filename, content_type, file_upload_type_id, filesize, remote_data_flag)
-					(SELECT rfu.file_upload_id, ?, rfu.url, rfu.storage_key,
+					(SELECT rfu.file_upload_id, ?, ?, rfu.url, rfu.storage_key,
 					rfu.filename, rfu.content_type, rfu.file_upload_type_id, rfu.filesize, TRUE
 					FROM remote_file_upload rfu 
 					WHERE rfu.file_upload_type_id IN ('GROUP_SESSION_IMAGE','CONTENT_IMAGE', 'CONTENT')
@@ -340,7 +340,7 @@ public class DataSyncService implements AutoCloseable {
 					FROM v_remote_content vrc1
 					UNION ALL
 					SELECT vrc2.image_file_upload_id 
-					FROM v_remote_content vrc2))""", serviceAccount.getAccountId());
+					FROM v_remote_content vrc2))""", serviceAccount.getAccountId(), serviceAccount.getInstitutionId());
 
 			//Pull in any new tags that do not exist in this database instance
 			getDatabase().execute("""

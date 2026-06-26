@@ -31,9 +31,11 @@ import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3ClientBuilder;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
+import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
 import software.amazon.awssdk.services.s3.presigner.model.PresignedGetObjectRequest;
@@ -163,6 +165,30 @@ public class UploadManager {
 
 		PresignedGetObjectRequest presignedGetObjectRequest = getS3Presigner().presignGetObject(getObjectPresignRequest);
 		return presignedGetObjectRequest.url().toString();
+	}
+
+	@Nonnull
+	public Boolean objectExists(@Nonnull String bucket,
+															@Nonnull String key) {
+		requireNonNull(bucket);
+		requireNonNull(key);
+
+		HeadObjectRequest headObjectRequest = HeadObjectRequest.builder()
+				.bucket(bucket)
+				.key(key)
+				.build();
+
+		try {
+			getS3Client().headObject(headObjectRequest);
+			return true;
+		} catch (NoSuchKeyException e) {
+			return false;
+		} catch (S3Exception e) {
+			if (e.statusCode() == 404)
+				return false;
+
+			throw e;
+		}
 	}
 
 	@Nonnull
