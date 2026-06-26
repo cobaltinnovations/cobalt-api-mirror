@@ -21,6 +21,8 @@ package com.cobaltplatform.api.web.resource;
 
 import com.cobaltplatform.api.context.CurrentContext;
 import com.cobaltplatform.api.model.api.request.CreateMediaImagePresignedUploadRequest;
+import com.cobaltplatform.api.model.api.response.MediaImageDetailsApiResponse;
+import com.cobaltplatform.api.model.api.response.MediaImageDetailsApiResponse.MediaImageDetailsApiResponseFactory;
 import com.cobaltplatform.api.model.api.response.MediaImageGalleryItemApiResponse.MediaImageGalleryItemApiResponseFactory;
 import com.cobaltplatform.api.model.api.response.MediaImageApiResponse.MediaImageApiResponseFactory;
 import com.cobaltplatform.api.model.api.response.MediaImageUploadResultApiResponse.MediaImageUploadResultApiResponseFactory;
@@ -28,6 +30,7 @@ import com.cobaltplatform.api.model.db.Account;
 import com.cobaltplatform.api.model.db.Image;
 import com.cobaltplatform.api.model.security.AuthenticationRequired;
 import com.cobaltplatform.api.model.service.FindResult;
+import com.cobaltplatform.api.model.service.MediaImageDetails;
 import com.cobaltplatform.api.model.service.MediaImageGalleryItem;
 import com.cobaltplatform.api.model.service.MediaImageUploadResult;
 import com.cobaltplatform.api.service.MediaService;
@@ -38,6 +41,7 @@ import com.soklet.web.annotation.PathParameter;
 import com.soklet.web.annotation.QueryParameter;
 import com.soklet.web.annotation.RequestBody;
 import com.soklet.web.annotation.Resource;
+import com.soklet.web.exception.NotFoundException;
 import com.soklet.web.response.ApiResponse;
 
 import javax.annotation.Nonnull;
@@ -72,6 +76,8 @@ public class MediaResource {
 	private final MediaImageApiResponseFactory mediaImageApiResponseFactory;
 	@Nonnull
 	private final MediaImageGalleryItemApiResponseFactory mediaImageGalleryItemApiResponseFactory;
+	@Nonnull
+	private final MediaImageDetailsApiResponseFactory mediaImageDetailsApiResponseFactory;
 
 	@Inject
 	public MediaResource(@Nonnull MediaService mediaService,
@@ -79,13 +85,15 @@ public class MediaResource {
 											 @Nonnull Provider<CurrentContext> currentContextProvider,
 											 @Nonnull MediaImageUploadResultApiResponseFactory mediaImageUploadResultApiResponseFactory,
 											 @Nonnull MediaImageApiResponseFactory mediaImageApiResponseFactory,
-											 @Nonnull MediaImageGalleryItemApiResponseFactory mediaImageGalleryItemApiResponseFactory) {
+											 @Nonnull MediaImageGalleryItemApiResponseFactory mediaImageGalleryItemApiResponseFactory,
+											 @Nonnull MediaImageDetailsApiResponseFactory mediaImageDetailsApiResponseFactory) {
 		requireNonNull(mediaService);
 		requireNonNull(requestBodyParser);
 		requireNonNull(currentContextProvider);
 		requireNonNull(mediaImageUploadResultApiResponseFactory);
 		requireNonNull(mediaImageApiResponseFactory);
 		requireNonNull(mediaImageGalleryItemApiResponseFactory);
+		requireNonNull(mediaImageDetailsApiResponseFactory);
 
 		this.mediaService = mediaService;
 		this.requestBodyParser = requestBodyParser;
@@ -93,6 +101,7 @@ public class MediaResource {
 		this.mediaImageUploadResultApiResponseFactory = mediaImageUploadResultApiResponseFactory;
 		this.mediaImageApiResponseFactory = mediaImageApiResponseFactory;
 		this.mediaImageGalleryItemApiResponseFactory = mediaImageGalleryItemApiResponseFactory;
+		this.mediaImageDetailsApiResponseFactory = mediaImageDetailsApiResponseFactory;
 	}
 
 	@Nonnull
@@ -111,6 +120,26 @@ public class MediaResource {
 			put("images", findResult.getResults().stream()
 					.map(mediaImageGalleryItem -> getMediaImageGalleryItemApiResponseFactory().create(mediaImageGalleryItem))
 					.collect(Collectors.toList()));
+		}});
+	}
+
+	@Nonnull
+	@GET("/media/images/{imageId}")
+	@AuthenticationRequired
+	public ApiResponse mediaImage(@Nonnull @PathParameter UUID imageId) {
+		requireNonNull(imageId);
+
+		Account account = getCurrentContext().getAccount().get();
+		MediaImageDetails mediaImageDetails = getMediaService().findMediaImageDetails(account, imageId).orElse(null);
+
+		if (mediaImageDetails == null)
+			throw new NotFoundException();
+
+		MediaImageDetailsApiResponse mediaImageDetailsApiResponse = getMediaImageDetailsApiResponseFactory().create(mediaImageDetails);
+
+		return new ApiResponse(new HashMap<String, Object>() {{
+			put("image", mediaImageDetailsApiResponse.getImage());
+			put("variants", mediaImageDetailsApiResponse.getVariants());
 		}});
 	}
 
@@ -171,5 +200,10 @@ public class MediaResource {
 	@Nonnull
 	protected MediaImageGalleryItemApiResponseFactory getMediaImageGalleryItemApiResponseFactory() {
 		return this.mediaImageGalleryItemApiResponseFactory;
+	}
+
+	@Nonnull
+	protected MediaImageDetailsApiResponseFactory getMediaImageDetailsApiResponseFactory() {
+		return this.mediaImageDetailsApiResponseFactory;
 	}
 }

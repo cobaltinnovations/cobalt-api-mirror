@@ -27,6 +27,7 @@ import com.cobaltplatform.api.model.db.FileUploadType.FileUploadTypeId;
 import com.cobaltplatform.api.model.db.Image;
 import com.cobaltplatform.api.model.service.FindResult;
 import com.cobaltplatform.api.model.service.FileUploadResult;
+import com.cobaltplatform.api.model.service.MediaImageDetails;
 import com.cobaltplatform.api.model.service.MediaImageGalleryItem;
 import com.cobaltplatform.api.model.service.MediaImageUploadResult;
 import com.cobaltplatform.api.model.service.MediaImageVariant;
@@ -149,6 +150,43 @@ public class MediaService {
 				FROM v_image
 				WHERE image_id=?
 				""", Image.class, imageId);
+	}
+
+	@Nonnull
+	public Optional<MediaImageDetails> findMediaImageDetails(@Nonnull Account account,
+																													@Nonnull UUID imageId) {
+		requireNonNull(account);
+		requireNonNull(imageId);
+
+		Image image = getDatabase().queryForObject("""
+				SELECT *
+				FROM v_image
+				WHERE image_id=?
+				AND institution_id=?
+				AND file_upload_status_id=?
+				AND file_upload_type_id IN (?,?,?,?,?,?,?)
+				""", Image.class,
+				imageId,
+				account.getInstitutionId(),
+				FileUploadStatusId.UPLOADED,
+				FileUploadTypeId.IMAGE_RAW,
+				FileUploadTypeId.IMAGE_4X3,
+				FileUploadTypeId.IMAGE_16X9,
+				FileUploadTypeId.IMAGE_1X1,
+				FileUploadTypeId.IMAGE_THUMBNAIL_4X3,
+				FileUploadTypeId.IMAGE_THUMBNAIL_16X9,
+				FileUploadTypeId.IMAGE_THUMBNAIL_1X1).orElse(null);
+
+		if (image == null)
+			return Optional.empty();
+
+		UUID sourceImageId = findMediaImageFamilySourceImageId(account, image).orElse(null);
+
+		if (sourceImageId == null)
+			return Optional.empty();
+
+		List<Image> variants = findMediaImagesByFamilySourceImageId(account, sourceImageId, imageId);
+		return Optional.of(new MediaImageDetails(image, variants));
 	}
 
 	@Nonnull
@@ -467,6 +505,148 @@ public class MediaService {
 		requireNonNull(ratioHeight);
 
 		return (long) width * ratioHeight == (long) height * ratioWidth;
+	}
+
+	@Nonnull
+	protected Optional<UUID> findMediaImageFamilySourceImageId(@Nonnull Account account,
+																														 @Nonnull Image image) {
+		requireNonNull(account);
+		requireNonNull(image);
+
+		FileUploadTypeId fileUploadTypeId = image.getFileUploadTypeId();
+
+		if (fileUploadTypeId == FileUploadTypeId.IMAGE_RAW)
+			return Optional.of(image.getImageId());
+
+		if (MEDIA_IMAGE_CROP_FILE_UPLOAD_TYPE_IDS.contains(fileUploadTypeId)) {
+			UUID sourceImageId = image.getSourceImageId();
+
+			if (sourceImageId == null)
+				return Optional.empty();
+
+			return getDatabase().queryForObject("""
+					SELECT image_id
+					FROM v_image
+					WHERE image_id=?
+					AND institution_id=?
+					AND file_upload_status_id=?
+					AND file_upload_type_id=?
+					""", UUID.class, sourceImageId, account.getInstitutionId(), FileUploadStatusId.UPLOADED, FileUploadTypeId.IMAGE_RAW);
+		}
+
+		if (MEDIA_IMAGE_THUMBNAIL_FILE_UPLOAD_TYPE_IDS.contains(fileUploadTypeId)) {
+			UUID cropImageId = image.getSourceImageId();
+
+			if (cropImageId == null)
+				return Optional.empty();
+
+			return getDatabase().queryForObject("""
+					SELECT raw.image_id
+					FROM
+					  v_image crop
+					  JOIN v_image raw ON raw.image_id=crop.source_image_id
+					WHERE
+					  crop.image_id=?
+					  AND crop.institution_id=?
+					  AND raw.institution_id=crop.institution_id
+					  AND crop.file_upload_status_id=?
+					  AND raw.file_upload_status_id=?
+					  AND crop.file_upload_type_id IN (?,?,?)
+					  AND raw.file_upload_type_id=?
+					""", UUID.class,
+					cropImageId,
+					account.getInstitutionId(),
+					FileUploadStatusId.UPLOADED,
+					FileUploadStatusId.UPLOADED,
+					FileUploadTypeId.IMAGE_4X3,
+					FileUploadTypeId.IMAGE_16X9,
+					FileUploadTypeId.IMAGE_1X1,
+					FileUploadTypeId.IMAGE_RAW);
+		}
+
+		return Optional.empty();
+	}
+
+	@Nonnull
+	protected List<Image> findMediaImagesByFamilySourceImageId(@Nonnull Account account,
+																														 @Nonnull UUID sourceImageId,
+																														 @Nonnull UUID excludedImageId) {
+		requireNonNull(account);
+		requireNonNull(sourceImageId);
+		requireNonNull(excludedImageId);
+
+		return getDatabase().queryForList("""
+				SELECT *
+				FROM (
+				  SELECT
+				    raw.*
+				  FROM
+				    v_image raw
+				  WHERE
+				    raw.institution_id=?
+				    AND raw.image_id=?
+				    AND raw.file_upload_status_id=?
+				    AND raw.file_upload_type_id=?
+				  UNION ALL
+				  SELECT
+				    crop.*
+				  FROM
+				    v_image crop
+				  WHERE
+				    crop.institution_id=?
+				    AND crop.source_image_id=?
+				    AND crop.file_upload_status_id=?
+				    AND crop.file_upload_type_id IN (?,?,?)
+				  UNION ALL
+				  SELECT
+				    thumbnail.*
+				  FROM
+				    v_image thumbnail
+				    JOIN v_image crop ON crop.image_id=thumbnail.source_image_id
+				  WHERE
+				    crop.institution_id=?
+				    AND thumbnail.institution_id=crop.institution_id
+				    AND crop.source_image_id=?
+				    AND crop.file_upload_status_id=?
+				    AND thumbnail.file_upload_status_id=?
+				    AND crop.file_upload_type_id IN (?,?,?)
+				    AND thumbnail.file_upload_type_id IN (?,?,?)
+				) media_images
+				WHERE image_id<>?
+				ORDER BY
+				  CASE file_upload_type_id
+				    WHEN 'IMAGE_RAW' THEN 1
+				    WHEN 'IMAGE_16X9' THEN 2
+				    WHEN 'IMAGE_4X3' THEN 3
+				    WHEN 'IMAGE_1X1' THEN 4
+				    WHEN 'IMAGE_THUMBNAIL_16X9' THEN 5
+				    WHEN 'IMAGE_THUMBNAIL_4X3' THEN 6
+				    WHEN 'IMAGE_THUMBNAIL_1X1' THEN 7
+				    ELSE 8
+				  END,
+				  image_id
+				""", Image.class,
+				account.getInstitutionId(),
+				sourceImageId,
+				FileUploadStatusId.UPLOADED,
+				FileUploadTypeId.IMAGE_RAW,
+				account.getInstitutionId(),
+				sourceImageId,
+				FileUploadStatusId.UPLOADED,
+				FileUploadTypeId.IMAGE_4X3,
+				FileUploadTypeId.IMAGE_16X9,
+				FileUploadTypeId.IMAGE_1X1,
+				account.getInstitutionId(),
+				sourceImageId,
+				FileUploadStatusId.UPLOADED,
+				FileUploadStatusId.UPLOADED,
+				FileUploadTypeId.IMAGE_4X3,
+				FileUploadTypeId.IMAGE_16X9,
+				FileUploadTypeId.IMAGE_1X1,
+				FileUploadTypeId.IMAGE_THUMBNAIL_4X3,
+				FileUploadTypeId.IMAGE_THUMBNAIL_16X9,
+				FileUploadTypeId.IMAGE_THUMBNAIL_1X1,
+				excludedImageId);
 	}
 
 	@Nonnull

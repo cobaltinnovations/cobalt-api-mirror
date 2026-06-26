@@ -131,6 +131,7 @@ import com.cobaltplatform.api.model.api.response.LanguageApiResponse.LanguageApi
 import com.cobaltplatform.api.model.api.response.LogicalAvailabilityApiResponse.LogicalAvailabilityApiResponseFactory;
 import com.cobaltplatform.api.model.api.response.MailingListApiResponse.MailingListApiResponseFactory;
 import com.cobaltplatform.api.model.api.response.MailingListEntryApiResponse.MailingListEntryApiResponseFactory;
+import com.cobaltplatform.api.model.api.response.MediaImageDetailsApiResponse.MediaImageDetailsApiResponseFactory;
 import com.cobaltplatform.api.model.api.response.MediaImageGalleryItemApiResponse.MediaImageGalleryItemApiResponseFactory;
 import com.cobaltplatform.api.model.api.response.MediaImageApiResponse.MediaImageApiResponseFactory;
 import com.cobaltplatform.api.model.api.response.MediaImageUploadResultApiResponse.MediaImageUploadResultApiResponseFactory;
@@ -416,6 +417,7 @@ public class AppModule extends AbstractModule {
 		install((new FactoryModuleBuilder().build(AnalyticsReportGroupApiResponseFactory.class)));
 		install((new FactoryModuleBuilder().build(MailingListEntryApiResponseFactory.class)));
 		install((new FactoryModuleBuilder().build(MailingListApiResponseFactory.class)));
+		install((new FactoryModuleBuilder().build(MediaImageDetailsApiResponseFactory.class)));
 		install((new FactoryModuleBuilder().build(MediaImageGalleryItemApiResponseFactory.class)));
 		install((new FactoryModuleBuilder().build(MediaImageApiResponseFactory.class)));
 		install((new FactoryModuleBuilder().build(MediaImageUploadResultApiResponseFactory.class)));
