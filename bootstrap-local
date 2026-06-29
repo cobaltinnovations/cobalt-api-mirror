@@ -1,0 +1,13 @@
+#!/bin/bash
+
+set -e
+
+echo "Bootstrapping Cobalt API for local testing..."
+
+docker build -t cobalt-bootstrap -f ./docker/Dockerfile-bootstrap .
+docker run --network localstack_default --rm cobalt-bootstrap:latest sh -c "cd /localstack && ./initialize"
+
+cd sql
+./recreate-local
+
+echo "Local bootstrap complete."
