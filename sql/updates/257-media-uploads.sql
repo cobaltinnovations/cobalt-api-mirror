@@ -69,6 +69,8 @@ CREATE TABLE image (
   created_by_account_id UUID NOT NULL REFERENCES account,
   width INTEGER NOT NULL,
   height INTEGER NOT NULL,
+  active BOOLEAN NOT NULL DEFAULT TRUE,
+  image_alt_text TEXT,
   created TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   last_updated TIMESTAMPTZ NOT NULL,
   CHECK (width > 0),
@@ -77,6 +79,8 @@ CREATE TABLE image (
 
 CREATE INDEX idx_image_file_upload_id ON image(file_upload_id);
 CREATE INDEX idx_image_source_image_id ON image(source_image_id);
+CREATE INDEX idx_image_active ON image(active);
+CREATE INDEX idx_image_source_image_id_active ON image(source_image_id, active);
 CREATE TRIGGER set_last_updated BEFORE INSERT OR UPDATE ON image FOR EACH ROW EXECUTE PROCEDURE set_last_updated();
 
 CREATE VIEW v_image AS
@@ -99,7 +103,9 @@ SELECT
   fu.storage_key,
   fu.storage_region,
   i.created,
-  i.last_updated
+  i.last_updated,
+  i.active,
+  i.image_alt_text
 FROM
   image i,
   file_upload fu

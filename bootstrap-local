@@ -4,10 +4,15 @@ set -e
 
 echo "Bootstrapping Cobalt API for local testing..."
 
-docker build -t cobalt-bootstrap -f ./docker/Dockerfile-bootstrap .
-docker run --network localstack_default --rm cobalt-bootstrap:latest sh -c "cd /localstack && ./initialize"
+./bootstrap
 
-cd sql
-./recreate-local
+if [ -d "sql/local" ]; then
+  for script in sql/local/*.sql; do
+    if [ -f "$script" ]; then
+      echo "Applying local data script: $script"
+      PGPASSWORD=password psql -U cobalt -h localhost -p 5501 -d cobalt -f "$script"
+    fi
+  done
+fi
 
 echo "Local bootstrap complete."

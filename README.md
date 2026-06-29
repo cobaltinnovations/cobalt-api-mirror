@@ -36,7 +36,7 @@ To get the full seed dataset, you'll want to download the latest `bootstrap.sql`
 cobalt-api$ ./bootstrap
 ```
 
-For local testing, use `bootstrap-local` instead. It runs the same Localstack initialization, then recreates Postgres through `sql/recreate-local` so local-only SQL and test-data changes are applied against `localhost:5501`.
+For local testing, use `bootstrap-local` instead. It runs the same bootstrap flow, then applies any local development data scripts found in `sql/local/*.sql` against `localhost:5501`.
 
 ```
 cobalt-api$ ./bootstrap-local

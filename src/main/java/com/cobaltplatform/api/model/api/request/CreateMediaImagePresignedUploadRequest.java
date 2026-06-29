@@ -34,6 +34,8 @@ public class CreateMediaImagePresignedUploadRequest extends CreateFileUploadRequ
 	private Integer width;
 	@Nullable
 	private Integer height;
+	@Nullable
+	private String imageAltText;
 
 	@Nullable
 	public UUID getSourceImageId() {
@@ -60,5 +62,14 @@ public class CreateMediaImagePresignedUploadRequest extends CreateFileUploadRequ
 
 	public void setHeight(@Nullable Integer height) {
 		this.height = height;
+	}
+
+	@Nullable
+	public String getImageAltText() {
+		return this.imageAltText;
+	}
+
+	public void setImageAltText(@Nullable String imageAltText) {
+		this.imageAltText = imageAltText;
 	}
 }

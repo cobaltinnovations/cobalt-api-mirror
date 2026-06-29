@@ -306,6 +306,7 @@ public class MediaService {
 		String contentType = trimToNull(request.getContentType());
 		Integer width = request.getWidth();
 		Integer height = request.getHeight();
+		String requestedImageAltText = trimToNull(request.getImageAltText());
 		Image sourceImage = null;
 		String fileUploadTypeStorageKey = null;
 
@@ -376,6 +377,7 @@ public class MediaService {
 		if (validationException.hasErrors())
 			throw validationException;
 
+		String imageAltText = requestedImageAltText == null && sourceImage != null ? sourceImage.getImageAltText() : requestedImageAltText;
 		UUID imageId = UUID.randomUUID();
 		UUID fileUploadId = UUID.randomUUID();
 		String storageKey = format("media-uploads/%s/%s/%s/%s", account.getInstitutionId(), fileUploadTypeStorageKey, fileUploadId, filename);
@@ -397,7 +399,7 @@ public class MediaService {
 
 		MediaImageUploadResult[] mediaImageUploadResult = new MediaImageUploadResult[1];
 
-		getDatabase().transaction(() -> {
+		Runnable createMediaImageUpload = () -> {
 			FileUploadResult fileUploadResult = getSystemService().createFileUploadAtStorageKey(fileUploadId, fileUploadRequest, storageKey);
 
 			getDatabase().execute("""
@@ -407,12 +409,18 @@ public class MediaService {
 					  source_image_id,
 					  created_by_account_id,
 					  width,
-					  height
-					) VALUES (?,?,?,?,?,?)
-					""", imageId, fileUploadId, sourceImageId, account.getAccountId(), width, height);
+					  height,
+					  image_alt_text
+					) VALUES (?,?,?,?,?,?,?)
+					""", imageId, fileUploadId, sourceImageId, account.getAccountId(), width, height, imageAltText);
 
 			mediaImageUploadResult[0] = new MediaImageUploadResult(imageId, fileUploadResult);
-		});
+		};
+
+		if (getDatabase().currentTransaction().isPresent())
+			createMediaImageUpload.run();
+		else
+			getDatabase().transaction(() -> createMediaImageUpload.run());
 
 		return mediaImageUploadResult[0];
 	}

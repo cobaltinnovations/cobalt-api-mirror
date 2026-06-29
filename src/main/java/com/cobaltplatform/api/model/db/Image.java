@@ -56,6 +56,8 @@ public class Image {
 	@Nullable
 	private Boolean active;
 	@Nullable
+	private String imageAltText;
+	@Nullable
 	private String filename;
 	@Nullable
 	private Number filesizeInBytes;
@@ -171,6 +173,15 @@ public class Image {
 
 	public void setActive(@Nullable Boolean active) {
 		this.active = active;
+	}
+
+	@Nullable
+	public String getImageAltText() {
+		return this.imageAltText;
+	}
+
+	public void setImageAltText(@Nullable String imageAltText) {
+		this.imageAltText = imageAltText;
 	}
 
 	@Nullable

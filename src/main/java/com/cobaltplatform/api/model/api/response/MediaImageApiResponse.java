@@ -58,6 +58,8 @@ public class MediaImageApiResponse {
 	private final Integer width;
 	@Nonnull
 	private final Integer height;
+	@Nullable
+	private final String imageAltText;
 	@Nonnull
 	private final String filename;
 	@Nullable
@@ -97,6 +99,7 @@ public class MediaImageApiResponse {
 		this.fileUploadTypeId = image.getFileUploadTypeId();
 		this.width = image.getWidth();
 		this.height = image.getHeight();
+		this.imageAltText = image.getImageAltText();
 		this.filename = image.getFilename();
 		this.filesizeInBytes = image.getFilesizeInBytes();
 		this.contentType = image.getContentType();
@@ -150,6 +153,11 @@ public class MediaImageApiResponse {
 	@Nonnull
 	public Integer getHeight() {
 		return this.height;
+	}
+
+	@Nullable
+	public String getImageAltText() {
+		return this.imageAltText;
 	}
 
 	@Nonnull

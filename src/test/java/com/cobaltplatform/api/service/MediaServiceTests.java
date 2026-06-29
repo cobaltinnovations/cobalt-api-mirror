@@ -22,6 +22,7 @@ package com.cobaltplatform.api.service;
 import com.cobaltplatform.api.IntegrationTestExecutor;
 import com.cobaltplatform.api.model.api.request.CreateAccountRequest;
 import com.cobaltplatform.api.model.api.request.CreateMediaImagePresignedUploadRequest;
+import com.cobaltplatform.api.model.api.response.MediaImageApiResponse.MediaImageApiResponseFactory;
 import com.cobaltplatform.api.model.db.Account;
 import com.cobaltplatform.api.model.db.AccountSource.AccountSourceId;
 import com.cobaltplatform.api.model.db.FileUploadStatus.FileUploadStatusId;
@@ -30,6 +31,7 @@ import com.cobaltplatform.api.model.db.Image;
 import com.cobaltplatform.api.model.db.Institution.InstitutionId;
 import com.cobaltplatform.api.model.service.MediaImageDetails;
 import com.cobaltplatform.api.model.service.MediaImageGalleryItem;
+import com.cobaltplatform.api.model.service.MediaImageUploadResult;
 import com.cobaltplatform.api.util.ValidationException;
 import com.cobaltplatform.api.util.db.DatabaseProvider;
 import com.pyranid.Database;
@@ -45,12 +47,131 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 
 import static java.lang.String.format;
+import static java.util.Objects.requireNonNull;
 
 /**
  * @author Transmogrify, LLC.
  */
 @ThreadSafe
 public class MediaServiceTests {
+	@Test
+	public void createMediaImagePresignedUploadPersistsTrimmedAltText() {
+		IntegrationTestExecutor.runTransactionallyAndForceRollback((app) -> {
+			MediaService mediaService = app.getInjector().getInstance(MediaService.class);
+			Database database = app.getInjector().getInstance(DatabaseProvider.class).getWritableMasterDatabase();
+			MediaImageApiResponseFactory mediaImageApiResponseFactory = app.getInjector().getInstance(MediaImageApiResponseFactory.class);
+			Account account = findExistingAccount(database);
+
+			MediaImageUploadResult mediaImageUploadResult = mediaService.createMediaImagePresignedUpload(account, new CreateMediaImagePresignedUploadRequest() {{
+				setFileUploadTypeId(FileUploadTypeId.IMAGE_RAW);
+				setFilename("raw-alt-text.jpg");
+				setContentType("image/jpeg");
+				setWidth(1600);
+				setHeight(900);
+				setImageAltText("  A calm lake at sunrise.  ");
+			}});
+
+			Image image = mediaService.findImageById(mediaImageUploadResult.getImageId()).get();
+
+			Assert.assertEquals("Image should store trimmed alt text", "A calm lake at sunrise.", image.getImageAltText());
+			Assert.assertEquals("API response should expose alt text", "A calm lake at sunrise.", mediaImageApiResponseFactory.create(image).getImageAltText());
+		});
+	}
+
+	@Test
+	public void createMediaImagePresignedUploadStoresBlankAltTextAsNull() {
+		IntegrationTestExecutor.runTransactionallyAndForceRollback((app) -> {
+			MediaService mediaService = app.getInjector().getInstance(MediaService.class);
+			Database database = app.getInjector().getInstance(DatabaseProvider.class).getWritableMasterDatabase();
+			MediaImageApiResponseFactory mediaImageApiResponseFactory = app.getInjector().getInstance(MediaImageApiResponseFactory.class);
+			Account account = findExistingAccount(database);
+
+			MediaImageUploadResult mediaImageUploadResult = mediaService.createMediaImagePresignedUpload(account, new CreateMediaImagePresignedUploadRequest() {{
+				setFileUploadTypeId(FileUploadTypeId.IMAGE_RAW);
+				setFilename("blank-alt-text.jpg");
+				setContentType("image/jpeg");
+				setWidth(1600);
+				setHeight(900);
+				setImageAltText("   ");
+			}});
+
+			Image image = mediaService.findImageById(mediaImageUploadResult.getImageId()).get();
+
+			Assert.assertNull("Image should store blank alt text as null", image.getImageAltText());
+			Assert.assertNull("API response should expose null alt text", mediaImageApiResponseFactory.create(image).getImageAltText());
+		});
+	}
+
+	@Test
+	public void derivedMediaImagePresignedUploadsInheritSourceAltTextWhenOmitted() {
+		IntegrationTestExecutor.runTransactionallyAndForceRollback((app) -> {
+			MediaService mediaService = app.getInjector().getInstance(MediaService.class);
+			Database database = app.getInjector().getInstance(DatabaseProvider.class).getWritableMasterDatabase();
+			Account account = findExistingAccount(database);
+			String imageAltText = "A facilitator speaking with a small group.";
+
+			UUID rawImageId = createUploadedImage(database, account, FileUploadTypeId.IMAGE_RAW, null, 1600, 900, imageAltText);
+			MediaImageUploadResult cropImageUploadResult = mediaService.createMediaImagePresignedUpload(account, new CreateMediaImagePresignedUploadRequest() {{
+				setFileUploadTypeId(FileUploadTypeId.IMAGE_16X9);
+				setSourceImageId(rawImageId);
+				setFilename("crop-alt-text.jpg");
+				setContentType("image/jpeg");
+				setWidth(1600);
+				setHeight(900);
+			}});
+
+			Image cropImage = mediaService.findImageById(cropImageUploadResult.getImageId()).get();
+
+			Assert.assertEquals("Crop should inherit raw image alt text", imageAltText, cropImage.getImageAltText());
+
+			database.execute("""
+					UPDATE file_upload
+					SET file_upload_status_id=?
+					WHERE file_upload_id=?
+					""", FileUploadStatusId.UPLOADED, cropImage.getFileUploadId());
+
+			MediaImageUploadResult thumbnailImageUploadResult = mediaService.createMediaImagePresignedUpload(account, new CreateMediaImagePresignedUploadRequest() {{
+				setFileUploadTypeId(FileUploadTypeId.IMAGE_THUMBNAIL_16X9);
+				setSourceImageId(cropImageUploadResult.getImageId());
+				setFilename("thumbnail-alt-text.jpg");
+				setContentType("image/jpeg");
+				setWidth(320);
+				setHeight(180);
+			}});
+
+			Image thumbnailImage = mediaService.findImageById(thumbnailImageUploadResult.getImageId()).get();
+
+			Assert.assertEquals("Thumbnail should inherit crop image alt text", imageAltText, thumbnailImage.getImageAltText());
+		});
+	}
+
+	@Test
+	public void mediaImageReadPathsExposeAltText() {
+		IntegrationTestExecutor.runTransactionallyAndForceRollback((app) -> {
+			MediaService mediaService = app.getInjector().getInstance(MediaService.class);
+			Database database = app.getInjector().getInstance(DatabaseProvider.class).getWritableMasterDatabase();
+			Account account = createAccount(app.getInjector().getInstance(AccountService.class));
+			String imageAltText = "A group seated in a sunny room.";
+
+			UUID rawImageId = createUploadedImage(database, account, FileUploadTypeId.IMAGE_RAW, null, 1600, 900, imageAltText);
+			createUploadedImage(database, account, FileUploadTypeId.IMAGE_16X9, rawImageId, 1600, 900, imageAltText);
+			UUID cropImageId = createUploadedImage(database, account, FileUploadTypeId.IMAGE_1X1, rawImageId, 800, 800, imageAltText);
+			UUID thumbnailImageId = createUploadedImage(database, account, FileUploadTypeId.IMAGE_THUMBNAIL_1X1, cropImageId, 200, 200, imageAltText);
+
+			MediaImageDetails mediaImageDetails = mediaService.findMediaImageDetails(account, rawImageId).get();
+
+			Assert.assertEquals("Details image should expose alt text", imageAltText, mediaImageDetails.getImage().getImageAltText());
+
+			for (Image variant : mediaImageDetails.getVariants())
+				Assert.assertEquals("Details variants should expose alt text", imageAltText, variant.getImageAltText());
+
+			MediaImageGalleryItem galleryItem = findGalleryItem(mediaService, account, rawImageId).get();
+
+			Assert.assertEquals("Gallery thumbnail should expose alt text", thumbnailImageId, galleryItem.getThumbnailImage().getImageId());
+			Assert.assertEquals("Gallery thumbnail should expose alt text", imageAltText, galleryItem.getThumbnailImage().getImageAltText());
+		});
+	}
+
 	@Test
 	public void addingMissingAspectRatioCreatesActiveCurrentPair() {
 		IntegrationTestExecutor.runTransactionallyAndForceRollback((app) -> {
@@ -150,12 +271,35 @@ public class MediaServiceTests {
 	}
 
 	@Nonnull
+	protected Account findExistingAccount(@Nonnull Database database) {
+		requireNonNull(database);
+
+		return database.queryForObject("""
+				SELECT *
+				FROM v_account
+				WHERE institution_id=?
+				LIMIT 1
+				""", Account.class, InstitutionId.COBALT).get();
+	}
+
+	@Nonnull
 	protected UUID createUploadedImage(@Nonnull Database database,
 																		 @Nonnull Account account,
 																		 @Nonnull FileUploadTypeId fileUploadTypeId,
 																		 @Nullable UUID sourceImageId,
 																		 @Nonnull Integer width,
 																		 @Nonnull Integer height) {
+		return createUploadedImage(database, account, fileUploadTypeId, sourceImageId, width, height, null);
+	}
+
+	@Nonnull
+	protected UUID createUploadedImage(@Nonnull Database database,
+																		 @Nonnull Account account,
+																		 @Nonnull FileUploadTypeId fileUploadTypeId,
+																		 @Nullable UUID sourceImageId,
+																		 @Nonnull Integer width,
+																		 @Nonnull Integer height,
+																		 @Nullable String imageAltText) {
 		UUID fileUploadId = UUID.randomUUID();
 		UUID imageId = UUID.randomUUID();
 		String filename = format("%s.jpg", imageId);
@@ -197,9 +341,10 @@ public class MediaServiceTests {
 				  source_image_id,
 				  created_by_account_id,
 				  width,
-				  height
-				) VALUES (?,?,?,?,?,?)
-				""", imageId, fileUploadId, sourceImageId, account.getAccountId(), width, height);
+				  height,
+				  image_alt_text
+				) VALUES (?,?,?,?,?,?,?)
+				""", imageId, fileUploadId, sourceImageId, account.getAccountId(), width, height, imageAltText);
 
 		return imageId;
 	}
