@@ -54,6 +54,8 @@ public class Image {
 	@Nullable
 	private Integer height;
 	@Nullable
+	private Boolean active;
+	@Nullable
 	private String filename;
 	@Nullable
 	private Number filesizeInBytes;
@@ -160,6 +162,15 @@ public class Image {
 
 	public void setHeight(@Nullable Integer height) {
 		this.height = height;
+	}
+
+	@Nullable
+	public Boolean getActive() {
+		return this.active;
+	}
+
+	public void setActive(@Nullable Boolean active) {
+		this.active = active;
 	}
 
 	@Nullable

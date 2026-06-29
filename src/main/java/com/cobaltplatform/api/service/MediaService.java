@@ -163,6 +163,7 @@ public class MediaService {
 				FROM v_image
 				WHERE image_id=?
 				AND institution_id=?
+				AND active=TRUE
 				AND file_upload_status_id=?
 				AND file_upload_type_id IN (?,?,?,?,?,?,?)
 				""", Image.class,
@@ -227,6 +228,9 @@ public class MediaService {
 				    AND raw.file_upload_status_id=?
 				    AND crop.file_upload_status_id=?
 				    AND thumbnail.file_upload_status_id=?
+				    AND raw.active=TRUE
+				    AND crop.active=TRUE
+				    AND thumbnail.active=TRUE
 				    AND raw.file_upload_type_id=?
 				    AND crop.file_upload_type_id IN (?,?,?)
 				    AND thumbnail.file_upload_type_id IN (?,?,?)
@@ -357,6 +361,9 @@ public class MediaService {
 					if (sourceImage.getFileUploadStatusId() == FileUploadStatusId.ABANDONED)
 						validationException.add(new FieldError("sourceImageId", getStrings().get("Source image has been abandoned.")));
 
+					if (!Boolean.TRUE.equals(sourceImage.getActive()))
+						validationException.add(new FieldError("sourceImageId", getStrings().get("Source image is inactive.")));
+
 					if (sourceImage.getFileUploadTypeId() != requiredSourceFileUploadTypeId)
 						validationException.add(new FieldError("sourceImageId", getStrings().get("Source image type is invalid.")));
 				}
@@ -424,11 +431,24 @@ public class MediaService {
 		if (image.getInstitutionId() != account.getInstitutionId() || !account.getAccountId().equals(image.getCreatedByAccountId()))
 			throw new ValidationException(new FieldError("imageId", getStrings().get("Image ID is invalid.")));
 
+		if (!Boolean.TRUE.equals(image.getActive()))
+			throw new ValidationException(new FieldError("imageId", getStrings().get("Image ID is invalid.")));
+
 		if (image.getFileUploadStatusId() == FileUploadStatusId.ABANDONED)
 			throw new ValidationException(new FieldError("imageId", getStrings().get("Image upload has been abandoned.")));
 
-		if (image.getFileUploadStatusId() == FileUploadStatusId.UPLOADED)
-			return image;
+		validateMediaImageSourceForConfirmation(account, image);
+
+		if (image.getFileUploadStatusId() == FileUploadStatusId.UPLOADED) {
+			if (MEDIA_IMAGE_THUMBNAIL_FILE_UPLOAD_TYPE_IDS.contains(image.getFileUploadTypeId())) {
+				if (getDatabase().currentTransaction().isPresent())
+					activateMediaImageThumbnailFamily(account, image.getImageId());
+				else
+					getDatabase().transaction(() -> activateMediaImageThumbnailFamily(account, image.getImageId()));
+			}
+
+			return findImageById(imageId).get();
+		}
 
 		String storageBucket = trimToNull(image.getStorageBucket());
 		String storageKey = trimToNull(image.getStorageKey());
@@ -447,13 +467,156 @@ public class MediaService {
 		if (!getUploadManager().objectExists(storageBucket, storageKey))
 			throw new ValidationException(new FieldError("imageId", getStrings().get("Uploaded file was not found.")));
 
-		getDatabase().execute("""
-				UPDATE file_upload
-				SET file_upload_status_id=?
-				WHERE file_upload_id=?
-				""", FileUploadStatusId.UPLOADED, image.getFileUploadId());
+		getDatabase().transaction(() -> {
+			getDatabase().execute("""
+					UPDATE file_upload
+					SET file_upload_status_id=?
+					WHERE file_upload_id=?
+					""", FileUploadStatusId.UPLOADED, image.getFileUploadId());
+
+			if (MEDIA_IMAGE_THUMBNAIL_FILE_UPLOAD_TYPE_IDS.contains(image.getFileUploadTypeId()))
+				activateMediaImageThumbnailFamily(account, image.getImageId());
+		});
 
 		return findImageById(imageId).get();
+	}
+
+	protected void validateMediaImageSourceForConfirmation(@Nonnull Account account,
+																												 @Nonnull Image image) {
+		requireNonNull(account);
+		requireNonNull(image);
+
+		FileUploadTypeId fileUploadTypeId = image.getFileUploadTypeId();
+
+		if (fileUploadTypeId == FileUploadTypeId.IMAGE_RAW)
+			return;
+
+		UUID sourceImageId = image.getSourceImageId();
+
+		if (sourceImageId == null)
+			throw new ValidationException(new FieldError("sourceImageId", getStrings().get("Source image ID is required.")));
+
+		Image sourceImage = findImageById(sourceImageId).orElse(null);
+
+		if (sourceImage == null)
+			throw new ValidationException(new FieldError("sourceImageId", getStrings().get("Source image ID is invalid.")));
+
+		FileUploadTypeId requiredSourceFileUploadTypeId = REQUIRED_SOURCE_FILE_UPLOAD_TYPE_IDS_BY_FILE_UPLOAD_TYPE_ID.get(fileUploadTypeId);
+
+		if (sourceImage.getInstitutionId() != account.getInstitutionId())
+			throw new ValidationException(new FieldError("sourceImageId", getStrings().get("Source image ID is invalid.")));
+
+		if (!Boolean.TRUE.equals(sourceImage.getActive()))
+			throw new ValidationException(new FieldError("sourceImageId", getStrings().get("Source image is inactive.")));
+
+		if (sourceImage.getFileUploadStatusId() == FileUploadStatusId.ABANDONED)
+			throw new ValidationException(new FieldError("sourceImageId", getStrings().get("Source image has been abandoned.")));
+
+		if (sourceImage.getFileUploadTypeId() != requiredSourceFileUploadTypeId)
+			throw new ValidationException(new FieldError("sourceImageId", getStrings().get("Source image type is invalid.")));
+	}
+
+	protected void activateMediaImageThumbnailFamily(@Nonnull Account account,
+																									 @Nonnull UUID thumbnailImageId) {
+		requireNonNull(account);
+		requireNonNull(thumbnailImageId);
+
+		Image thumbnailImage = findImageById(thumbnailImageId).orElse(null);
+
+		if (thumbnailImage == null || !MEDIA_IMAGE_THUMBNAIL_FILE_UPLOAD_TYPE_IDS.contains(thumbnailImage.getFileUploadTypeId()))
+			return;
+
+		FileUploadTypeId thumbnailFileUploadTypeId = thumbnailImage.getFileUploadTypeId();
+		FileUploadTypeId cropFileUploadTypeId = REQUIRED_SOURCE_FILE_UPLOAD_TYPE_IDS_BY_FILE_UPLOAD_TYPE_ID.get(thumbnailFileUploadTypeId);
+		Image cropImage = findImageById(thumbnailImage.getSourceImageId()).orElse(null);
+
+		if (cropImage == null
+				|| cropImage.getInstitutionId() != account.getInstitutionId()
+				|| !Boolean.TRUE.equals(cropImage.getActive())
+				|| cropImage.getFileUploadStatusId() != FileUploadStatusId.UPLOADED
+				|| cropImage.getFileUploadTypeId() != cropFileUploadTypeId)
+			throw new ValidationException(new FieldError("imageId", getStrings().get("Image source is invalid.")));
+
+		Image rawImage = findImageById(cropImage.getSourceImageId()).orElse(null);
+
+		if (rawImage == null
+				|| rawImage.getInstitutionId() != account.getInstitutionId()
+				|| !Boolean.TRUE.equals(rawImage.getActive())
+				|| rawImage.getFileUploadStatusId() != FileUploadStatusId.UPLOADED
+				|| rawImage.getFileUploadTypeId() != FileUploadTypeId.IMAGE_RAW)
+			throw new ValidationException(new FieldError("imageId", getStrings().get("Image source is invalid.")));
+
+		getDatabase().queryForList("""
+				SELECT i.image_id
+				FROM image i
+				WHERE i.image_id IN (
+				  SELECT crop.image_id
+				  FROM
+				    image crop
+				    JOIN file_upload crop_file_upload ON crop_file_upload.file_upload_id=crop.file_upload_id
+				  WHERE
+				    crop.source_image_id=?
+				    AND crop_file_upload.file_upload_type_id=?
+				  UNION
+				  SELECT thumbnail.image_id
+				  FROM
+				    image thumbnail
+				    JOIN image crop ON crop.image_id=thumbnail.source_image_id
+				    JOIN file_upload crop_file_upload ON crop_file_upload.file_upload_id=crop.file_upload_id
+				    JOIN file_upload thumbnail_file_upload ON thumbnail_file_upload.file_upload_id=thumbnail.file_upload_id
+				  WHERE
+				    crop.source_image_id=?
+				    AND crop_file_upload.file_upload_type_id=?
+				    AND thumbnail_file_upload.file_upload_type_id=?
+				)
+				FOR UPDATE
+				""", UUID.class,
+				rawImage.getImageId(),
+				cropFileUploadTypeId,
+				rawImage.getImageId(),
+				cropFileUploadTypeId,
+				thumbnailFileUploadTypeId);
+
+		getDatabase().execute("""
+				UPDATE image
+				SET active=FALSE
+				WHERE image_id IN (
+				  SELECT crop.image_id
+				  FROM
+				    image crop
+				    JOIN file_upload crop_file_upload ON crop_file_upload.file_upload_id=crop.file_upload_id
+				  WHERE
+				    crop.source_image_id=?
+				    AND crop_file_upload.file_upload_type_id=?
+				  UNION
+				  SELECT thumbnail.image_id
+				  FROM
+				    image thumbnail
+				    JOIN image crop ON crop.image_id=thumbnail.source_image_id
+				    JOIN file_upload crop_file_upload ON crop_file_upload.file_upload_id=crop.file_upload_id
+				    JOIN file_upload thumbnail_file_upload ON thumbnail_file_upload.file_upload_id=thumbnail.file_upload_id
+				  WHERE
+				    crop.source_image_id=?
+				    AND crop_file_upload.file_upload_type_id=?
+				    AND thumbnail_file_upload.file_upload_type_id=?
+				)
+				AND image_id NOT IN (?,?)
+				AND active=TRUE
+				""",
+				rawImage.getImageId(),
+				cropFileUploadTypeId,
+				rawImage.getImageId(),
+				cropFileUploadTypeId,
+				thumbnailFileUploadTypeId,
+				cropImage.getImageId(),
+				thumbnailImageId);
+
+		getDatabase().execute("""
+				UPDATE image
+				SET active=TRUE
+				WHERE image_id IN (?,?)
+				AND active=FALSE
+				""", cropImage.getImageId(), thumbnailImageId);
 	}
 
 	@Nonnull
@@ -515,6 +678,9 @@ public class MediaService {
 
 		FileUploadTypeId fileUploadTypeId = image.getFileUploadTypeId();
 
+		if (!Boolean.TRUE.equals(image.getActive()))
+			return Optional.empty();
+
 		if (fileUploadTypeId == FileUploadTypeId.IMAGE_RAW)
 			return Optional.of(image.getImageId());
 
@@ -529,6 +695,7 @@ public class MediaService {
 					FROM v_image
 					WHERE image_id=?
 					AND institution_id=?
+					AND active=TRUE
 					AND file_upload_status_id=?
 					AND file_upload_type_id=?
 					""", UUID.class, sourceImageId, account.getInstitutionId(), FileUploadStatusId.UPLOADED, FileUploadTypeId.IMAGE_RAW);
@@ -549,6 +716,8 @@ public class MediaService {
 					  crop.image_id=?
 					  AND crop.institution_id=?
 					  AND raw.institution_id=crop.institution_id
+					  AND crop.active=TRUE
+					  AND raw.active=TRUE
 					  AND crop.file_upload_status_id=?
 					  AND raw.file_upload_status_id=?
 					  AND crop.file_upload_type_id IN (?,?,?)
@@ -585,6 +754,7 @@ public class MediaService {
 				  WHERE
 				    raw.institution_id=?
 				    AND raw.image_id=?
+				    AND raw.active=TRUE
 				    AND raw.file_upload_status_id=?
 				    AND raw.file_upload_type_id=?
 				  UNION ALL
@@ -595,6 +765,7 @@ public class MediaService {
 				  WHERE
 				    crop.institution_id=?
 				    AND crop.source_image_id=?
+				    AND crop.active=TRUE
 				    AND crop.file_upload_status_id=?
 				    AND crop.file_upload_type_id IN (?,?,?)
 				  UNION ALL
@@ -607,6 +778,8 @@ public class MediaService {
 				    crop.institution_id=?
 				    AND thumbnail.institution_id=crop.institution_id
 				    AND crop.source_image_id=?
+				    AND crop.active=TRUE
+				    AND thumbnail.active=TRUE
 				    AND crop.file_upload_status_id=?
 				    AND thumbnail.file_upload_status_id=?
 				    AND crop.file_upload_type_id IN (?,?,?)
@@ -694,6 +867,7 @@ public class MediaService {
 				  WHERE
 				    raw.institution_id=?
 				    AND raw.image_id IN %s
+				    AND raw.active=TRUE
 				    AND raw.file_upload_status_id=?
 				    AND raw.file_upload_type_id=?
 				  UNION ALL
@@ -707,6 +881,7 @@ public class MediaService {
 				  WHERE
 				    crop.institution_id=?
 				    AND crop.source_image_id IN %s
+				    AND crop.active=TRUE
 				    AND crop.file_upload_status_id=?
 				    AND crop.file_upload_type_id IN (?,?,?)
 				  UNION ALL
@@ -722,6 +897,8 @@ public class MediaService {
 				    crop.institution_id=?
 				    AND thumbnail.institution_id=crop.institution_id
 				    AND crop.source_image_id IN %s
+				    AND crop.active=TRUE
+				    AND thumbnail.active=TRUE
 				    AND crop.file_upload_status_id=?
 				    AND thumbnail.file_upload_status_id=?
 				    AND thumbnail.file_upload_type_id IN (?,?,?)
