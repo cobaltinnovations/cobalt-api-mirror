@@ -29,6 +29,7 @@ import com.cobaltplatform.api.model.db.FileUploadStatus.FileUploadStatusId;
 import com.cobaltplatform.api.model.db.FileUploadType.FileUploadTypeId;
 import com.cobaltplatform.api.model.db.Image;
 import com.cobaltplatform.api.model.db.Institution.InstitutionId;
+import com.cobaltplatform.api.model.service.FindResult;
 import com.cobaltplatform.api.model.service.MediaImageDetails;
 import com.cobaltplatform.api.model.service.MediaImageGalleryItem;
 import com.cobaltplatform.api.model.service.MediaImageUploadResult;
@@ -278,6 +279,156 @@ public class MediaServiceTests {
 	}
 
 	@Test
+	public void mediaImageGallerySearchMatchesFilenameAndAltText() {
+		IntegrationTestExecutor.runTransactionallyAndForceRollback((app) -> {
+			MediaService mediaService = app.getInjector().getInstance(MediaService.class);
+			Database database = app.getInjector().getInstance(DatabaseProvider.class).getWritableMasterDatabase();
+			Account account = createAccount(app.getInjector().getInstance(AccountService.class));
+			String filenameToken = format("filename-%s", UUID.randomUUID());
+			String altTextToken = format("alt-%s", UUID.randomUUID());
+
+			UUID filenameMatchRawImageId = createUploadedImageWithFilename(database, account, FileUploadTypeId.IMAGE_RAW, null, 1600, 900, format("raw-%s.jpg", filenameToken), "Plain raw image.");
+			UUID filenameMatchCropImageId = createUploadedImageWithFilename(database, account, FileUploadTypeId.IMAGE_16X9, filenameMatchRawImageId, 1600, 900, "filename-match-crop.jpg", "Plain crop image.");
+			createUploadedImageWithFilename(database, account, FileUploadTypeId.IMAGE_THUMBNAIL_16X9, filenameMatchCropImageId, 320, 180, "filename-match-thumbnail.jpg", "Plain thumbnail image.");
+
+			UUID altTextMatchRawImageId = createUploadedImageWithFilename(database, account, FileUploadTypeId.IMAGE_RAW, null, 1600, 900, "alt-text-match-raw.jpg", "Plain raw image.");
+			UUID altTextMatchCropImageId = createUploadedImageWithFilename(database, account, FileUploadTypeId.IMAGE_16X9, altTextMatchRawImageId, 1600, 900, "alt-text-match-crop.jpg", format("Crop alt text containing %s.", altTextToken));
+			createUploadedImageWithFilename(database, account, FileUploadTypeId.IMAGE_THUMBNAIL_16X9, altTextMatchCropImageId, 320, 180, "alt-text-match-thumbnail.jpg", "Plain thumbnail image.");
+
+			FindResult<MediaImageGalleryItem> filenameResults = mediaService.findMediaImageGalleryItems(account, 0, 10, filenameToken.toUpperCase());
+			FindResult<MediaImageGalleryItem> altTextResults = mediaService.findMediaImageGalleryItems(account, 0, 10, altTextToken.toUpperCase());
+
+			Assert.assertEquals("Filename search should return the matching raw source", List.of(filenameMatchRawImageId), sourceImageIds(filenameResults));
+			Assert.assertEquals("Filename search total count should reflect filtered results", Integer.valueOf(1), filenameResults.getTotalCount());
+			Assert.assertEquals("Alt text search should return the matching raw source", List.of(altTextMatchRawImageId), sourceImageIds(altTextResults));
+			Assert.assertEquals("Alt text search total count should reflect filtered results", Integer.valueOf(1), altTextResults.getTotalCount());
+		});
+	}
+
+	@Test
+	public void mediaImageGallerySearchSurfacesMatchingCropThumbnail() {
+		IntegrationTestExecutor.runTransactionallyAndForceRollback((app) -> {
+			MediaService mediaService = app.getInjector().getInstance(MediaService.class);
+			Database database = app.getInjector().getInstance(DatabaseProvider.class).getWritableMasterDatabase();
+			Account account = createAccount(app.getInjector().getInstance(AccountService.class));
+			String rawToken = format("raw-%s", UUID.randomUUID());
+			String cropToken = format("crop-%s", UUID.randomUUID());
+
+			UUID rawImageId = createUploadedImageWithFilename(database, account, FileUploadTypeId.IMAGE_RAW, null, 1600, 900, format("%s.jpg", rawToken), "Raw source image.");
+			UUID crop16x9ImageId = createUploadedImageWithFilename(database, account, FileUploadTypeId.IMAGE_16X9, rawImageId, 1600, 900, "default-16x9-crop.jpg", "Default crop.");
+			UUID thumbnail16x9ImageId = createUploadedImageWithFilename(database, account, FileUploadTypeId.IMAGE_THUMBNAIL_16X9, crop16x9ImageId, 320, 180, "default-16x9-thumbnail.jpg", "Default thumbnail.");
+			UUID crop1x1ImageId = createUploadedImageWithFilename(database, account, FileUploadTypeId.IMAGE_1X1, rawImageId, 800, 800, "matching-1x1-crop.jpg", format("Square crop containing %s.", cropToken));
+			UUID thumbnail1x1ImageId = createUploadedImageWithFilename(database, account, FileUploadTypeId.IMAGE_THUMBNAIL_1X1, crop1x1ImageId, 200, 200, "matching-1x1-thumbnail.jpg", "Square thumbnail.");
+
+			MediaImageGalleryItem cropMatchGalleryItem = mediaService.findMediaImageGalleryItems(account, 0, 10, cropToken.toUpperCase()).getResults().get(0);
+			MediaImageGalleryItem rawMatchGalleryItem = mediaService.findMediaImageGalleryItems(account, 0, 10, rawToken.toUpperCase()).getResults().get(0);
+			MediaImageGalleryItem blankSearchGalleryItem = findGalleryItem(mediaService, account, rawImageId, "   ").get();
+
+			Assert.assertEquals("Crop match should surface the crop's thumbnail", thumbnail1x1ImageId, cropMatchGalleryItem.getThumbnailImage().getImageId());
+			Assert.assertEquals("Raw match should use default thumbnail preference", thumbnail16x9ImageId, rawMatchGalleryItem.getThumbnailImage().getImageId());
+			Assert.assertEquals("Blank search should use default thumbnail preference", thumbnail16x9ImageId, blankSearchGalleryItem.getThumbnailImage().getImageId());
+		});
+	}
+
+	@Test
+	public void mediaImageGallerySearchSurfacesMatchingThumbnailBeforeCropMatch() {
+		IntegrationTestExecutor.runTransactionallyAndForceRollback((app) -> {
+			MediaService mediaService = app.getInjector().getInstance(MediaService.class);
+			Database database = app.getInjector().getInstance(DatabaseProvider.class).getWritableMasterDatabase();
+			Account account = createAccount(app.getInjector().getInstance(AccountService.class));
+			String searchToken = format("thumb-%s", UUID.randomUUID());
+
+			UUID rawImageId = createUploadedImageWithFilename(database, account, FileUploadTypeId.IMAGE_RAW, null, 1600, 900, "thumbnail-priority-raw.jpg", "Raw image.");
+			UUID crop16x9ImageId = createUploadedImageWithFilename(database, account, FileUploadTypeId.IMAGE_16X9, rawImageId, 1600, 900, "thumbnail-priority-16x9-crop.jpg", "Default crop.");
+			createUploadedImageWithFilename(database, account, FileUploadTypeId.IMAGE_THUMBNAIL_16X9, crop16x9ImageId, 320, 180, "thumbnail-priority-16x9-thumbnail.jpg", "Default thumbnail.");
+			UUID crop4x3ImageId = createUploadedImageWithFilename(database, account, FileUploadTypeId.IMAGE_4X3, rawImageId, 1200, 900, "thumbnail-priority-4x3-crop.jpg", "Four by three crop.");
+			UUID thumbnail4x3ImageId = createUploadedImageWithFilename(database, account, FileUploadTypeId.IMAGE_THUMBNAIL_4X3, crop4x3ImageId, 240, 180, format("%s-match.jpg", searchToken), "Matching thumbnail.");
+			UUID crop1x1ImageId = createUploadedImageWithFilename(database, account, FileUploadTypeId.IMAGE_1X1, rawImageId, 800, 800, "thumbnail-priority-1x1-crop.jpg", format("Crop alt text also containing %s.", searchToken));
+			createUploadedImageWithFilename(database, account, FileUploadTypeId.IMAGE_THUMBNAIL_1X1, crop1x1ImageId, 200, 200, "thumbnail-priority-1x1-thumbnail.jpg", "Square thumbnail.");
+
+			MediaImageGalleryItem galleryItem = mediaService.findMediaImageGalleryItems(account, 0, 10, searchToken.toUpperCase()).getResults().get(0);
+
+			Assert.assertEquals("Direct thumbnail match should outrank crop match and default preference", thumbnail4x3ImageId, galleryItem.getThumbnailImage().getImageId());
+		});
+	}
+
+	@Test
+	public void mediaImageGallerySearchIgnoresUnavailableRows() {
+		IntegrationTestExecutor.runTransactionallyAndForceRollback((app) -> {
+			MediaService mediaService = app.getInjector().getInstance(MediaService.class);
+			Database database = app.getInjector().getInstance(DatabaseProvider.class).getWritableMasterDatabase();
+			Account account = createAccount(app.getInjector().getInstance(AccountService.class));
+			String searchToken = format("unavailable-%s", UUID.randomUUID());
+
+			UUID pendingRawImageId = createUploadedImageWithFilename(database, account, FileUploadTypeId.IMAGE_RAW, null, 1600, 900, "pending-raw.jpg", "Pending raw.");
+			UUID pendingCropImageId = createUploadedImageWithFilename(database, account, FileUploadTypeId.IMAGE_16X9, pendingRawImageId, 1600, 900, "pending-crop.jpg", "Pending crop.");
+			UUID pendingThumbnailImageId = createUploadedImageWithFilename(database, account, FileUploadTypeId.IMAGE_THUMBNAIL_16X9, pendingCropImageId, 320, 180, format("%s-pending-thumbnail.jpg", searchToken), "Pending thumbnail.");
+
+			UUID inactiveRawImageId = createUploadedImageWithFilename(database, account, FileUploadTypeId.IMAGE_RAW, null, 1600, 900, "inactive-raw.jpg", "Inactive raw.");
+			UUID inactiveCropImageId = createUploadedImageWithFilename(database, account, FileUploadTypeId.IMAGE_16X9, inactiveRawImageId, 1600, 900, "inactive-crop.jpg", format("Inactive crop with %s.", searchToken));
+			createUploadedImageWithFilename(database, account, FileUploadTypeId.IMAGE_THUMBNAIL_16X9, inactiveCropImageId, 320, 180, "inactive-thumbnail.jpg", "Inactive thumbnail.");
+
+			UUID crossInstitutionRawImageId = createUploadedImageWithFilename(database, account, FileUploadTypeId.IMAGE_RAW, null, 1600, 900, format("%s-cross-raw.jpg", searchToken), "Cross-institution raw.");
+			UUID crossInstitutionCropImageId = createUploadedImageWithFilename(database, account, FileUploadTypeId.IMAGE_16X9, crossInstitutionRawImageId, 1600, 900, "cross-crop.jpg", "Cross-institution crop.");
+			UUID crossInstitutionThumbnailImageId = createUploadedImageWithFilename(database, account, FileUploadTypeId.IMAGE_THUMBNAIL_16X9, crossInstitutionCropImageId, 320, 180, "cross-thumbnail.jpg", "Cross-institution thumbnail.");
+
+			database.execute("UPDATE file_upload SET file_upload_status_id=? WHERE file_upload_id=(SELECT file_upload_id FROM image WHERE image_id=?)", FileUploadStatusId.CREATED, pendingThumbnailImageId);
+			database.execute("UPDATE image SET active=FALSE WHERE image_id=?", inactiveCropImageId);
+			database.execute("""
+					UPDATE file_upload
+					SET institution_id=?
+					WHERE file_upload_id IN (
+					  SELECT file_upload_id
+					  FROM image
+					  WHERE image_id IN (?,?,?)
+					)
+					""", InstitutionId.COBALT_IC, crossInstitutionRawImageId, crossInstitutionCropImageId, crossInstitutionThumbnailImageId);
+
+			FindResult<MediaImageGalleryItem> results = mediaService.findMediaImageGalleryItems(account, 0, 10, searchToken);
+
+			Assert.assertEquals("Unavailable search matches should be ignored", List.of(), sourceImageIds(results));
+			Assert.assertEquals("Unavailable search matches should not count", Integer.valueOf(0), results.getTotalCount());
+		});
+	}
+
+	@Test
+	public void mediaImageGallerySearchPaginatesFilteredResults() {
+		IntegrationTestExecutor.runTransactionallyAndForceRollback((app) -> {
+			MediaService mediaService = app.getInjector().getInstance(MediaService.class);
+			Database database = app.getInjector().getInstance(DatabaseProvider.class).getWritableMasterDatabase();
+			Account account = createAccount(app.getInjector().getInstance(AccountService.class));
+			String searchToken = format("page-%s", UUID.randomUUID());
+
+			UUID firstRawImageId = createUploadedImageWithFilename(database, account, FileUploadTypeId.IMAGE_RAW, null, 1600, 900, "pagination-first-raw.jpg", format("First %s.", searchToken));
+			UUID firstCropImageId = createUploadedImageWithFilename(database, account, FileUploadTypeId.IMAGE_16X9, firstRawImageId, 1600, 900, "pagination-first-crop.jpg", "First crop.");
+			createUploadedImageWithFilename(database, account, FileUploadTypeId.IMAGE_THUMBNAIL_16X9, firstCropImageId, 320, 180, "pagination-first-thumbnail.jpg", "First thumbnail.");
+
+			UUID secondRawImageId = createUploadedImageWithFilename(database, account, FileUploadTypeId.IMAGE_RAW, null, 1600, 900, "pagination-second-raw.jpg", format("Second %s.", searchToken));
+			UUID secondCropImageId = createUploadedImageWithFilename(database, account, FileUploadTypeId.IMAGE_16X9, secondRawImageId, 1600, 900, "pagination-second-crop.jpg", "Second crop.");
+			createUploadedImageWithFilename(database, account, FileUploadTypeId.IMAGE_THUMBNAIL_16X9, secondCropImageId, 320, 180, "pagination-second-thumbnail.jpg", "Second thumbnail.");
+
+			UUID thirdRawImageId = createUploadedImageWithFilename(database, account, FileUploadTypeId.IMAGE_RAW, null, 1600, 900, "pagination-third-raw.jpg", format("Third %s.", searchToken));
+			UUID thirdCropImageId = createUploadedImageWithFilename(database, account, FileUploadTypeId.IMAGE_16X9, thirdRawImageId, 1600, 900, "pagination-third-crop.jpg", "Third crop.");
+			createUploadedImageWithFilename(database, account, FileUploadTypeId.IMAGE_THUMBNAIL_16X9, thirdCropImageId, 320, 180, "pagination-third-thumbnail.jpg", "Third thumbnail.");
+
+			UUID nonMatchingRawImageId = createUploadedImageWithFilename(database, account, FileUploadTypeId.IMAGE_RAW, null, 1600, 900, "pagination-unmatched-raw.jpg", "Unmatched raw.");
+			UUID nonMatchingCropImageId = createUploadedImageWithFilename(database, account, FileUploadTypeId.IMAGE_16X9, nonMatchingRawImageId, 1600, 900, "pagination-unmatched-crop.jpg", "Unmatched crop.");
+			createUploadedImageWithFilename(database, account, FileUploadTypeId.IMAGE_THUMBNAIL_16X9, nonMatchingCropImageId, 320, 180, "pagination-unmatched-thumbnail.jpg", "Unmatched thumbnail.");
+
+			FindResult<MediaImageGalleryItem> firstPage = mediaService.findMediaImageGalleryItems(account, 0, 2, searchToken);
+			FindResult<MediaImageGalleryItem> secondPage = mediaService.findMediaImageGalleryItems(account, 1, 2, searchToken);
+			List<UUID> resultSourceImageIds = sourceImageIds(firstPage);
+			resultSourceImageIds.addAll(sourceImageIds(secondPage));
+
+			Assert.assertEquals("First page total count should reflect filtered results", Integer.valueOf(3), firstPage.getTotalCount());
+			Assert.assertEquals("Second page total count should reflect filtered results", Integer.valueOf(3), secondPage.getTotalCount());
+			Assert.assertEquals("First page should honor requested page size", 2, firstPage.getResults().size());
+			Assert.assertEquals("Second page should contain the remaining filtered result", 1, secondPage.getResults().size());
+			Assert.assertEquals("Pagination should return only matching source images", Set.of(firstRawImageId, secondRawImageId, thirdRawImageId), Set.copyOf(resultSourceImageIds));
+		});
+	}
+
+	@Test
 	public void addingMissingAspectRatioCreatesActiveCurrentPair() {
 		IntegrationTestExecutor.runTransactionallyAndForceRollback((app) -> {
 			MediaService mediaService = app.getInjector().getInstance(MediaService.class);
@@ -429,9 +580,34 @@ public class MediaServiceTests {
 																		 @Nonnull Integer height,
 																		 @Nullable String imageAltText,
 																		 @Nullable String imageHash) {
+		return createUploadedImageWithFilename(database, account, fileUploadTypeId, sourceImageId, width, height, null, imageAltText, imageHash);
+	}
+
+	@Nonnull
+	protected UUID createUploadedImageWithFilename(@Nonnull Database database,
+																								 @Nonnull Account account,
+																								 @Nonnull FileUploadTypeId fileUploadTypeId,
+																								 @Nullable UUID sourceImageId,
+																								 @Nonnull Integer width,
+																								 @Nonnull Integer height,
+																								 @Nullable String filename,
+																								 @Nullable String imageAltText) {
+		return createUploadedImageWithFilename(database, account, fileUploadTypeId, sourceImageId, width, height, filename, imageAltText, null);
+	}
+
+	@Nonnull
+	protected UUID createUploadedImageWithFilename(@Nonnull Database database,
+																								 @Nonnull Account account,
+																								 @Nonnull FileUploadTypeId fileUploadTypeId,
+																								 @Nullable UUID sourceImageId,
+																								 @Nonnull Integer width,
+																								 @Nonnull Integer height,
+																								 @Nullable String filename,
+																								 @Nullable String imageAltText,
+																								 @Nullable String imageHash) {
 		UUID fileUploadId = UUID.randomUUID();
 		UUID imageId = UUID.randomUUID();
-		String filename = format("%s.jpg", imageId);
+		filename = filename == null ? format("%s.jpg", imageId) : filename;
 		String storageKey = format("media-test/%s/%s", fileUploadTypeId.name().toLowerCase(), filename);
 
 		database.execute("""
@@ -490,8 +666,25 @@ public class MediaServiceTests {
 	protected Optional<MediaImageGalleryItem> findGalleryItem(@Nonnull MediaService mediaService,
 																														@Nonnull Account account,
 																														@Nonnull UUID sourceImageId) {
-		return mediaService.findMediaImageGalleryItems(account, 0, 100).getResults().stream()
+		return findGalleryItem(mediaService, account, sourceImageId, null);
+	}
+
+	@Nonnull
+	protected Optional<MediaImageGalleryItem> findGalleryItem(@Nonnull MediaService mediaService,
+																														@Nonnull Account account,
+																														@Nonnull UUID sourceImageId,
+																														@Nullable String searchQuery) {
+		return mediaService.findMediaImageGalleryItems(account, 0, 100, searchQuery).getResults().stream()
 				.filter(mediaImageGalleryItem -> sourceImageId.equals(mediaImageGalleryItem.getSourceImageId()))
 				.findFirst();
+	}
+
+	@Nonnull
+	protected List<UUID> sourceImageIds(@Nonnull FindResult<MediaImageGalleryItem> findResult) {
+		requireNonNull(findResult);
+
+		return findResult.getResults().stream()
+				.map(MediaImageGalleryItem::getSourceImageId)
+				.collect(Collectors.toList());
 	}
 }

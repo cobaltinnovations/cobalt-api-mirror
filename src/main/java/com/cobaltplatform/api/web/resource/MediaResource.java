@@ -110,12 +110,14 @@ public class MediaResource {
 	@GET("/media/images")
 	@AuthenticationRequired
 	public ApiResponse mediaImages(@Nonnull @QueryParameter Optional<Integer> pageNumber,
-																 @Nonnull @QueryParameter Optional<Integer> pageSize) {
+																 @Nonnull @QueryParameter Optional<Integer> pageSize,
+																 @Nonnull @QueryParameter Optional<String> searchQuery) {
 		requireNonNull(pageNumber);
 		requireNonNull(pageSize);
+		requireNonNull(searchQuery);
 
 		Account account = getCurrentContext().getAccount().get();
-		FindResult<MediaImageGalleryItem> findResult = getMediaService().findMediaImageGalleryItems(account, pageNumber.orElse(null), pageSize.orElse(null));
+		FindResult<MediaImageGalleryItem> findResult = getMediaService().findMediaImageGalleryItems(account, pageNumber.orElse(null), pageSize.orElse(null), searchQuery.orElse(null));
 
 		return new ApiResponse(new LinkedHashMap<String, Object>() {{
 			put("totalCount", findResult.getTotalCount());

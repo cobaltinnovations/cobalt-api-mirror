@@ -198,8 +198,11 @@ public class MediaService {
 	@Nonnull
 	public FindResult<MediaImageGalleryItem> findMediaImageGalleryItems(@Nonnull Account account,
 																																		 @Nullable Integer pageNumber,
-																																		 @Nullable Integer pageSize) {
+																																		 @Nullable Integer pageSize,
+																																		 @Nullable String searchQuery) {
 		requireNonNull(account);
+
+		searchQuery = trimToNull(searchQuery);
 
 		if (pageNumber == null || pageNumber < 0)
 			pageNumber = 0;
@@ -209,7 +212,54 @@ public class MediaService {
 		else if (pageSize > MAXIMUM_MEDIA_IMAGE_GALLERY_PAGE_SIZE)
 			pageSize = MAXIMUM_MEDIA_IMAGE_GALLERY_PAGE_SIZE;
 
-		List<MediaImageGalleryItemWithTotalCount> thumbnailImages = getDatabase().queryForList("""
+		String searchMatchRankSql = "0 AS search_match_rank";
+		String searchFilterSql = "";
+		List<Object> parameters = new ArrayList<>();
+
+		if (searchQuery != null) {
+			searchMatchRankSql = """
+					CASE
+					  WHEN thumbnail.filename ILIKE CONCAT('%',?,'%') OR thumbnail.image_alt_text ILIKE CONCAT('%',?,'%') THEN 1
+					  WHEN crop.filename ILIKE CONCAT('%',?,'%') OR crop.image_alt_text ILIKE CONCAT('%',?,'%') THEN 2
+					  WHEN raw.filename ILIKE CONCAT('%',?,'%') OR raw.image_alt_text ILIKE CONCAT('%',?,'%') THEN 3
+					  ELSE 4
+					END AS search_match_rank
+					""";
+			searchFilterSql = """
+					AND (
+					  raw.filename ILIKE CONCAT('%',?,'%')
+					  OR raw.image_alt_text ILIKE CONCAT('%',?,'%')
+					  OR crop.filename ILIKE CONCAT('%',?,'%')
+					  OR crop.image_alt_text ILIKE CONCAT('%',?,'%')
+					  OR thumbnail.filename ILIKE CONCAT('%',?,'%')
+					  OR thumbnail.image_alt_text ILIKE CONCAT('%',?,'%')
+					)
+					""";
+
+			for (int i = 0; i < 6; ++i)
+				parameters.add(searchQuery);
+		}
+
+		parameters.add(account.getInstitutionId());
+		parameters.add(FileUploadStatusId.UPLOADED);
+		parameters.add(FileUploadStatusId.UPLOADED);
+		parameters.add(FileUploadStatusId.UPLOADED);
+		parameters.add(FileUploadTypeId.IMAGE_RAW);
+		parameters.add(FileUploadTypeId.IMAGE_4X3);
+		parameters.add(FileUploadTypeId.IMAGE_16X9);
+		parameters.add(FileUploadTypeId.IMAGE_1X1);
+		parameters.add(FileUploadTypeId.IMAGE_THUMBNAIL_4X3);
+		parameters.add(FileUploadTypeId.IMAGE_THUMBNAIL_16X9);
+		parameters.add(FileUploadTypeId.IMAGE_THUMBNAIL_1X1);
+
+		if (searchQuery != null)
+			for (int i = 0; i < 6; ++i)
+				parameters.add(searchQuery);
+
+		parameters.add(pageSize);
+		parameters.add(pageNumber * pageSize);
+
+		List<MediaImageGalleryItemWithTotalCount> thumbnailImages = getDatabase().queryForList(format("""
 				WITH thumbnail_candidates AS (
 				  SELECT
 				    raw.image_id AS gallery_source_image_id,
@@ -220,7 +270,8 @@ public class MediaService {
 				      WHEN 'IMAGE_THUMBNAIL_4X3' THEN 2
 				      WHEN 'IMAGE_THUMBNAIL_1X1' THEN 3
 				      ELSE 4
-				    END AS thumbnail_preference
+				    END AS thumbnail_preference,
+				    %s
 				  FROM
 				    v_image thumbnail
 				    JOIN v_image crop ON crop.image_id=thumbnail.source_image_id
@@ -239,12 +290,13 @@ public class MediaService {
 				    AND raw.file_upload_type_id=?
 				    AND crop.file_upload_type_id IN (?,?,?)
 				    AND thumbnail.file_upload_type_id IN (?,?,?)
+				    %s
 				), ranked_gallery_images AS (
 				  SELECT
 				    thumbnail_candidates.*,
 				    ROW_NUMBER() OVER (
 				      PARTITION BY gallery_source_image_id
-				      ORDER BY thumbnail_preference, created DESC, image_id
+				      ORDER BY search_match_rank, thumbnail_preference, created DESC, image_id
 				    ) AS gallery_rank
 				  FROM
 				    thumbnail_candidates
@@ -264,20 +316,7 @@ public class MediaService {
 				ORDER BY gallery_uploaded_date DESC NULLS LAST, gallery_source_image_id
 				LIMIT ?
 				OFFSET ?
-				""", MediaImageGalleryItemWithTotalCount.class,
-				account.getInstitutionId(),
-				FileUploadStatusId.UPLOADED,
-				FileUploadStatusId.UPLOADED,
-				FileUploadStatusId.UPLOADED,
-				FileUploadTypeId.IMAGE_RAW,
-				FileUploadTypeId.IMAGE_4X3,
-				FileUploadTypeId.IMAGE_16X9,
-				FileUploadTypeId.IMAGE_1X1,
-				FileUploadTypeId.IMAGE_THUMBNAIL_4X3,
-				FileUploadTypeId.IMAGE_THUMBNAIL_16X9,
-				FileUploadTypeId.IMAGE_THUMBNAIL_1X1,
-				pageSize,
-				pageNumber * pageSize);
+				""", searchMatchRankSql, searchFilterSql), MediaImageGalleryItemWithTotalCount.class, parameters.toArray());
 
 		if (thumbnailImages.size() == 0)
 			return new FindResult<>(List.of(), 0);
