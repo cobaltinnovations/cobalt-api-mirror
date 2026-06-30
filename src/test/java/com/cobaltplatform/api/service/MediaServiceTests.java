@@ -41,6 +41,8 @@ import org.junit.Test;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import javax.annotation.concurrent.ThreadSafe;
+import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -54,6 +56,19 @@ import static java.util.Objects.requireNonNull;
  */
 @ThreadSafe
 public class MediaServiceTests {
+	@Nonnull
+	private static final String IMAGE_HASH_A = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+	@Nonnull
+	private static final String IMAGE_HASH_A_UPPERCASE = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+	@Nonnull
+	private static final String IMAGE_HASH_B = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+	@Nonnull
+	private static final String IMAGE_HASH_C = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
+	@Nonnull
+	private static final String IMAGE_HASH_D = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
+	@Nonnull
+	private static final String IMAGE_HASH_E = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
+
 	@Test
 	public void createMediaImagePresignedUploadPersistsTrimmedAltText() {
 		IntegrationTestExecutor.runTransactionallyAndForceRollback((app) -> {
@@ -69,11 +84,13 @@ public class MediaServiceTests {
 				setWidth(1600);
 				setHeight(900);
 				setImageAltText("  A calm lake at sunrise.  ");
+				setImageHash(IMAGE_HASH_A_UPPERCASE);
 			}});
 
 			Image image = mediaService.findImageById(mediaImageUploadResult.getImageId()).get();
 
 			Assert.assertEquals("Image should store trimmed alt text", "A calm lake at sunrise.", image.getImageAltText());
+			Assert.assertEquals("Image should store normalized image hash", IMAGE_HASH_A, image.getImageHash());
 			Assert.assertEquals("API response should expose alt text", "A calm lake at sunrise.", mediaImageApiResponseFactory.create(image).getImageAltText());
 		});
 	}
@@ -93,12 +110,100 @@ public class MediaServiceTests {
 				setWidth(1600);
 				setHeight(900);
 				setImageAltText("   ");
+				setImageHash(IMAGE_HASH_B);
 			}});
 
 			Image image = mediaService.findImageById(mediaImageUploadResult.getImageId()).get();
 
 			Assert.assertNull("Image should store blank alt text as null", image.getImageAltText());
 			Assert.assertNull("API response should expose null alt text", mediaImageApiResponseFactory.create(image).getImageAltText());
+		});
+	}
+
+	@Test
+	public void rawMediaImagePresignedUploadsRequireValidImageHash() {
+		IntegrationTestExecutor.runTransactionallyAndForceRollback((app) -> {
+			MediaService mediaService = app.getInjector().getInstance(MediaService.class);
+			Database database = app.getInjector().getInstance(DatabaseProvider.class).getWritableMasterDatabase();
+			Account account = findExistingAccount(database);
+
+			Assert.assertThrows(ValidationException.class, () -> mediaService.createMediaImagePresignedUpload(account, rawUploadRequest(null)));
+			Assert.assertThrows(ValidationException.class, () -> mediaService.createMediaImagePresignedUpload(account, rawUploadRequest("   ")));
+			Assert.assertThrows(ValidationException.class, () -> mediaService.createMediaImagePresignedUpload(account, rawUploadRequest("abc")));
+			Assert.assertThrows(ValidationException.class, () -> mediaService.createMediaImagePresignedUpload(account, rawUploadRequest("gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg")));
+		});
+	}
+
+	@Test
+	public void duplicateRawImageHashesDoNotBlockPresignedUploads() {
+		IntegrationTestExecutor.runTransactionallyAndForceRollback((app) -> {
+			MediaService mediaService = app.getInjector().getInstance(MediaService.class);
+			Database database = app.getInjector().getInstance(DatabaseProvider.class).getWritableMasterDatabase();
+			Account account = findExistingAccount(database);
+
+			MediaImageUploadResult firstUploadResult = mediaService.createMediaImagePresignedUpload(account, rawUploadRequest(IMAGE_HASH_C));
+			MediaImageUploadResult secondUploadResult = mediaService.createMediaImagePresignedUpload(account, rawUploadRequest(IMAGE_HASH_C));
+
+			Assert.assertNotEquals("Duplicate raw uploads should create distinct images", firstUploadResult.getImageId(), secondUploadResult.getImageId());
+			Assert.assertEquals("First image should store duplicate hash", IMAGE_HASH_C, mediaService.findImageById(firstUploadResult.getImageId()).get().getImageHash());
+			Assert.assertEquals("Second image should store duplicate hash", IMAGE_HASH_C, mediaService.findImageById(secondUploadResult.getImageId()).get().getImageHash());
+		});
+	}
+
+	@Test
+	public void derivedMediaImagePresignedUploadsDoNotRequireOrStoreImageHash() {
+		IntegrationTestExecutor.runTransactionallyAndForceRollback((app) -> {
+			MediaService mediaService = app.getInjector().getInstance(MediaService.class);
+			Database database = app.getInjector().getInstance(DatabaseProvider.class).getWritableMasterDatabase();
+			Account account = findExistingAccount(database);
+
+			UUID rawImageId = createUploadedImage(database, account, FileUploadTypeId.IMAGE_RAW, null, 1600, 900, null, IMAGE_HASH_D);
+			MediaImageUploadResult cropImageUploadResult = mediaService.createMediaImagePresignedUpload(account, new CreateMediaImagePresignedUploadRequest() {{
+				setFileUploadTypeId(FileUploadTypeId.IMAGE_16X9);
+				setSourceImageId(rawImageId);
+				setFilename("crop-no-hash.jpg");
+				setContentType("image/jpeg");
+				setWidth(1600);
+				setHeight(900);
+			}});
+
+			Image cropImage = mediaService.findImageById(cropImageUploadResult.getImageId()).get();
+
+			Assert.assertNull("Crop image should not store image hash", cropImage.getImageHash());
+		});
+	}
+
+	@Test
+	public void duplicateRawMediaImageLookupReturnsUploadedActiveSameInstitutionRawImages() {
+		IntegrationTestExecutor.runTransactionallyAndForceRollback((app) -> {
+			MediaService mediaService = app.getInjector().getInstance(MediaService.class);
+			Database database = app.getInjector().getInstance(DatabaseProvider.class).getWritableMasterDatabase();
+			Account account = createAccount(app.getInjector().getInstance(AccountService.class));
+
+			UUID firstDuplicateImageId = createUploadedImage(database, account, FileUploadTypeId.IMAGE_RAW, null, 1600, 900, null, IMAGE_HASH_E);
+			UUID secondDuplicateImageId = createUploadedImage(database, account, FileUploadTypeId.IMAGE_RAW, null, 1200, 800, null, IMAGE_HASH_E);
+			UUID pendingImageId = createUploadedImage(database, account, FileUploadTypeId.IMAGE_RAW, null, 900, 600, null, IMAGE_HASH_E);
+			UUID inactiveImageId = createUploadedImage(database, account, FileUploadTypeId.IMAGE_RAW, null, 800, 600, null, IMAGE_HASH_E);
+			UUID crossInstitutionImageId = createUploadedImage(database, account, FileUploadTypeId.IMAGE_RAW, null, 700, 500, null, IMAGE_HASH_E);
+			UUID rawImageForDerivedImageId = createUploadedImage(database, account, FileUploadTypeId.IMAGE_RAW, null, 1600, 900, null, IMAGE_HASH_A);
+			UUID derivedImageId = createUploadedImage(database, account, FileUploadTypeId.IMAGE_16X9, rawImageForDerivedImageId, 1600, 900, null, IMAGE_HASH_E);
+
+			Instant created = Instant.parse("2026-01-01T00:00:00Z");
+			database.execute("UPDATE image SET created=? WHERE image_id=?", created, firstDuplicateImageId);
+			database.execute("UPDATE image SET created=? WHERE image_id=?", created.plusSeconds(60), secondDuplicateImageId);
+			database.execute("UPDATE file_upload SET file_upload_status_id=? WHERE file_upload_id=(SELECT file_upload_id FROM image WHERE image_id=?)", FileUploadStatusId.CREATED, pendingImageId);
+			database.execute("UPDATE image SET active=FALSE WHERE image_id=?", inactiveImageId);
+			database.execute("UPDATE file_upload SET institution_id=? WHERE file_upload_id=(SELECT file_upload_id FROM image WHERE image_id=?)", InstitutionId.COBALT_IC, crossInstitutionImageId);
+
+			List<UUID> duplicateImageIds = mediaService.findDuplicateRawMediaImageIds(account, IMAGE_HASH_E.toUpperCase());
+
+			Assert.assertEquals("Lookup should return active uploaded raw duplicates in deterministic order", List.of(firstDuplicateImageId, secondDuplicateImageId), duplicateImageIds);
+			Assert.assertFalse("Pending image should be ignored", duplicateImageIds.contains(pendingImageId));
+			Assert.assertFalse("Inactive image should be ignored", duplicateImageIds.contains(inactiveImageId));
+			Assert.assertFalse("Cross-institution image should be ignored", duplicateImageIds.contains(crossInstitutionImageId));
+			Assert.assertFalse("Derived image should be ignored", duplicateImageIds.contains(derivedImageId));
+			Assert.assertEquals("Unknown hash should have no duplicates", List.of(), mediaService.findDuplicateRawMediaImageIds(account, IMAGE_HASH_B));
+			Assert.assertThrows(ValidationException.class, () -> mediaService.findDuplicateRawMediaImageIds(account, "not-a-sha-256"));
 		});
 	}
 
@@ -261,6 +366,18 @@ public class MediaServiceTests {
 	}
 
 	@Nonnull
+	protected CreateMediaImagePresignedUploadRequest rawUploadRequest(@Nullable String imageHash) {
+		return new CreateMediaImagePresignedUploadRequest() {{
+			setFileUploadTypeId(FileUploadTypeId.IMAGE_RAW);
+			setFilename("raw-image.jpg");
+			setContentType("image/jpeg");
+			setWidth(1600);
+			setHeight(900);
+			setImageHash(imageHash);
+		}};
+	}
+
+	@Nonnull
 	protected Account createAccount(@Nonnull AccountService accountService) {
 		UUID accountId = accountService.createAccount(new CreateAccountRequest() {{
 			setAccountSourceId(AccountSourceId.ANONYMOUS);
@@ -300,6 +417,18 @@ public class MediaServiceTests {
 																		 @Nonnull Integer width,
 																		 @Nonnull Integer height,
 																		 @Nullable String imageAltText) {
+		return createUploadedImage(database, account, fileUploadTypeId, sourceImageId, width, height, imageAltText, null);
+	}
+
+	@Nonnull
+	protected UUID createUploadedImage(@Nonnull Database database,
+																		 @Nonnull Account account,
+																		 @Nonnull FileUploadTypeId fileUploadTypeId,
+																		 @Nullable UUID sourceImageId,
+																		 @Nonnull Integer width,
+																		 @Nonnull Integer height,
+																		 @Nullable String imageAltText,
+																		 @Nullable String imageHash) {
 		UUID fileUploadId = UUID.randomUUID();
 		UUID imageId = UUID.randomUUID();
 		String filename = format("%s.jpg", imageId);
@@ -342,9 +471,10 @@ public class MediaServiceTests {
 				  created_by_account_id,
 				  width,
 				  height,
-				  image_alt_text
-				) VALUES (?,?,?,?,?,?,?)
-				""", imageId, fileUploadId, sourceImageId, account.getAccountId(), width, height, imageAltText);
+				  image_alt_text,
+				  image_hash
+				) VALUES (?,?,?,?,?,?,?,?)
+				""", imageId, fileUploadId, sourceImageId, account.getAccountId(), width, height, imageAltText, imageHash);
 
 		return imageId;
 	}

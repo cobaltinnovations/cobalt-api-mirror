@@ -52,9 +52,11 @@ import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import static com.cobaltplatform.api.util.DatabaseUtility.sqlInListPlaceholders;
@@ -72,6 +74,8 @@ public class MediaService {
 	private static final Integer DEFAULT_MEDIA_IMAGE_GALLERY_PAGE_SIZE;
 	@Nonnull
 	private static final Integer MAXIMUM_MEDIA_IMAGE_GALLERY_PAGE_SIZE;
+	@Nonnull
+	private static final Pattern SHA_256_HEX_PATTERN;
 	@Nonnull
 	private static final EnumSet<FileUploadTypeId> MEDIA_IMAGE_FILE_UPLOAD_TYPE_IDS;
 	@Nonnull
@@ -92,6 +96,7 @@ public class MediaService {
 	static {
 		DEFAULT_MEDIA_IMAGE_GALLERY_PAGE_SIZE = 50;
 		MAXIMUM_MEDIA_IMAGE_GALLERY_PAGE_SIZE = 100;
+		SHA_256_HEX_PATTERN = Pattern.compile("^[0-9a-f]{64}$");
 
 		MEDIA_IMAGE_CROP_FILE_UPLOAD_TYPE_IDS = EnumSet.of(
 				FileUploadTypeId.IMAGE_4X3,
@@ -295,6 +300,29 @@ public class MediaService {
 	}
 
 	@Nonnull
+	public List<UUID> findDuplicateRawMediaImageIds(@Nonnull Account account,
+																									@Nullable String imageHash) {
+		requireNonNull(account);
+
+		ValidationException validationException = new ValidationException();
+		String normalizedImageHash = normalizeRequiredImageHash(imageHash, validationException);
+
+		if (validationException.hasErrors())
+			throw validationException;
+
+		return getDatabase().queryForList("""
+				SELECT image_id
+				FROM v_image
+				WHERE institution_id=?
+				AND file_upload_type_id=?
+				AND file_upload_status_id=?
+				AND active=TRUE
+				AND image_hash=?
+				ORDER BY created, image_id
+				""", UUID.class, account.getInstitutionId(), FileUploadTypeId.IMAGE_RAW, FileUploadStatusId.UPLOADED, normalizedImageHash);
+	}
+
+	@Nonnull
 	public MediaImageUploadResult createMediaImagePresignedUpload(@Nonnull Account account,
 																																@Nonnull CreateMediaImagePresignedUploadRequest request) {
 		requireNonNull(account);
@@ -307,6 +335,7 @@ public class MediaService {
 		Integer width = request.getWidth();
 		Integer height = request.getHeight();
 		String requestedImageAltText = trimToNull(request.getImageAltText());
+		String normalizedImageHash = null;
 		Image sourceImage = null;
 		String fileUploadTypeStorageKey = null;
 
@@ -345,6 +374,8 @@ public class MediaService {
 		if (fileUploadTypeId == FileUploadTypeId.IMAGE_RAW) {
 			if (sourceImageId != null)
 				validationException.add(new FieldError("sourceImageId", getStrings().get("Raw image uploads cannot specify a source image.")));
+
+			normalizedImageHash = normalizeRequiredImageHash(request.getImageHash(), validationException);
 		} else if (fileUploadTypeId != null && MEDIA_IMAGE_FILE_UPLOAD_TYPE_IDS.contains(fileUploadTypeId)) {
 			if (sourceImageId == null) {
 				validationException.add(new FieldError("sourceImageId", getStrings().get("Source image ID is required.")));
@@ -378,6 +409,7 @@ public class MediaService {
 			throw validationException;
 
 		String imageAltText = requestedImageAltText == null && sourceImage != null ? sourceImage.getImageAltText() : requestedImageAltText;
+		String imageHash = normalizedImageHash;
 		UUID imageId = UUID.randomUUID();
 		UUID fileUploadId = UUID.randomUUID();
 		String storageKey = format("media-uploads/%s/%s/%s/%s", account.getInstitutionId(), fileUploadTypeStorageKey, fileUploadId, filename);
@@ -410,9 +442,10 @@ public class MediaService {
 					  created_by_account_id,
 					  width,
 					  height,
-					  image_alt_text
-					) VALUES (?,?,?,?,?,?,?)
-					""", imageId, fileUploadId, sourceImageId, account.getAccountId(), width, height, imageAltText);
+					  image_alt_text,
+					  image_hash
+					) VALUES (?,?,?,?,?,?,?,?)
+					""", imageId, fileUploadId, sourceImageId, account.getAccountId(), width, height, imageAltText, imageHash);
 
 			mediaImageUploadResult[0] = new MediaImageUploadResult(imageId, fileUploadResult);
 		};
@@ -637,6 +670,26 @@ public class MediaService {
 				FROM file_upload_type
 				WHERE file_upload_type_id=?
 				""", String.class, fileUploadTypeId);
+	}
+
+	@Nullable
+	protected String normalizeRequiredImageHash(@Nullable String imageHash,
+																							@Nonnull ValidationException validationException) {
+		requireNonNull(validationException);
+
+		imageHash = trimToNull(imageHash);
+
+		if (imageHash == null) {
+			validationException.add(new FieldError("imageHash", getStrings().get("Image hash is required.")));
+			return null;
+		}
+
+		imageHash = imageHash.toLowerCase(Locale.US);
+
+		if (!SHA_256_HEX_PATTERN.matcher(imageHash).matches())
+			validationException.add(new FieldError("imageHash", getStrings().get("Image hash must be a SHA-256 hex string.")));
+
+		return imageHash;
 	}
 
 	protected void validateAspectRatio(@Nonnull FileUploadTypeId fileUploadTypeId,

@@ -21,6 +21,7 @@ package com.cobaltplatform.api.web.resource;
 
 import com.cobaltplatform.api.context.CurrentContext;
 import com.cobaltplatform.api.model.api.request.CreateMediaImagePresignedUploadRequest;
+import com.cobaltplatform.api.model.api.request.DetectDuplicateMediaImageRequest;
 import com.cobaltplatform.api.model.api.response.MediaImageDetailsApiResponse;
 import com.cobaltplatform.api.model.api.response.MediaImageDetailsApiResponse.MediaImageDetailsApiResponseFactory;
 import com.cobaltplatform.api.model.api.response.MediaImageGalleryItemApiResponse.MediaImageGalleryItemApiResponseFactory;
@@ -51,6 +52,7 @@ import javax.inject.Provider;
 import javax.inject.Singleton;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -140,6 +142,23 @@ public class MediaResource {
 		return new ApiResponse(new HashMap<String, Object>() {{
 			put("image", mediaImageDetailsApiResponse.getImage());
 			put("variants", mediaImageDetailsApiResponse.getVariants());
+		}});
+	}
+
+	@Nonnull
+	@POST("/media/images/duplicate-detection")
+	@AuthenticationRequired
+	public ApiResponse detectDuplicateMediaImages(@Nonnull @RequestBody String requestBody) {
+		requireNonNull(requestBody);
+
+		Account account = getCurrentContext().getAccount().get();
+		DetectDuplicateMediaImageRequest request = getRequestBodyParser().parse(requestBody, DetectDuplicateMediaImageRequest.class);
+		List<UUID> imageIds = getMediaService().findDuplicateRawMediaImageIds(account, request.getImageHash());
+
+		return new ApiResponse(new LinkedHashMap<String, Object>() {{
+			put("duplicate", imageIds.size() > 0);
+			put("imageIds", imageIds);
+			put("duplicateCount", imageIds.size());
 		}});
 	}
 

@@ -77,15 +77,18 @@ CREATE TABLE image (
   height INTEGER NOT NULL,
   active BOOLEAN NOT NULL DEFAULT TRUE,
   image_alt_text TEXT,
+  image_hash TEXT,
   created TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   last_updated TIMESTAMPTZ NOT NULL,
   CHECK (width > 0),
-  CHECK (height > 0)
+  CHECK (height > 0),
+  CHECK (image_hash IS NULL OR image_hash ~ '^[0-9a-f]{64}$')
 );
 
 CREATE INDEX idx_image_file_upload_id ON image(file_upload_id);
 CREATE INDEX idx_image_source_image_id ON image(source_image_id);
 CREATE INDEX idx_image_active ON image(active);
+CREATE INDEX idx_image_image_hash ON image(image_hash) WHERE image_hash IS NOT NULL;
 CREATE INDEX idx_image_source_image_id_active ON image(source_image_id, active);
 CREATE TRIGGER set_last_updated BEFORE INSERT OR UPDATE ON image FOR EACH ROW EXECUTE PROCEDURE set_last_updated();
 
@@ -111,7 +114,8 @@ SELECT
   i.created,
   i.last_updated,
   i.active,
-  i.image_alt_text
+  i.image_alt_text,
+  i.image_hash
 FROM
   image i,
   file_upload fu

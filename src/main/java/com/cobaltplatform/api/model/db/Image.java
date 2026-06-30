@@ -58,6 +58,8 @@ public class Image {
 	@Nullable
 	private String imageAltText;
 	@Nullable
+	private String imageHash;
+	@Nullable
 	private String filename;
 	@Nullable
 	private Number filesizeInBytes;
@@ -182,6 +184,15 @@ public class Image {
 
 	public void setImageAltText(@Nullable String imageAltText) {
 		this.imageAltText = imageAltText;
+	}
+
+	@Nullable
+	public String getImageHash() {
+		return this.imageHash;
+	}
+
+	public void setImageHash(@Nullable String imageHash) {
+		this.imageHash = imageHash;
 	}
 
 	@Nullable

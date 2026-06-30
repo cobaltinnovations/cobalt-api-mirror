@@ -21,59 +21,14 @@ package com.cobaltplatform.api.model.api.request;
 
 import javax.annotation.Nullable;
 import javax.annotation.concurrent.NotThreadSafe;
-import java.util.UUID;
 
 /**
  * @author Transmogrify, LLC.
  */
 @NotThreadSafe
-public class CreateMediaImagePresignedUploadRequest extends CreateFileUploadRequest {
-	@Nullable
-	private UUID sourceImageId;
-	@Nullable
-	private Integer width;
-	@Nullable
-	private Integer height;
-	@Nullable
-	private String imageAltText;
+public class DetectDuplicateMediaImageRequest {
 	@Nullable
 	private String imageHash;
-
-	@Nullable
-	public UUID getSourceImageId() {
-		return this.sourceImageId;
-	}
-
-	public void setSourceImageId(@Nullable UUID sourceImageId) {
-		this.sourceImageId = sourceImageId;
-	}
-
-	@Nullable
-	public Integer getWidth() {
-		return this.width;
-	}
-
-	public void setWidth(@Nullable Integer width) {
-		this.width = width;
-	}
-
-	@Nullable
-	public Integer getHeight() {
-		return this.height;
-	}
-
-	public void setHeight(@Nullable Integer height) {
-		this.height = height;
-	}
-
-	@Nullable
-	public String getImageAltText() {
-		return this.imageAltText;
-	}
-
-	public void setImageAltText(@Nullable String imageAltText) {
-		this.imageAltText = imageAltText;
-	}
 
 	@Nullable
 	public String getImageHash() {
