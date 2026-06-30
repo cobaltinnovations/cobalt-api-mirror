@@ -1,6 +1,12 @@
 BEGIN;
 SELECT _v.register_patch('257-media-uploads', NULL, NULL);
 
+ALTER TABLE institution ADD COLUMN image_repository_enabled BOOLEAN NOT NULL DEFAULT FALSE;
+
+UPDATE institution
+SET image_repository_enabled=TRUE
+WHERE institution_id='COBALT';
+
 CREATE TABLE file_upload_status (
   file_upload_status_id TEXT PRIMARY KEY,
   description TEXT NOT NULL

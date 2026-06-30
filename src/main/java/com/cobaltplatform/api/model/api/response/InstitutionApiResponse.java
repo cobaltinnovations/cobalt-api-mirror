@@ -95,6 +95,8 @@ public class InstitutionApiResponse {
 	@Nullable
 	private final Boolean featuresEnabled;
 	@Nonnull
+	private final Boolean imageRepositoryEnabled;
+	@Nonnull
 	private final Boolean recommendedContentEnabled;
 	@Nonnull
 	private final Boolean groupSessionRequestsEnabled;
@@ -332,6 +334,7 @@ public class InstitutionApiResponse {
 		this.immediateAccessEnabled = institution.getImmediateAccessEnabled();
 		this.contactUsEnabled = institution.getContactUsEnabled();
 		this.featuresEnabled = institution.getFeaturesEnabled();
+		this.imageRepositoryEnabled = institution.getImageRepositoryEnabled();
 		this.recommendedContentEnabled = institution.getRecommendedContentEnabled();
 		this.userSubmittedContentEnabled = institution.getUserSubmittedContentEnabled();
 		this.userSubmittedGroupSessionEnabled = institution.getUserSubmittedGroupSessionEnabled();
@@ -532,6 +535,11 @@ public class InstitutionApiResponse {
 	@Nullable
 	public Boolean getFeaturesEnabled() {
 		return this.featuresEnabled;
+	}
+
+	@Nonnull
+	public Boolean getImageRepositoryEnabled() {
+		return this.imageRepositoryEnabled;
 	}
 
 	@Nonnull
