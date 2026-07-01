@@ -316,29 +316,30 @@ public class MediaService {
 			cropFileUploadTypeFilterSql = format("AND crop.file_upload_type_id IN %s", sqlInListPlaceholders(requestedFileUploadTypeIds));
 
 		if (requestedMediaImageScopeIds.size() > 0) {
-			String associatedImageIdSql = requestedFileUploadTypeIds.size() == 0 ? "raw.image_id" : "crop.image_id";
+			String resourceAssociatedImagePredicateSql = requestedFileUploadTypeIds.size() == 0 ? "vc.image_id IN (raw.image_id, crop.image_id)" : "vc.image_id=crop.image_id";
+			String groupSessionAssociatedImagePredicateSql = requestedFileUploadTypeIds.size() == 0 ? "gs.image_id IN (raw.image_id, crop.image_id)" : "gs.image_id=crop.image_id";
 			List<String> scopeFilterSqlComponents = new ArrayList<>();
 
 			if (requestedMediaImageScopeIds.contains(MediaImageScopeId.RESOURCE))
-				scopeFilterSqlComponents.add(format("""
+				scopeFilterSqlComponents.add("""
 						EXISTS (
 						  SELECT 1
 						  FROM v_institution_content vc
 						  WHERE vc.institution_id=?
 						  AND vc.content_status_id='LIVE'
-						  AND vc.image_id=%s
+						  AND %s
 						)
-						""", associatedImageIdSql));
+						""".formatted(resourceAssociatedImagePredicateSql));
 
 			if (requestedMediaImageScopeIds.contains(MediaImageScopeId.GROUP_SESSION))
-				scopeFilterSqlComponents.add(format("""
+				scopeFilterSqlComponents.add("""
 						EXISTS (
 						  SELECT 1
 						  FROM v_group_session gs
 						  WHERE gs.institution_id=?
-						  AND gs.image_id=%s
+						  AND %s
 						)
-						""", associatedImageIdSql));
+						""".formatted(groupSessionAssociatedImagePredicateSql));
 
 			scopeFilterSql = format("""
 					AND (

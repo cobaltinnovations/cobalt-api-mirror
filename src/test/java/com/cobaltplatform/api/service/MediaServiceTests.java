@@ -511,13 +511,13 @@ public class MediaServiceTests {
 			MediaImageFamily scheduledResourceFamily = createUploadedMediaImageFamily(database, account, searchToken, "scheduled-resource", FileUploadTypeId.IMAGE_16X9);
 			MediaImageFamily unassociatedFamily = createUploadedMediaImageFamily(database, account, searchToken, "unassociated-resource", FileUploadTypeId.IMAGE_16X9);
 
-			createResourceContentWithImage(adminContentService, account, liveResourceFamily.getRawImageId(), LocalDate.now());
-			createResourceContentWithImage(adminContentService, account, scheduledResourceFamily.getRawImageId(), LocalDate.now().plusDays(1));
+			createResourceContentWithImage(adminContentService, account, liveResourceFamily.getCropImageId(), LocalDate.now());
+			createResourceContentWithImage(adminContentService, account, scheduledResourceFamily.getCropImageId(), LocalDate.now().plusDays(1));
 
 			FindResult<MediaImageGalleryItem> results = mediaService.findMediaImageGalleryItems(account, 0, 10, searchToken, null, MediaImageScopeId.RESOURCE);
 
 			Assert.assertEquals("Resource scope should include only live resource content associations", Integer.valueOf(1), results.getTotalCount());
-			Assert.assertEquals("Resource scope should return only the live associated raw image", List.of(liveResourceFamily.getRawImageId()), sourceImageIds(results));
+			Assert.assertEquals("Resource scope should return only the live associated image family", List.of(liveResourceFamily.getRawImageId()), sourceImageIds(results));
 			Assert.assertFalse("Scheduled resource content should not count as currently associated", sourceImageIds(results).contains(scheduledResourceFamily.getRawImageId()));
 			Assert.assertFalse("Unassociated images should not be returned", sourceImageIds(results).contains(unassociatedFamily.getRawImageId()));
 		});
@@ -537,8 +537,8 @@ public class MediaServiceTests {
 			MediaImageFamily deletedGroupSessionFamily = createUploadedMediaImageFamily(database, account, searchToken, "deleted-group-session", FileUploadTypeId.IMAGE_16X9);
 			MediaImageFamily unassociatedFamily = createUploadedMediaImageFamily(database, account, searchToken, "unassociated-group-session", FileUploadTypeId.IMAGE_16X9);
 
-			UUID canceledGroupSessionId = createGroupSessionWithImage(groupSessionService, account, canceledGroupSessionFamily.getRawImageId(), "canceled-scope");
-			UUID deletedGroupSessionId = createGroupSessionWithImage(groupSessionService, account, deletedGroupSessionFamily.getRawImageId(), "deleted-scope");
+			UUID canceledGroupSessionId = createGroupSessionWithImage(groupSessionService, account, canceledGroupSessionFamily.getCropImageId(), "canceled-scope");
+			UUID deletedGroupSessionId = createGroupSessionWithImage(groupSessionService, account, deletedGroupSessionFamily.getCropImageId(), "deleted-scope");
 			database.execute("UPDATE group_session SET group_session_status_id=? WHERE group_session_id=?", GroupSessionStatusId.CANCELED, canceledGroupSessionId);
 			database.execute("UPDATE group_session SET group_session_status_id=? WHERE group_session_id=?", GroupSessionStatusId.DELETED, deletedGroupSessionId);
 
@@ -568,9 +568,9 @@ public class MediaServiceTests {
 			MediaImageFamily deletedGroupSessionFamily = createUploadedMediaImageFamily(database, account, searchToken, "multi-deleted-group-session", FileUploadTypeId.IMAGE_16X9);
 			MediaImageFamily unassociatedFamily = createUploadedMediaImageFamily(database, account, searchToken, "multi-unassociated", FileUploadTypeId.IMAGE_16X9);
 
-			createResourceContentWithImage(adminContentService, account, resourceFamily.getRawImageId(), LocalDate.now());
-			createGroupSessionWithImage(groupSessionService, account, groupSessionFamily.getRawImageId(), "multi-scope-active");
-			UUID deletedGroupSessionId = createGroupSessionWithImage(groupSessionService, account, deletedGroupSessionFamily.getRawImageId(), "multi-scope-deleted");
+			createResourceContentWithImage(adminContentService, account, resourceFamily.getCropImageId(), LocalDate.now());
+			createGroupSessionWithImage(groupSessionService, account, groupSessionFamily.getCropImageId(), "multi-scope-active");
+			UUID deletedGroupSessionId = createGroupSessionWithImage(groupSessionService, account, deletedGroupSessionFamily.getCropImageId(), "multi-scope-deleted");
 			database.execute("UPDATE group_session SET group_session_status_id=? WHERE group_session_id=?", GroupSessionStatusId.DELETED, deletedGroupSessionId);
 
 			FindResult<MediaImageGalleryItem> results = mediaService.findMediaImageGalleryItems(account, 0, 10, searchToken,
@@ -655,8 +655,8 @@ public class MediaServiceTests {
 			MediaImageFamily secondResourceFamily = createUploadedMediaImageFamily(database, account, searchToken, "second-resource", FileUploadTypeId.IMAGE_16X9);
 			createUploadedMediaImageFamily(database, account, searchToken, "unassociated-resource", FileUploadTypeId.IMAGE_16X9);
 
-			createResourceContentWithImage(adminContentService, account, firstResourceFamily.getRawImageId(), LocalDate.now());
-			createResourceContentWithImage(adminContentService, account, secondResourceFamily.getRawImageId(), LocalDate.now());
+			createResourceContentWithImage(adminContentService, account, firstResourceFamily.getCropImageId(), LocalDate.now());
+			createResourceContentWithImage(adminContentService, account, secondResourceFamily.getCropImageId(), LocalDate.now());
 
 			FindResult<MediaImageGalleryItem> firstPage = mediaService.findMediaImageGalleryItems(account, 0, 1, searchToken, null, MediaImageScopeId.RESOURCE);
 			FindResult<MediaImageGalleryItem> secondPage = mediaService.findMediaImageGalleryItems(account, 1, 1, searchToken, null, MediaImageScopeId.RESOURCE);
@@ -909,7 +909,7 @@ public class MediaServiceTests {
 
 		CreateContentRequest request = createContentRequest("media-image-gallery-scope", publishStartDate);
 		request.setImageId(imageId);
-		adminContentService.createContent(account, request);
+		adminContentService.publishContent(adminContentService.createContent(account, request).getContentId(), account);
 	}
 
 	@Nonnull
