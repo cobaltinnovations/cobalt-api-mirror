@@ -25,6 +25,7 @@ import com.cobaltplatform.api.model.db.Account;
 import com.cobaltplatform.api.model.db.FileUploadStatus.FileUploadStatusId;
 import com.cobaltplatform.api.model.db.FileUploadType.FileUploadTypeId;
 import com.cobaltplatform.api.model.db.Image;
+import com.cobaltplatform.api.model.db.Institution.InstitutionId;
 import com.cobaltplatform.api.model.service.FindResult;
 import com.cobaltplatform.api.model.service.FileUploadResult;
 import com.cobaltplatform.api.model.service.MediaImageDetails;
@@ -155,6 +156,33 @@ public class MediaService {
 				FROM v_image
 				WHERE image_id=?
 				""", Image.class, imageId);
+	}
+
+	@Nonnull
+	public Optional<Image> findActiveUploadedMediaImageById(@Nullable InstitutionId institutionId,
+																													@Nullable UUID imageId) {
+		if (institutionId == null || imageId == null)
+			return Optional.empty();
+
+		return getDatabase().queryForObject("""
+				SELECT *
+				FROM v_image
+				WHERE image_id=?
+				AND institution_id=?
+				AND active=TRUE
+				AND file_upload_status_id=?
+				AND file_upload_type_id IN (?,?,?,?,?,?,?)
+				""", Image.class,
+				imageId,
+				institutionId,
+				FileUploadStatusId.UPLOADED,
+				FileUploadTypeId.IMAGE_RAW,
+				FileUploadTypeId.IMAGE_4X3,
+				FileUploadTypeId.IMAGE_16X9,
+				FileUploadTypeId.IMAGE_1X1,
+				FileUploadTypeId.IMAGE_THUMBNAIL_4X3,
+				FileUploadTypeId.IMAGE_THUMBNAIL_16X9,
+				FileUploadTypeId.IMAGE_THUMBNAIL_1X1);
 	}
 
 	@Nonnull

@@ -72,6 +72,8 @@ public class TopicCenterService {
 	@Nonnull
 	private final Provider<ContentService> contentServiceProvider;
 	@Nonnull
+	private final Provider<GroupSessionService> groupSessionServiceProvider;
+	@Nonnull
 	private final Strings strings;
 	@Nonnull
 	private final Logger logger;
@@ -79,13 +81,16 @@ public class TopicCenterService {
 	@Inject
 	public TopicCenterService(@Nonnull DatabaseProvider databaseProvider,
 														@Nonnull Provider<ContentService> contentServiceProvider,
+														@Nonnull Provider<GroupSessionService> groupSessionServiceProvider,
 														@Nonnull Strings strings) {
 		requireNonNull(databaseProvider);
 		requireNonNull(contentServiceProvider);
+		requireNonNull(groupSessionServiceProvider);
 		requireNonNull(strings);
 
 		this.databaseProvider = databaseProvider;
 		this.contentServiceProvider = contentServiceProvider;
+		this.groupSessionServiceProvider = groupSessionServiceProvider;
 		this.strings = strings;
 		this.logger = LoggerFactory.getLogger(getClass());
 	}
@@ -217,6 +222,7 @@ public class TopicCenterService {
 				AND gs.group_session_status_id=?
 				ORDER BY tcr.display_order, tcrgs.display_order
 				""", GroupSessionTopicCenterRow.class, topicCenterId, GroupSessionStatusId.ADDED);
+		getGroupSessionService().applyImagesToGroupSessions(groupSessionTopicCenterRows);
 
 		// Pull all of the group sessions across all rows in the topic center (so we don't have to query for each row individually)
 		List<GroupSessionRequestTopicCenterRow> groupSessionRequestTopicCenterRows = getDatabase().queryForList("""
@@ -449,6 +455,11 @@ public class TopicCenterService {
 	@Nonnull
 	protected ContentService getContentService() {
 		return this.contentServiceProvider.get();
+	}
+
+	@Nonnull
+	protected GroupSessionService getGroupSessionService() {
+		return this.groupSessionServiceProvider.get();
 	}
 
 	@Nonnull

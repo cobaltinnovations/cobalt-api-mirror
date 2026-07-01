@@ -110,6 +110,8 @@ public class UpdateGroupSessionRequest {
 	@Nullable
 	private LocalDateTime registrationEndDateTime;
 	@Nullable
+	private UUID imageId;
+	@Nullable
 	private UUID imageFileUploadId;
 
 	@Nullable
@@ -433,6 +435,15 @@ public class UpdateGroupSessionRequest {
 
 	public void setRegistrationEndDateTime(@Nullable LocalDateTime registrationEndDateTime) {
 		this.registrationEndDateTime = registrationEndDateTime;
+	}
+
+	@Nullable
+	public UUID getImageId() {
+		return this.imageId;
+	}
+
+	public void setImageId(@Nullable UUID imageId) {
+		this.imageId = imageId;
 	}
 
 	@Nullable

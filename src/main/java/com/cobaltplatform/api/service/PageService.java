@@ -131,6 +131,8 @@ public class PageService {
 	@Nonnull
 	private final Provider<AccountService> accountServiceProvider;
 	@Nonnull
+	private final Provider<GroupSessionService> groupSessionServiceProvider;
+	@Nonnull
 	private final Logger logger;
 	@Nonnull
 	private final Formatter formatter;
@@ -140,12 +142,14 @@ public class PageService {
 										 @Nonnull Configuration configuration,
 										 @Nonnull Provider<SystemService> systemServiceProvider,
 										 @Nonnull Provider<AccountService> accountServiceProvider,
+										 @Nonnull Provider<GroupSessionService> groupSessionServiceProvider,
 										 @Nonnull Strings strings,
 										 @Nonnull Formatter formatter) {
 		requireNonNull(databaseProvider);
 		requireNonNull(configuration);
 		requireNonNull(systemServiceProvider);
 		requireNonNull(accountServiceProvider);
+		requireNonNull(groupSessionServiceProvider);
 		requireNonNull(strings);
 		requireNonNull(formatter);
 
@@ -153,6 +157,7 @@ public class PageService {
 		this.configuration = configuration;
 		this.systemServiceProvider = systemServiceProvider;
 		this.accountServiceProvider = accountServiceProvider;
+		this.groupSessionServiceProvider = groupSessionServiceProvider;
 		this.strings = strings;
 		this.formatter = formatter;
 		this.logger = LoggerFactory.getLogger(getClass());
@@ -265,7 +270,9 @@ public class PageService {
 
 		query.append(" ORDER BY pgegs.display_order");
 
-		return getDatabase().queryForList(query.toString(), GroupSession.class, parameters.toArray());
+		List<GroupSession> groupSessions = getDatabase().queryForList(query.toString(), GroupSession.class, parameters.toArray());
+		getGroupSessionService().applyImagesToGroupSessions(groupSessions);
+		return groupSessions;
 	}
 
 	@Nonnull
@@ -1976,7 +1983,9 @@ public class PageService {
 
 		query.append(" ORDER BY vp.group_session_display_order");
 
-		return getDatabase().queryForList(query.toString(), GroupSession.class, parameters.toArray());
+		List<GroupSession> groupSessions = getDatabase().queryForList(query.toString(), GroupSession.class, parameters.toArray());
+		getGroupSessionService().applyImagesToGroupSessions(groupSessions);
+		return groupSessions;
 
 	}
 
@@ -2457,5 +2466,10 @@ public class PageService {
 	@Nonnull
 	protected AccountService getAccountService() {
 		return accountServiceProvider.get();
+	}
+
+	@Nonnull
+	protected GroupSessionService getGroupSessionService() {
+		return this.groupSessionServiceProvider.get();
 	}
 }

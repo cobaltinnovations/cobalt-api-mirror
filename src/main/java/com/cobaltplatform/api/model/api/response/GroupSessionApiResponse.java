@@ -143,7 +143,12 @@ public class GroupSessionApiResponse {
 	@Nullable
 	private final ZoneId timeZone;
 	@Nullable
+	private final UUID imageId;
+	@Nullable
+	@Deprecated // Prefer "image.url".
 	private final String imageUrl;
+	@Nullable
+	private final GroupSessionImageApiResponse image;
 	@Nullable
 	private final String videoconferenceUrl;
 	@Nullable
@@ -199,6 +204,7 @@ public class GroupSessionApiResponse {
 	@Nonnull
 	private final Boolean registrationEndDateTimeHasPassed;
 	@Nullable
+	@Deprecated // Prefer "image.fileUploadId".
 	private final UUID imageFileUploadId;
 
 	// Note: requires FactoryModuleBuilder entry in AppModule
@@ -215,6 +221,7 @@ public class GroupSessionApiResponse {
 																 @Nonnull GroupSessionService groupSessionService,
 																 @Nonnull QuestionApiResponseFactory questionApiResponseFactory,
 																 @Nonnull TagApiResponse.TagApiResponseFactory tagApiResponseFactory,
+																 @Nonnull GroupSessionImageApiResponse.GroupSessionImageApiResponseFactory groupSessionImageApiResponseFactory,
 																 @Nonnull javax.inject.Provider<CurrentContext> currentContextProvider,
 																 @Assisted @Nonnull GroupSession groupSession) {
 		requireNonNull(formatter);
@@ -222,6 +229,7 @@ public class GroupSessionApiResponse {
 		requireNonNull(institutionService);
 		requireNonNull(groupSessionService);
 		requireNonNull(questionApiResponseFactory);
+		requireNonNull(groupSessionImageApiResponseFactory);
 		requireNonNull(currentContextProvider);
 		requireNonNull(groupSession);
 		requireNonNull(tagApiResponseFactory);
@@ -367,7 +375,9 @@ public class GroupSessionApiResponse {
 		}
 
 		this.timeZone = groupSession.getTimeZone();
-		this.imageUrl = groupSession.getImageFileUploadUrl();
+		this.imageId = groupSession.getImageId();
+		this.image = groupSession.getImage() == null ? null : groupSessionImageApiResponseFactory.create(groupSession);
+		this.imageUrl = groupSession.getImage() == null ? groupSession.getImageFileUploadUrl() : groupSession.getImage().getUrl();
 		this.imageFileUploadId = groupSession.getImageFileUploadId();
 		this.videoconferenceUrl = groupSession.getVideoconferenceUrl();
 		this.scheduleUrl = groupSession.getScheduleUrl();
@@ -581,8 +591,19 @@ public class GroupSessionApiResponse {
 	}
 
 	@Nullable
+	public UUID getImageId() {
+		return this.imageId;
+	}
+
+	@Nullable
+	@Deprecated // Prefer "image.url".
 	public String getImageUrl() {
 		return this.imageUrl;
+	}
+
+	@Nullable
+	public GroupSessionImageApiResponse getImage() {
+		return this.image;
 	}
 
 	@Nullable
@@ -741,6 +762,7 @@ public class GroupSessionApiResponse {
 	}
 
 	@Nullable
+	@Deprecated // Prefer "image.fileUploadId".
 	public UUID getImageFileUploadId() {
 		return this.imageFileUploadId;
 	}
