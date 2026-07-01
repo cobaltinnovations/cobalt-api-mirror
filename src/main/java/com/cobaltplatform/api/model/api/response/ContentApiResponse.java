@@ -20,6 +20,7 @@
 package com.cobaltplatform.api.model.api.response;
 
 import com.cobaltplatform.api.model.api.response.ContentAudienceTypeApiResponse.ContentAudienceTypeApiResponseFactory;
+import com.cobaltplatform.api.model.api.response.ContentImageApiResponse.ContentImageApiResponseFactory;
 import com.cobaltplatform.api.model.api.response.TagApiResponse.TagApiResponseFactory;
 import com.cobaltplatform.api.model.db.Content;
 import com.cobaltplatform.api.model.db.ContentStatus.ContentStatusId;
@@ -62,6 +63,10 @@ public class ContentApiResponse {
 	private final String url;
 	@Nonnull
 	private final Boolean neverEmbed;
+	@Nullable
+	private final UUID imageId;
+	@Nullable
+	private final ContentImageApiResponse image;
 	@Nullable
 	private String imageUrl;
 	@Nullable
@@ -119,16 +124,18 @@ public class ContentApiResponse {
 	public ContentApiResponse(@Nonnull ContentService contentService,
 														@Nonnull TagApiResponseFactory tagApiResponseFactory,
 														@Nonnull ContentAudienceTypeApiResponseFactory contentAudienceTypeApiResponseFactory,
+														@Nonnull ContentImageApiResponseFactory contentImageApiResponseFactory,
 														@Nonnull Formatter formatter,
 														@Nonnull Strings strings,
 														@Assisted @Nonnull Content content) {
-		this(contentService, tagApiResponseFactory, contentAudienceTypeApiResponseFactory, formatter, strings, content, Set.of());
+		this(contentService, tagApiResponseFactory, contentAudienceTypeApiResponseFactory, contentImageApiResponseFactory, formatter, strings, content, Set.of());
 	}
 
 	@AssistedInject
 	public ContentApiResponse(@Nonnull ContentService contentService,
 														@Nonnull TagApiResponseFactory tagApiResponseFactory,
 														@Nonnull ContentAudienceTypeApiResponseFactory contentAudienceTypeApiResponseFactory,
+														@Nonnull ContentImageApiResponseFactory contentImageApiResponseFactory,
 														@Nonnull Formatter formatter,
 														@Nonnull Strings strings,
 														@Assisted @Nonnull Content content,
@@ -136,6 +143,7 @@ public class ContentApiResponse {
 		requireNonNull(contentService);
 		requireNonNull(tagApiResponseFactory);
 		requireNonNull(contentAudienceTypeApiResponseFactory);
+		requireNonNull(contentImageApiResponseFactory);
 		requireNonNull(formatter);
 		requireNonNull(strings);
 		requireNonNull(content);
@@ -147,7 +155,9 @@ public class ContentApiResponse {
 		this.title = content.getTitle();
 		this.url = content.getFileUploadId() != null ? content.getFileUrl() : content.getUrl();
 		this.neverEmbed = content.getNeverEmbed();
-		this.imageUrl = content.getImageUrl();
+		this.imageId = content.getImageId();
+		this.image = content.getImage() == null ? null : contentImageApiResponseFactory.create(content);
+		this.imageUrl = content.getImage() == null ? content.getImageUrl() : content.getImage().getUrl();
 		this.description = content.getDescription();
 		this.author = content.getAuthor();
 		this.created = content.getCreated();
@@ -222,6 +232,17 @@ public class ContentApiResponse {
 	}
 
 	@Nullable
+	public UUID getImageId() {
+		return this.imageId;
+	}
+
+	@Nullable
+	public ContentImageApiResponse getImage() {
+		return this.image;
+	}
+
+	@Nullable
+	@Deprecated // Prefer "image.url".
 	public String getImageUrl() {
 		return this.imageUrl;
 	}

@@ -85,10 +85,11 @@ import com.cobaltplatform.api.model.api.response.ClientDeviceApiResponse.ClientD
 import com.cobaltplatform.api.model.api.response.ClientDevicePushTokenApiResponse.ClientDevicePushTokenApiResponseFactory;
 import com.cobaltplatform.api.model.api.response.ClinicApiResponse.ClinicApiResponseFactory;
 import com.cobaltplatform.api.model.api.response.ContentApiResponse.ContentApiResponseFactory;
-import com.cobaltplatform.api.model.api.response.ContentSnippetApiResponse.ContentSnippetApiResponseFactory;
 import com.cobaltplatform.api.model.api.response.ContentAudienceTypeApiResponse.ContentAudienceTypeApiResponseFactory;
 import com.cobaltplatform.api.model.api.response.ContentAudienceTypeGroupApiResponse.ContentAudienceTypeGroupApiResponseFactory;
 import com.cobaltplatform.api.model.api.response.ContentFeedbackApiResponse.ContentFeedbackApiResponseFactory;
+import com.cobaltplatform.api.model.api.response.ContentImageApiResponse.ContentImageApiResponseFactory;
+import com.cobaltplatform.api.model.api.response.ContentSnippetApiResponse.ContentSnippetApiResponseFactory;
 import com.cobaltplatform.api.model.api.response.ContentStatusApiResponse.ContentStatusApiResponseFactory;
 import com.cobaltplatform.api.model.api.response.CountryApiResponse.CountryApiResponseFactory;
 import com.cobaltplatform.api.model.api.response.CourseApiResponse.CourseApiResponseFactory;
@@ -291,6 +292,7 @@ public class AppModule extends AbstractModule {
 		install(new FactoryModuleBuilder().build(AssessmentQuestionAnswerApiResponseFactory.class));
 		install(new FactoryModuleBuilder().build(AccountApiResponseFactory.class));
 		install((new FactoryModuleBuilder().build(ContentApiResponseFactory.class)));
+		install((new FactoryModuleBuilder().build(ContentImageApiResponseFactory.class)));
 		install((new FactoryModuleBuilder().build(ContentSnippetApiResponseFactory.class)));
 		install((new FactoryModuleBuilder().build(ProviderApiResponseFactory.class)));
 		install((new FactoryModuleBuilder().build(AvailabilityTimeApiResponseFactory.class)));

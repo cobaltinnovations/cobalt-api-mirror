@@ -30,6 +30,7 @@ import com.cobaltplatform.api.model.db.ContentStatus;
 import com.cobaltplatform.api.model.db.ContentStatus.ContentStatusId;
 import com.cobaltplatform.api.model.db.ContentType.ContentTypeId;
 import com.cobaltplatform.api.model.db.ContentVisibilityType.ContentVisibilityTypeId;
+import com.cobaltplatform.api.model.db.Image;
 import com.cobaltplatform.api.model.db.Institution.InstitutionId;
 import com.cobaltplatform.api.model.service.AdminContent;
 import com.cobaltplatform.api.model.service.FileUploadResult;
@@ -53,6 +54,7 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -101,6 +103,8 @@ public class AdminContentService {
 	private final Provider<LinkGenerator> linkGeneratorProvider;
 	@Nonnull
 	private final Provider<ContentService> contentServiceProvider;
+	@Nonnull
+	private final MediaService mediaService;
 
 	@Nonnull
 	private final SystemService systemService;
@@ -118,6 +122,7 @@ public class AdminContentService {
 														 @Nonnull InstitutionService institutionService,
 														 @Nonnull Strings strings,
 														 @Nonnull Provider<ContentService> contentServiceProvider,
+														 @Nonnull MediaService mediaService,
 														 @Nonnull SystemService systemService) {
 		requireNonNull(currentContextProvider);
 		requireNonNull(assessmentServiceProvider);
@@ -131,6 +136,7 @@ public class AdminContentService {
 		requireNonNull(institutionService);
 		requireNonNull(strings);
 		requireNonNull(contentServiceProvider);
+		requireNonNull(mediaService);
 		requireNonNull(systemService);
 
 		this.logger = LoggerFactory.getLogger(getClass());
@@ -146,6 +152,7 @@ public class AdminContentService {
 		this.formatterProvider = formatterProvider;
 		this.linkGeneratorProvider = linkGeneratorProvider;
 		this.contentServiceProvider = contentServiceProvider;
+		this.mediaService = mediaService;
 		this.systemService = systemService;
 	}
 
@@ -269,6 +276,7 @@ public class AdminContentService {
 		Integer totalCount = content.stream().filter(it -> it.getTotalCount() != null).mapToInt(AdminContent::getTotalCount).findFirst().orElse(0);
 		getContentService().applyTagsToAdminContents(content, account.getInstitutionId());
 		getContentService().applyInstitutionsToAdminContents(content, account.getInstitutionId());
+		getContentService().applyImagesToAdminContents(content);
 
 		return new FindResult<>(content, totalCount);
 	}
@@ -293,11 +301,14 @@ public class AdminContentService {
 		String searchTerms = trimToNull(command.getSearchTerms());
 		Boolean sharedFlag = command.getSharedFlag();
 		UUID fileUploadId = command.getFileUploadId();
+		UUID imageId = command.getImageId();
 		UUID imageFileUploadId = command.getImageFileUploadId();
 		ContentVisibilityTypeId contentVisibilityTypeId = command.getContentVisibilityTypeId();
 		Set<ContentAudienceTypeId> contentAudienceTypeIds = command.getContentAudienceTypeIds() == null ? Set.of() : command.getContentAudienceTypeIds().stream()
 				.filter(contentAudienceTypeId -> contentAudienceTypeId != null)
 				.collect(Collectors.toSet());
+		InstitutionId ownerInstitutionId = account.getInstitutionId();
+		Image image = null;
 
 		ValidationException validationException = new ValidationException();
 
@@ -350,27 +361,35 @@ public class AdminContentService {
 		if (contentAudienceTypeIds.size() == 0)
 			validationException.add(new FieldError("contentAudienceTypeIds", getStrings().get("You must specify at least one target for this content.")));
 
+		if (imageId != null) {
+			image = getMediaService().findActiveUploadedMediaImageById(ownerInstitutionId, imageId).orElse(null);
+
+			if (image == null)
+				validationException.add(new FieldError("imageId", getStrings().get("Image ID is invalid.")));
+		}
+
 		if (validationException.hasErrors())
 			throw validationException;
+
+		if (image != null)
+			imageFileUploadId = image.getFileUploadId();
 
 		Integer durationInMinutes = durationInMinutesString == null ? null : Integer.parseInt(durationInMinutesString);
 
 		if (url != null && !url.startsWith("http://") && !url.startsWith("https://"))
 			url = format("https://%s", url);
 
-		InstitutionId ownerInstitutionId = account.getInstitutionId();
-
 		getDatabase().execute("""
 						INSERT INTO content (content_id, content_type_id, title, url,
 						duration_in_minutes, description, author, shared_flag,
 						search_terms, publish_start_date, publish_end_date, publish_recurring, owner_institution_id, date_created, 
-						file_upload_id, image_file_upload_id,content_visibility_type_id)
-						VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,now(),?,?,?)												
+						file_upload_id, image_id, image_file_upload_id,content_visibility_type_id)
+						VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,now(),?,?,?,?)
 						""",
 				contentId, command.getContentTypeId(), title, url,
 				durationInMinutes, description, author, sharedFlag,
 				searchTerms, publishStartDate, publishEndDate, publishRecurring, ownerInstitutionId, fileUploadId,
-				imageFileUploadId, contentVisibilityTypeId);
+				imageId, imageFileUploadId, contentVisibilityTypeId);
 
 		addContentToInstitution(contentId, account);
 
@@ -417,11 +436,13 @@ public class AdminContentService {
 		String searchTerms = trimToNull(command.getSearchTerms());
 		Boolean sharedFlag = command.getSharedFlag();
 		UUID fileUploadId = command.getFileUploadId();
+		UUID imageId = command.getImageId();
 		UUID imageFileUploadId = command.getImageFileUploadId();
 		ContentVisibilityTypeId contentVisibilityTypeId = command.getContentVisibilityTypeId();
 		Set<ContentAudienceTypeId> contentAudienceTypeIds = command.getContentAudienceTypeIds() == null ? Set.of() : command.getContentAudienceTypeIds().stream()
 				.filter(contentAudienceTypeId -> contentAudienceTypeId != null)
 				.collect(Collectors.toSet());
+		Image image = null;
 
 		ValidationException validationException = new ValidationException();
 		AdminContent existingContent = findAdminContentByIdForInstitution(account.getInstitutionId(), command.getContentId()).orElseThrow();
@@ -480,8 +501,23 @@ public class AdminContentService {
 		if (contentAudienceTypeIds.size() == 0)
 			validationException.add(new FieldError("contentAudienceTypeIds", getStrings().get("You must specify at least one target for this content.")));
 
+		if (imageId != null) {
+			image = getMediaService().findActiveUploadedMediaImageById(account.getInstitutionId(), imageId).orElse(null);
+
+			if (image == null)
+				validationException.add(new FieldError("imageId", getStrings().get("Image ID is invalid.")));
+		}
+
 		if (validationException.hasErrors())
 			throw validationException;
+
+		if (image != null) {
+			imageFileUploadId = image.getFileUploadId();
+		} else if (Objects.equals(imageFileUploadId, existingContent.getImageFileUploadId())) {
+			imageId = existingContent.getImageId();
+		} else {
+			imageId = null;
+		}
 
 		Integer durationInMinutes = durationInMinutesString == null ? null : Integer.parseInt(durationInMinutesString);
 		boolean shouldNotify = false;
@@ -489,12 +525,12 @@ public class AdminContentService {
 		getDatabase().execute("""
 							 	UPDATE content SET content_type_id=?, title=?, url=?,
 							 	duration_in_minutes=?, description=?, author=?, publish_start_date=?, publish_end_date=?,
-							 	publish_recurring=?, search_terms=?, shared_flag=?, file_upload_id=?, image_file_upload_id=?, content_visibility_type_id=?
+								publish_recurring=?, search_terms=?, shared_flag=?, file_upload_id=?, image_id=?, image_file_upload_id=?, content_visibility_type_id=?
 								WHERE content_id=?
 						""",
 				contentTypeIdCommand, titleCommand, urlCommand,
 				durationInMinutes, descriptionCommand, authorCommand, publishStartDate, publishEndDate,
-				publishRecurring, searchTerms, sharedFlag, fileUploadId, imageFileUploadId, contentVisibilityTypeId,
+				publishRecurring, searchTerms, sharedFlag, fileUploadId, imageId, imageFileUploadId, contentVisibilityTypeId,
 				command.getContentId());
 
 		AdminContent adminContent = findAdminContentByIdForInstitution(account.getInstitutionId(), command.getContentId()).orElse(null);
@@ -674,6 +710,7 @@ public class AdminContentService {
 		if (adminContent != null) {
 			applyTagsToAdminContent(adminContent, institutionId);
 			getContentService().applyInstitutionsToAdminContent(adminContent, institutionId);
+			getContentService().applyImageToAdminContent(adminContent);
 		}
 
 		return Optional.ofNullable(adminContent);
@@ -817,6 +854,11 @@ public class AdminContentService {
 	@Nonnull
 	protected ContentService getContentService() {
 		return contentServiceProvider.get();
+	}
+
+	@Nonnull
+	protected MediaService getMediaService() {
+		return this.mediaService;
 	}
 
 	@Nonnull

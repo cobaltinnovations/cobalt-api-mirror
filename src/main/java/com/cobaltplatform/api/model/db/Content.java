@@ -50,6 +50,8 @@ public class Content {
 	@Nullable
 	private String imageUrl;
 	@Nullable
+	private UUID imageId;
+	@Nullable
 	private String description;
 	@Nullable
 	private String author;
@@ -112,6 +114,12 @@ public class Content {
 	@Nullable
 	private String fileUrl;
 
+	@Nullable
+	private Image image;
+
+	@Nullable
+	private Image imageThumbnail;
+
 	@Nonnull
 	public UUID getContentId() {
 		return contentId;
@@ -173,6 +181,15 @@ public class Content {
 
 	public void setImageUrl(@Nullable String imageUrl) {
 		this.imageUrl = imageUrl;
+	}
+
+	@Nullable
+	public UUID getImageId() {
+		return this.imageId;
+	}
+
+	public void setImageId(@Nullable UUID imageId) {
+		this.imageId = imageId;
 	}
 
 	@Nullable
@@ -389,5 +406,23 @@ public class Content {
 
 	public void setFileUrl(@Nullable String fileUrl) {
 		this.fileUrl = fileUrl;
+	}
+
+	@Nullable
+	public Image getImage() {
+		return this.image;
+	}
+
+	public void setImage(@Nullable Image image) {
+		this.image = image;
+	}
+
+	@Nullable
+	public Image getImageThumbnail() {
+		return this.imageThumbnail;
+	}
+
+	public void setImageThumbnail(@Nullable Image imageThumbnail) {
+		this.imageThumbnail = imageThumbnail;
 	}
 }

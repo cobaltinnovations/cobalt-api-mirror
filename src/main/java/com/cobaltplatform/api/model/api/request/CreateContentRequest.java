@@ -62,6 +62,8 @@ public class CreateContentRequest {
 	@Nullable
 	private UUID fileUploadId;
 	@Nullable
+	private UUID imageId;
+	@Nullable
 	private UUID imageFileUploadId;
 	@Nullable
 	private ContentVisibilityTypeId contentVisibilityTypeId;
@@ -183,6 +185,15 @@ public class CreateContentRequest {
 
 	public void setFileUploadId(@Nullable UUID fileUploadId) {
 		this.fileUploadId = fileUploadId;
+	}
+
+	@Nullable
+	public UUID getImageId() {
+		return this.imageId;
+	}
+
+	public void setImageId(@Nullable UUID imageId) {
+		this.imageId = imageId;
 	}
 
 	@Nullable

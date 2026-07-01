@@ -22,6 +22,7 @@ package com.cobaltplatform.api.model.service;
 import com.cobaltplatform.api.model.db.ContentStatus.ContentStatusId;
 import com.cobaltplatform.api.model.db.ContentType.ContentTypeId;
 import com.cobaltplatform.api.model.db.ContentVisibilityType.ContentVisibilityTypeId;
+import com.cobaltplatform.api.model.db.Image;
 import com.cobaltplatform.api.model.db.Institution.InstitutionId;
 import com.cobaltplatform.api.model.db.Tag;
 
@@ -53,6 +54,8 @@ public class AdminContent {
 	private String url;
 	@Nullable
 	private String imageUrl;
+	@Nullable
+	private UUID imageId;
 	@Nullable
 	private Integer durationInMinutes;
 	@Nonnull
@@ -116,6 +119,12 @@ public class AdminContent {
 
 	@Nullable
 	private LocalDate dateAddedToInstitution;
+
+	@Nullable
+	private Image image;
+
+	@Nullable
+	private Image imageThumbnail;
 
 	@Nonnull
 	public UUID getContentId() {
@@ -187,6 +196,15 @@ public class AdminContent {
 
 	public void setImageUrl(@Nullable String imageUrl) {
 		this.imageUrl = imageUrl;
+	}
+
+	@Nullable
+	public UUID getImageId() {
+		return this.imageId;
+	}
+
+	public void setImageId(@Nullable UUID imageId) {
+		this.imageId = imageId;
 	}
 
 	@Nullable
@@ -412,5 +430,23 @@ public class AdminContent {
 
 	public void setFilesize(@Nullable Number filesize) {
 		this.filesize = filesize;
+	}
+
+	@Nullable
+	public Image getImage() {
+		return this.image;
+	}
+
+	public void setImage(@Nullable Image image) {
+		this.image = image;
+	}
+
+	@Nullable
+	public Image getImageThumbnail() {
+		return this.imageThumbnail;
+	}
+
+	public void setImageThumbnail(@Nullable Image imageThumbnail) {
+		this.imageThumbnail = imageThumbnail;
 	}
 }

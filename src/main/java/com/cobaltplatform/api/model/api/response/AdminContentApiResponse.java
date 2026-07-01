@@ -20,6 +20,7 @@
 package com.cobaltplatform.api.model.api.response;
 
 import com.cobaltplatform.api.model.api.response.ContentAudienceTypeApiResponse.ContentAudienceTypeApiResponseFactory;
+import com.cobaltplatform.api.model.api.response.ContentImageApiResponse.ContentImageApiResponseFactory;
 import com.cobaltplatform.api.model.api.response.TagApiResponse.TagApiResponseFactory;
 import com.cobaltplatform.api.model.db.Account;
 import com.cobaltplatform.api.model.db.ContentStatus.ContentStatusId;
@@ -68,6 +69,10 @@ public class AdminContentApiResponse {
 	private String description;
 	@Nullable
 	private String url;
+	@Nullable
+	private UUID imageId;
+	@Nullable
+	private ContentImageApiResponse image;
 	@Nullable
 	private String imageUrl;
 	@Nullable
@@ -174,6 +179,7 @@ public class AdminContentApiResponse {
 																 @Assisted @Nonnull List<UUID> institutionContentIds,
 																 @Nonnull Strings strings,
 																 @Nonnull TagApiResponseFactory tagApiResponseFactory,
+																 @Nonnull ContentImageApiResponseFactory contentImageApiResponseFactory,
 																 @Nonnull ContentAudienceTypeApiResponseFactory contentAudienceTypeApiResponseFactory) {
 		requireNonNull(formatter);
 		requireNonNull(adminContent);
@@ -182,6 +188,7 @@ public class AdminContentApiResponse {
 		requireNonNull(institutionContentIds);
 		requireNonNull(strings);
 		requireNonNull(tagApiResponseFactory);
+		requireNonNull(contentImageApiResponseFactory);
 		requireNonNull(contentAudienceTypeApiResponseFactory);
 
 		List<ContentActionId> contentActionIdList = new ArrayList<>();
@@ -194,7 +201,9 @@ public class AdminContentApiResponse {
 		this.author = adminContent.getAuthor();
 		this.description = adminContent.getDescription();
 		this.url = adminContent.getFileUploadId() != null ? adminContent.getFileUrl() : adminContent.getUrl();
-		this.imageUrl = adminContent.getImageUrl();
+		this.imageId = adminContent.getImageId();
+		this.image = adminContent.getImage() == null ? null : contentImageApiResponseFactory.create(adminContent);
+		this.imageUrl = adminContent.getImage() == null ? adminContent.getImageUrl() : adminContent.getImage().getUrl();
 		this.ownerInstitution = adminContent.getOwnerInstitution();
 		this.views = adminContent.getViews();
 		//TODO: update frontend to use durationInMinutes
@@ -349,6 +358,17 @@ public class AdminContentApiResponse {
 	}
 
 	@Nullable
+	public UUID getImageId() {
+		return this.imageId;
+	}
+
+	@Nullable
+	public ContentImageApiResponse getImage() {
+		return this.image;
+	}
+
+	@Nullable
+	@Deprecated // Prefer "image.url".
 	public String getImageUrl() {
 		return imageUrl;
 	}
@@ -469,6 +489,7 @@ public class AdminContentApiResponse {
 	}
 
 	@Nullable
+	@Deprecated // Prefer "image.fileUploadId".
 	public UUID getImageFileUploadId() {
 		return imageFileUploadId;
 	}

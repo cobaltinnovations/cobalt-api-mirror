@@ -257,6 +257,7 @@ public class TopicCenterService {
 				""", ContentTopicCenterRow.class, topicCenterId, institutionId);
 
 		getContentService().applyTagsToContents(contentTopicCenterRows, institutionId);
+		getContentService().applyImagesToContents(contentTopicCenterRows);
 
 		for (TopicCenterRowDetail topicCenterRow : topicCenterRows) {
 			topicCenterRow.setGroupSessions(new ArrayList<>());

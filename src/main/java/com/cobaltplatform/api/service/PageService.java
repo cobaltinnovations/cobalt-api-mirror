@@ -133,6 +133,8 @@ public class PageService {
 	@Nonnull
 	private final Provider<GroupSessionService> groupSessionServiceProvider;
 	@Nonnull
+	private final Provider<ContentService> contentServiceProvider;
+	@Nonnull
 	private final Logger logger;
 	@Nonnull
 	private final Formatter formatter;
@@ -143,6 +145,7 @@ public class PageService {
 										 @Nonnull Provider<SystemService> systemServiceProvider,
 										 @Nonnull Provider<AccountService> accountServiceProvider,
 										 @Nonnull Provider<GroupSessionService> groupSessionServiceProvider,
+										 @Nonnull Provider<ContentService> contentServiceProvider,
 										 @Nonnull Strings strings,
 										 @Nonnull Formatter formatter) {
 		requireNonNull(databaseProvider);
@@ -150,6 +153,7 @@ public class PageService {
 		requireNonNull(systemServiceProvider);
 		requireNonNull(accountServiceProvider);
 		requireNonNull(groupSessionServiceProvider);
+		requireNonNull(contentServiceProvider);
 		requireNonNull(strings);
 		requireNonNull(formatter);
 
@@ -158,6 +162,7 @@ public class PageService {
 		this.systemServiceProvider = systemServiceProvider;
 		this.accountServiceProvider = accountServiceProvider;
 		this.groupSessionServiceProvider = groupSessionServiceProvider;
+		this.contentServiceProvider = contentServiceProvider;
 		this.strings = strings;
 		this.formatter = formatter;
 		this.logger = LoggerFactory.getLogger(getClass());
@@ -313,7 +318,9 @@ public class PageService {
 
 		query.append(" ORDER BY pgec.display_order");
 
-		return getDatabase().queryForList(query.toString(), Content.class, parameters.toArray());
+		List<Content> contents = getDatabase().queryForList(query.toString(), Content.class, parameters.toArray());
+		getContentService().applyImagesToContents(contents);
+		return contents;
 	}
 
 	@Nonnull
@@ -1504,7 +1511,9 @@ public class PageService {
 
 		query.append(" ORDER BY vp.content_display_order");
 
-		return getDatabase().queryForList(query.toString(), Content.class, parameters.toArray());
+		List<Content> contents = getDatabase().queryForList(query.toString(), Content.class, parameters.toArray());
+		getContentService().applyImagesToContents(contents);
+		return contents;
 	}
 
 	@Nonnull
@@ -2471,5 +2480,10 @@ public class PageService {
 	@Nonnull
 	protected GroupSessionService getGroupSessionService() {
 		return this.groupSessionServiceProvider.get();
+	}
+
+	@Nonnull
+	protected ContentService getContentService() {
+		return this.contentServiceProvider.get();
 	}
 }

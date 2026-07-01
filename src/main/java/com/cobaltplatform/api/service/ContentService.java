@@ -39,6 +39,9 @@ import com.cobaltplatform.api.model.db.ContentStatus.ContentStatusId;
 import com.cobaltplatform.api.model.db.ContentType;
 import com.cobaltplatform.api.model.db.ContentType.ContentTypeId;
 import com.cobaltplatform.api.model.db.ContentVisibilityType.ContentVisibilityTypeId;
+import com.cobaltplatform.api.model.db.FileUploadStatus.FileUploadStatusId;
+import com.cobaltplatform.api.model.db.FileUploadType.FileUploadTypeId;
+import com.cobaltplatform.api.model.db.Image;
 import com.cobaltplatform.api.model.db.Institution.InstitutionId;
 import com.cobaltplatform.api.model.db.InstitutionContent;
 import com.cobaltplatform.api.model.db.Tag;
@@ -210,6 +213,7 @@ public class ContentService implements AutoCloseable {
 			return Optional.empty();
 
 		applyTagsToContents(content, account.getInstitutionId());
+		applyImageToContent(content);
 
 		return Optional.of(content);
 	}
@@ -402,6 +406,7 @@ public class ContentService implements AutoCloseable {
 		List<ContentWithTotalCount> contents = getDatabase().queryForList(sql, ContentWithTotalCount.class, sqlVaragsParameters(parameters));
 
 		applyTagsToContents(contents, institutionId);
+		applyImagesToContents(contents);
 
 		Integer totalCount = contents.stream()
 				.filter(content -> content.getTotalCount() != null)
@@ -441,7 +446,14 @@ public class ContentService implements AutoCloseable {
 
 	@Nonnull
 	public Optional<Content> findContentById(@Nonnull UUID contentId) {
-		return getDatabase().queryForObject("SELECT * FROM v_admin_content WHERE content_id = ?", Content.class, contentId);
+		Content content = getDatabase().queryForObject("SELECT * FROM v_admin_content WHERE content_id = ?", Content.class, contentId).orElse(null);
+
+		if (content == null)
+			return Optional.empty();
+
+		applyImageToContent(content);
+
+		return Optional.of(content);
 	}
 
 	@Nonnull
@@ -488,6 +500,7 @@ public class ContentService implements AutoCloseable {
 				account.getInstitutionId(), ContentStatusId.LIVE, ContentVisibilityTypeId.PUBLIC);
 
 		applyTagsToContents(contents, account.getInstitutionId());
+		applyImagesToContents(contents);
 
 		return contents;
 	}
@@ -512,6 +525,7 @@ public class ContentService implements AutoCloseable {
 				""", CourseUnitContent.class, courseId, institutionId, ContentStatusId.LIVE);
 
 		applyTagsToContents(courseUnitContents, institutionId);
+		applyImagesToContents(courseUnitContents);
 
 		// Fill up mapping from "flat" resultset so we have an easy handle from a course_unit_id to a list of its content
 		Map<UUID, List<Content>> contentsByCourseUnitId = new HashMap<>();
@@ -667,6 +681,118 @@ public class ContentService implements AutoCloseable {
 		requireNonNull(institutionId);
 
 		content.setTags(getTagService().findTagsByContentIdAndInstitutionId(content.getContentId(), institutionId));
+	}
+
+	@Nonnull
+	public <T extends Content> T applyImageToContent(@Nonnull T content) {
+		requireNonNull(content);
+
+		applyImagesToContents(List.of(content));
+		return content;
+	}
+
+	public void applyImagesToContents(@Nonnull List<? extends Content> contents) {
+		requireNonNull(contents);
+
+		Set<UUID> imageIds = contents.stream()
+				.map(Content::getImageId)
+				.filter(imageId -> imageId != null)
+				.collect(Collectors.toSet());
+
+		if (imageIds.size() == 0)
+			return;
+
+		Map<UUID, Image> imagesById = findImagesById(imageIds);
+		Map<UUID, Image> imageThumbnailsBySourceImageId = findImageThumbnailsBySourceImageId(imageIds);
+
+		for (Content content : contents) {
+			if (content.getImageId() != null) {
+				content.setImage(imagesById.get(content.getImageId()));
+				content.setImageThumbnail(imageThumbnailsBySourceImageId.get(content.getImageId()));
+			}
+		}
+	}
+
+	@Nonnull
+	public <T extends AdminContent> T applyImageToAdminContent(@Nonnull T adminContent) {
+		requireNonNull(adminContent);
+
+		applyImagesToAdminContents(List.of(adminContent));
+		return adminContent;
+	}
+
+	public void applyImagesToAdminContents(@Nonnull List<? extends AdminContent> adminContents) {
+		requireNonNull(adminContents);
+
+		Set<UUID> imageIds = adminContents.stream()
+				.map(AdminContent::getImageId)
+				.filter(imageId -> imageId != null)
+				.collect(Collectors.toSet());
+
+		if (imageIds.size() == 0)
+			return;
+
+		Map<UUID, Image> imagesById = findImagesById(imageIds);
+		Map<UUID, Image> imageThumbnailsBySourceImageId = findImageThumbnailsBySourceImageId(imageIds);
+
+		for (AdminContent adminContent : adminContents) {
+			if (adminContent.getImageId() != null) {
+				adminContent.setImage(imagesById.get(adminContent.getImageId()));
+				adminContent.setImageThumbnail(imageThumbnailsBySourceImageId.get(adminContent.getImageId()));
+			}
+		}
+	}
+
+	@Nonnull
+	protected Map<UUID, Image> findImagesById(@Nonnull Set<UUID> imageIds) {
+		requireNonNull(imageIds);
+
+		if (imageIds.size() == 0)
+			return Map.of();
+
+		return getDatabase().queryForList(format("""
+				SELECT *
+				FROM v_image
+				WHERE image_id IN %s
+				""", sqlInListPlaceholders(imageIds)), Image.class, sqlVaragsParameters(imageIds)).stream()
+				.collect(Collectors.toMap(Image::getImageId, Function.identity()));
+	}
+
+	@Nonnull
+	protected Map<UUID, Image> findImageThumbnailsBySourceImageId(@Nonnull Set<UUID> imageIds) {
+		requireNonNull(imageIds);
+
+		if (imageIds.size() == 0)
+			return Map.of();
+
+		List<Object> imageThumbnailParameters = new ArrayList<>(imageIds);
+		imageThumbnailParameters.add(FileUploadStatusId.UPLOADED);
+		imageThumbnailParameters.add(FileUploadTypeId.IMAGE_THUMBNAIL_4X3);
+		imageThumbnailParameters.add(FileUploadTypeId.IMAGE_THUMBNAIL_16X9);
+		imageThumbnailParameters.add(FileUploadTypeId.IMAGE_THUMBNAIL_1X1);
+
+		List<Image> imageThumbnails = getDatabase().queryForList(format("""
+				SELECT *
+				FROM v_image
+				WHERE source_image_id IN %s
+				AND active=TRUE
+				AND file_upload_status_id=?
+				AND file_upload_type_id IN (?,?,?)
+				ORDER BY
+				  CASE file_upload_type_id
+				    WHEN 'IMAGE_THUMBNAIL_16X9' THEN 1
+				    WHEN 'IMAGE_THUMBNAIL_4X3' THEN 2
+				    WHEN 'IMAGE_THUMBNAIL_1X1' THEN 3
+				    ELSE 4
+				  END,
+				  image_id
+				""", sqlInListPlaceholders(imageIds)), Image.class, sqlVaragsParameters(imageThumbnailParameters));
+		Map<UUID, Image> imageThumbnailsBySourceImageId = new HashMap<>();
+
+		for (Image imageThumbnail : imageThumbnails)
+			imageThumbnailsBySourceImageId.putIfAbsent(imageThumbnail.getSourceImageId(), imageThumbnail);
+
+		return imageThumbnailsBySourceImageId;
 	}
 
 	/**
