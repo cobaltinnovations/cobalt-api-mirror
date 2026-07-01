@@ -28,11 +28,13 @@ import com.cobaltplatform.api.model.api.response.MediaImageGalleryItemApiRespons
 import com.cobaltplatform.api.model.api.response.MediaImageApiResponse.MediaImageApiResponseFactory;
 import com.cobaltplatform.api.model.api.response.MediaImageUploadResultApiResponse.MediaImageUploadResultApiResponseFactory;
 import com.cobaltplatform.api.model.db.Account;
+import com.cobaltplatform.api.model.db.FileUploadType.FileUploadTypeId;
 import com.cobaltplatform.api.model.db.Image;
 import com.cobaltplatform.api.model.security.AuthenticationRequired;
 import com.cobaltplatform.api.model.service.FindResult;
 import com.cobaltplatform.api.model.service.MediaImageDetails;
 import com.cobaltplatform.api.model.service.MediaImageGalleryItem;
+import com.cobaltplatform.api.model.service.MediaImageScopeId;
 import com.cobaltplatform.api.model.service.MediaImageUploadResult;
 import com.cobaltplatform.api.service.MediaService;
 import com.cobaltplatform.api.web.request.RequestBodyParser;
@@ -111,13 +113,18 @@ public class MediaResource {
 	@AuthenticationRequired
 	public ApiResponse mediaImages(@Nonnull @QueryParameter Optional<Integer> pageNumber,
 																 @Nonnull @QueryParameter Optional<Integer> pageSize,
-																 @Nonnull @QueryParameter Optional<String> searchQuery) {
+																 @Nonnull @QueryParameter Optional<String> searchQuery,
+																 @Nonnull @QueryParameter("fileUploadTypeId") Optional<List<FileUploadTypeId>> fileUploadTypeIds,
+																 @Nonnull @QueryParameter("mediaImageScopeId") Optional<List<MediaImageScopeId>> mediaImageScopeIds) {
 		requireNonNull(pageNumber);
 		requireNonNull(pageSize);
 		requireNonNull(searchQuery);
+		requireNonNull(fileUploadTypeIds);
+		requireNonNull(mediaImageScopeIds);
 
 		Account account = getCurrentContext().getAccount().get();
-		FindResult<MediaImageGalleryItem> findResult = getMediaService().findMediaImageGalleryItems(account, pageNumber.orElse(null), pageSize.orElse(null), searchQuery.orElse(null));
+		FindResult<MediaImageGalleryItem> findResult = getMediaService().findMediaImageGalleryItems(account, pageNumber.orElse(null), pageSize.orElse(null), searchQuery.orElse(null),
+				fileUploadTypeIds.orElse(null), mediaImageScopeIds.orElse(null));
 
 		return new ApiResponse(new LinkedHashMap<String, Object>() {{
 			put("totalCount", findResult.getTotalCount());

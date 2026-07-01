@@ -21,28 +21,41 @@ package com.cobaltplatform.api.service;
 
 import com.cobaltplatform.api.IntegrationTestExecutor;
 import com.cobaltplatform.api.model.api.request.CreateAccountRequest;
+import com.cobaltplatform.api.model.api.request.CreateContentRequest;
+import com.cobaltplatform.api.model.api.request.CreateGroupSessionRequest;
 import com.cobaltplatform.api.model.api.request.CreateMediaImagePresignedUploadRequest;
 import com.cobaltplatform.api.model.api.response.MediaImageApiResponse.MediaImageApiResponseFactory;
 import com.cobaltplatform.api.model.db.Account;
 import com.cobaltplatform.api.model.db.AccountSource.AccountSourceId;
+import com.cobaltplatform.api.model.db.ContentAudienceType.ContentAudienceTypeId;
+import com.cobaltplatform.api.model.db.ContentType.ContentTypeId;
+import com.cobaltplatform.api.model.db.ContentVisibilityType.ContentVisibilityTypeId;
 import com.cobaltplatform.api.model.db.FileUploadStatus.FileUploadStatusId;
 import com.cobaltplatform.api.model.db.FileUploadType.FileUploadTypeId;
+import com.cobaltplatform.api.model.db.GroupSessionLocationType.GroupSessionLocationTypeId;
+import com.cobaltplatform.api.model.db.GroupSessionSchedulingSystem.GroupSessionSchedulingSystemId;
+import com.cobaltplatform.api.model.db.GroupSessionStatus.GroupSessionStatusId;
+import com.cobaltplatform.api.model.db.GroupSessionVisibilityType.GroupSessionVisibilityTypeId;
 import com.cobaltplatform.api.model.db.Image;
 import com.cobaltplatform.api.model.db.Institution.InstitutionId;
 import com.cobaltplatform.api.model.service.FindResult;
 import com.cobaltplatform.api.model.service.MediaImageDetails;
 import com.cobaltplatform.api.model.service.MediaImageGalleryItem;
+import com.cobaltplatform.api.model.service.MediaImageScopeId;
 import com.cobaltplatform.api.model.service.MediaImageUploadResult;
 import com.cobaltplatform.api.util.ValidationException;
 import com.cobaltplatform.api.util.db.DatabaseProvider;
 import com.pyranid.Database;
 import org.junit.Assert;
+import org.junit.Assume;
 import org.junit.Test;
 
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import javax.annotation.concurrent.ThreadSafe;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -429,6 +442,236 @@ public class MediaServiceTests {
 	}
 
 	@Test
+	public void mediaImageGalleryFiltersByCropFileUploadTypeId() {
+		IntegrationTestExecutor.runTransactionallyAndForceRollback((app) -> {
+			MediaService mediaService = app.getInjector().getInstance(MediaService.class);
+			Database database = app.getInjector().getInstance(DatabaseProvider.class).getWritableMasterDatabase();
+			Account account = createAccount(app.getInjector().getInstance(AccountService.class));
+			String searchToken = format("crop-filter-%s", UUID.randomUUID());
+
+			MediaImageFamily matching16x9Family = createUploadedMediaImageFamily(database, account, searchToken, "matching-16x9", FileUploadTypeId.IMAGE_16X9);
+			MediaImageFamily nonMatching4x3Family = createUploadedMediaImageFamily(database, account, searchToken, "nonmatching-4x3", FileUploadTypeId.IMAGE_4X3);
+			MediaImageFamily matchingSecond16x9Family = createUploadedMediaImageFamily(database, account, searchToken, "matching-second-16x9", FileUploadTypeId.IMAGE_16X9);
+
+			FindResult<MediaImageGalleryItem> results = mediaService.findMediaImageGalleryItems(account, 0, 10, searchToken, FileUploadTypeId.IMAGE_16X9, null);
+
+			Assert.assertEquals("Filtered total count should include only families with the requested crop", Integer.valueOf(2), results.getTotalCount());
+			Assert.assertEquals("Filtered results should include only 16x9 crop families",
+					Set.of(matching16x9Family.getRawImageId(), matchingSecond16x9Family.getRawImageId()), Set.copyOf(sourceImageIds(results)));
+			Assert.assertFalse("4x3-only family should not be returned", sourceImageIds(results).contains(nonMatching4x3Family.getRawImageId()));
+		});
+	}
+
+	@Test
+	public void mediaImageGalleryFiltersByMultipleCropFileUploadTypeIds() {
+		IntegrationTestExecutor.runTransactionallyAndForceRollback((app) -> {
+			MediaService mediaService = app.getInjector().getInstance(MediaService.class);
+			Database database = app.getInjector().getInstance(DatabaseProvider.class).getWritableMasterDatabase();
+			Account account = createAccount(app.getInjector().getInstance(AccountService.class));
+			String searchToken = format("multi-crop-filter-%s", UUID.randomUUID());
+
+			MediaImageFamily matching16x9Family = createUploadedMediaImageFamily(database, account, searchToken, "multi-matching-16x9", FileUploadTypeId.IMAGE_16X9);
+			MediaImageFamily matching4x3Family = createUploadedMediaImageFamily(database, account, searchToken, "multi-matching-4x3", FileUploadTypeId.IMAGE_4X3);
+			MediaImageFamily nonMatching1x1Family = createUploadedMediaImageFamily(database, account, searchToken, "multi-nonmatching-1x1", FileUploadTypeId.IMAGE_1X1);
+
+			FindResult<MediaImageGalleryItem> results = mediaService.findMediaImageGalleryItems(account, 0, 10, searchToken,
+					List.of(FileUploadTypeId.IMAGE_16X9, FileUploadTypeId.IMAGE_4X3), null);
+
+			Assert.assertEquals("Filtered total count should include only families with one of the requested crops", Integer.valueOf(2), results.getTotalCount());
+			Assert.assertEquals("Filtered results should include both requested crop families",
+					Set.of(matching16x9Family.getRawImageId(), matching4x3Family.getRawImageId()), Set.copyOf(sourceImageIds(results)));
+			Assert.assertFalse("1x1-only family should not be returned", sourceImageIds(results).contains(nonMatching1x1Family.getRawImageId()));
+		});
+	}
+
+	@Test
+	public void mediaImageGalleryRejectsNonCropFileUploadTypeIdFilters() {
+		IntegrationTestExecutor.runTransactionallyAndForceRollback((app) -> {
+			MediaService mediaService = app.getInjector().getInstance(MediaService.class);
+			Account account = createAccount(app.getInjector().getInstance(AccountService.class));
+
+			Assert.assertThrows(ValidationException.class, () -> mediaService.findMediaImageGalleryItems(account, 0, 10, null, FileUploadTypeId.IMAGE_RAW, null));
+			Assert.assertThrows(ValidationException.class, () -> mediaService.findMediaImageGalleryItems(account, 0, 10, null, FileUploadTypeId.IMAGE_THUMBNAIL_16X9, null));
+			Assert.assertThrows(ValidationException.class, () -> mediaService.findMediaImageGalleryItems(account, 0, 10, null,
+					List.of(FileUploadTypeId.IMAGE_16X9, FileUploadTypeId.IMAGE_RAW), null));
+		});
+	}
+
+	@Test
+	public void mediaImageGalleryResourceScopeReturnsLiveResourceContentAssociations() {
+		IntegrationTestExecutor.runTransactionallyAndForceRollback((app) -> {
+			MediaService mediaService = app.getInjector().getInstance(MediaService.class);
+			AdminContentService adminContentService = app.getInjector().getInstance(AdminContentService.class);
+			Database database = app.getInjector().getInstance(DatabaseProvider.class).getWritableMasterDatabase();
+			assumeContentImageIdColumnExists(database);
+			Account account = findExistingAdministratorAccount(database);
+			String searchToken = format("resource-scope-%s", UUID.randomUUID());
+
+			MediaImageFamily liveResourceFamily = createUploadedMediaImageFamily(database, account, searchToken, "live-resource", FileUploadTypeId.IMAGE_16X9);
+			MediaImageFamily scheduledResourceFamily = createUploadedMediaImageFamily(database, account, searchToken, "scheduled-resource", FileUploadTypeId.IMAGE_16X9);
+			MediaImageFamily unassociatedFamily = createUploadedMediaImageFamily(database, account, searchToken, "unassociated-resource", FileUploadTypeId.IMAGE_16X9);
+
+			createResourceContentWithImage(adminContentService, account, liveResourceFamily.getRawImageId(), LocalDate.now());
+			createResourceContentWithImage(adminContentService, account, scheduledResourceFamily.getRawImageId(), LocalDate.now().plusDays(1));
+
+			FindResult<MediaImageGalleryItem> results = mediaService.findMediaImageGalleryItems(account, 0, 10, searchToken, null, MediaImageScopeId.RESOURCE);
+
+			Assert.assertEquals("Resource scope should include only live resource content associations", Integer.valueOf(1), results.getTotalCount());
+			Assert.assertEquals("Resource scope should return only the live associated raw image", List.of(liveResourceFamily.getRawImageId()), sourceImageIds(results));
+			Assert.assertFalse("Scheduled resource content should not count as currently associated", sourceImageIds(results).contains(scheduledResourceFamily.getRawImageId()));
+			Assert.assertFalse("Unassociated images should not be returned", sourceImageIds(results).contains(unassociatedFamily.getRawImageId()));
+		});
+	}
+
+	@Test
+	public void mediaImageGalleryGroupSessionScopeReturnsNonDeletedGroupSessionAssociations() {
+		IntegrationTestExecutor.runTransactionallyAndForceRollback((app) -> {
+			MediaService mediaService = app.getInjector().getInstance(MediaService.class);
+			GroupSessionService groupSessionService = app.getInjector().getInstance(GroupSessionService.class);
+			Database database = app.getInjector().getInstance(DatabaseProvider.class).getWritableMasterDatabase();
+			assumeGroupSessionImageIdColumnExists(database);
+			Account account = findExistingAccount(database);
+			String searchToken = format("group-session-scope-%s", UUID.randomUUID());
+
+			MediaImageFamily canceledGroupSessionFamily = createUploadedMediaImageFamily(database, account, searchToken, "canceled-group-session", FileUploadTypeId.IMAGE_16X9);
+			MediaImageFamily deletedGroupSessionFamily = createUploadedMediaImageFamily(database, account, searchToken, "deleted-group-session", FileUploadTypeId.IMAGE_16X9);
+			MediaImageFamily unassociatedFamily = createUploadedMediaImageFamily(database, account, searchToken, "unassociated-group-session", FileUploadTypeId.IMAGE_16X9);
+
+			UUID canceledGroupSessionId = createGroupSessionWithImage(groupSessionService, account, canceledGroupSessionFamily.getRawImageId(), "canceled-scope");
+			UUID deletedGroupSessionId = createGroupSessionWithImage(groupSessionService, account, deletedGroupSessionFamily.getRawImageId(), "deleted-scope");
+			database.execute("UPDATE group_session SET group_session_status_id=? WHERE group_session_id=?", GroupSessionStatusId.CANCELED, canceledGroupSessionId);
+			database.execute("UPDATE group_session SET group_session_status_id=? WHERE group_session_id=?", GroupSessionStatusId.DELETED, deletedGroupSessionId);
+
+			FindResult<MediaImageGalleryItem> results = mediaService.findMediaImageGalleryItems(account, 0, 10, searchToken, null, MediaImageScopeId.GROUP_SESSION);
+
+			Assert.assertEquals("Group-session scope should include non-deleted associations only", Integer.valueOf(1), results.getTotalCount());
+			Assert.assertEquals("Canceled group sessions are still non-deleted and should count", List.of(canceledGroupSessionFamily.getRawImageId()), sourceImageIds(results));
+			Assert.assertFalse("Deleted group sessions should not count", sourceImageIds(results).contains(deletedGroupSessionFamily.getRawImageId()));
+			Assert.assertFalse("Unassociated images should not be returned", sourceImageIds(results).contains(unassociatedFamily.getRawImageId()));
+		});
+	}
+
+	@Test
+	public void mediaImageGalleryFiltersByMultipleMediaImageScopeIds() {
+		IntegrationTestExecutor.runTransactionallyAndForceRollback((app) -> {
+			MediaService mediaService = app.getInjector().getInstance(MediaService.class);
+			AdminContentService adminContentService = app.getInjector().getInstance(AdminContentService.class);
+			GroupSessionService groupSessionService = app.getInjector().getInstance(GroupSessionService.class);
+			Database database = app.getInjector().getInstance(DatabaseProvider.class).getWritableMasterDatabase();
+			assumeContentImageIdColumnExists(database);
+			assumeGroupSessionImageIdColumnExists(database);
+			Account account = findExistingAdministratorAccount(database);
+			String searchToken = format("multi-scope-%s", UUID.randomUUID());
+
+			MediaImageFamily resourceFamily = createUploadedMediaImageFamily(database, account, searchToken, "multi-resource", FileUploadTypeId.IMAGE_16X9);
+			MediaImageFamily groupSessionFamily = createUploadedMediaImageFamily(database, account, searchToken, "multi-group-session", FileUploadTypeId.IMAGE_16X9);
+			MediaImageFamily deletedGroupSessionFamily = createUploadedMediaImageFamily(database, account, searchToken, "multi-deleted-group-session", FileUploadTypeId.IMAGE_16X9);
+			MediaImageFamily unassociatedFamily = createUploadedMediaImageFamily(database, account, searchToken, "multi-unassociated", FileUploadTypeId.IMAGE_16X9);
+
+			createResourceContentWithImage(adminContentService, account, resourceFamily.getRawImageId(), LocalDate.now());
+			createGroupSessionWithImage(groupSessionService, account, groupSessionFamily.getRawImageId(), "multi-scope-active");
+			UUID deletedGroupSessionId = createGroupSessionWithImage(groupSessionService, account, deletedGroupSessionFamily.getRawImageId(), "multi-scope-deleted");
+			database.execute("UPDATE group_session SET group_session_status_id=? WHERE group_session_id=?", GroupSessionStatusId.DELETED, deletedGroupSessionId);
+
+			FindResult<MediaImageGalleryItem> results = mediaService.findMediaImageGalleryItems(account, 0, 10, searchToken,
+					null, List.of(MediaImageScopeId.RESOURCE, MediaImageScopeId.GROUP_SESSION));
+
+			Assert.assertEquals("Multiple scopes should include matching resource and group-session associations", Integer.valueOf(2), results.getTotalCount());
+			Assert.assertEquals("Multiple scopes should return families associated to either requested scope",
+					Set.of(resourceFamily.getRawImageId(), groupSessionFamily.getRawImageId()), Set.copyOf(sourceImageIds(results)));
+			Assert.assertFalse("Deleted group sessions should not count for multi-scope filtering", sourceImageIds(results).contains(deletedGroupSessionFamily.getRawImageId()));
+			Assert.assertFalse("Unassociated images should not be returned", sourceImageIds(results).contains(unassociatedFamily.getRawImageId()));
+		});
+	}
+
+	@Test
+	public void mediaImageGalleryScopeWithCropFilterMatchesExactCropImageId() {
+		IntegrationTestExecutor.runTransactionallyAndForceRollback((app) -> {
+			MediaService mediaService = app.getInjector().getInstance(MediaService.class);
+			AdminContentService adminContentService = app.getInjector().getInstance(AdminContentService.class);
+			Database database = app.getInjector().getInstance(DatabaseProvider.class).getWritableMasterDatabase();
+			assumeContentImageIdColumnExists(database);
+			Account account = findExistingAdministratorAccount(database);
+			String searchToken = format("exact-crop-scope-%s", UUID.randomUUID());
+
+			MediaImageFamily rawAssociatedFamily = createUploadedMediaImageFamily(database, account, searchToken, "raw-associated", FileUploadTypeId.IMAGE_16X9);
+			MediaImageFamily cropAssociatedFamily = createUploadedMediaImageFamily(database, account, searchToken, "crop-associated", FileUploadTypeId.IMAGE_16X9);
+
+			createResourceContentWithImage(adminContentService, account, rawAssociatedFamily.getRawImageId(), LocalDate.now());
+			createResourceContentWithImage(adminContentService, account, cropAssociatedFamily.getCropImageId(), LocalDate.now());
+
+			FindResult<MediaImageGalleryItem> results = mediaService.findMediaImageGalleryItems(account, 0, 10, searchToken, FileUploadTypeId.IMAGE_16X9, MediaImageScopeId.RESOURCE);
+
+			Assert.assertEquals("Scope with crop filter should match the exact associated crop image ID", Integer.valueOf(1), results.getTotalCount());
+			Assert.assertEquals("Raw-associated families should not match crop-filtered scope results", List.of(cropAssociatedFamily.getRawImageId()), sourceImageIds(results));
+		});
+	}
+
+	@Test
+	public void mediaImageGalleryMultipleScopesWithMultipleCropFiltersMatchesExactCropImageIds() {
+		IntegrationTestExecutor.runTransactionallyAndForceRollback((app) -> {
+			MediaService mediaService = app.getInjector().getInstance(MediaService.class);
+			AdminContentService adminContentService = app.getInjector().getInstance(AdminContentService.class);
+			GroupSessionService groupSessionService = app.getInjector().getInstance(GroupSessionService.class);
+			Database database = app.getInjector().getInstance(DatabaseProvider.class).getWritableMasterDatabase();
+			assumeContentImageIdColumnExists(database);
+			assumeGroupSessionImageIdColumnExists(database);
+			Account account = findExistingAdministratorAccount(database);
+			String searchToken = format("multi-exact-crop-scope-%s", UUID.randomUUID());
+
+			MediaImageFamily resourceCropAssociated16x9Family = createUploadedMediaImageFamily(database, account, searchToken, "multi-resource-crop-16x9", FileUploadTypeId.IMAGE_16X9);
+			MediaImageFamily groupSessionCropAssociated4x3Family = createUploadedMediaImageFamily(database, account, searchToken, "multi-group-session-crop-4x3", FileUploadTypeId.IMAGE_4X3);
+			MediaImageFamily rawAssociatedFamily = createUploadedMediaImageFamily(database, account, searchToken, "multi-raw-associated", FileUploadTypeId.IMAGE_16X9);
+			MediaImageFamily unrequestedCropAssociatedFamily = createUploadedMediaImageFamily(database, account, searchToken, "multi-unrequested-crop", FileUploadTypeId.IMAGE_1X1);
+
+			createResourceContentWithImage(adminContentService, account, resourceCropAssociated16x9Family.getCropImageId(), LocalDate.now());
+			createGroupSessionWithImage(groupSessionService, account, groupSessionCropAssociated4x3Family.getCropImageId(), "multi-exact-crop-scope");
+			createResourceContentWithImage(adminContentService, account, rawAssociatedFamily.getRawImageId(), LocalDate.now());
+			createResourceContentWithImage(adminContentService, account, unrequestedCropAssociatedFamily.getCropImageId(), LocalDate.now());
+
+			FindResult<MediaImageGalleryItem> results = mediaService.findMediaImageGalleryItems(account, 0, 10, searchToken,
+					List.of(FileUploadTypeId.IMAGE_16X9, FileUploadTypeId.IMAGE_4X3),
+					List.of(MediaImageScopeId.RESOURCE, MediaImageScopeId.GROUP_SESSION));
+
+			Assert.assertEquals("Multiple scope and crop filters should match exact requested crop image IDs", Integer.valueOf(2), results.getTotalCount());
+			Assert.assertEquals("Only crop-associated families with requested crop ratios should be returned",
+					Set.of(resourceCropAssociated16x9Family.getRawImageId(), groupSessionCropAssociated4x3Family.getRawImageId()), Set.copyOf(sourceImageIds(results)));
+			Assert.assertFalse("Raw-associated families should not match crop-filtered scope results", sourceImageIds(results).contains(rawAssociatedFamily.getRawImageId()));
+			Assert.assertFalse("Crop associations outside the requested ratios should not match", sourceImageIds(results).contains(unrequestedCropAssociatedFamily.getRawImageId()));
+		});
+	}
+
+	@Test
+	public void mediaImageGallerySearchPaginatesScopeFilteredResults() {
+		IntegrationTestExecutor.runTransactionallyAndForceRollback((app) -> {
+			MediaService mediaService = app.getInjector().getInstance(MediaService.class);
+			AdminContentService adminContentService = app.getInjector().getInstance(AdminContentService.class);
+			Database database = app.getInjector().getInstance(DatabaseProvider.class).getWritableMasterDatabase();
+			assumeContentImageIdColumnExists(database);
+			Account account = findExistingAdministratorAccount(database);
+			String searchToken = format("scope-page-%s", UUID.randomUUID());
+
+			MediaImageFamily firstResourceFamily = createUploadedMediaImageFamily(database, account, searchToken, "first-resource", FileUploadTypeId.IMAGE_16X9);
+			MediaImageFamily secondResourceFamily = createUploadedMediaImageFamily(database, account, searchToken, "second-resource", FileUploadTypeId.IMAGE_16X9);
+			createUploadedMediaImageFamily(database, account, searchToken, "unassociated-resource", FileUploadTypeId.IMAGE_16X9);
+
+			createResourceContentWithImage(adminContentService, account, firstResourceFamily.getRawImageId(), LocalDate.now());
+			createResourceContentWithImage(adminContentService, account, secondResourceFamily.getRawImageId(), LocalDate.now());
+
+			FindResult<MediaImageGalleryItem> firstPage = mediaService.findMediaImageGalleryItems(account, 0, 1, searchToken, null, MediaImageScopeId.RESOURCE);
+			FindResult<MediaImageGalleryItem> secondPage = mediaService.findMediaImageGalleryItems(account, 1, 1, searchToken, null, MediaImageScopeId.RESOURCE);
+			List<UUID> resultSourceImageIds = sourceImageIds(firstPage);
+			resultSourceImageIds.addAll(sourceImageIds(secondPage));
+
+			Assert.assertEquals("First page total count should reflect scope-filtered results", Integer.valueOf(2), firstPage.getTotalCount());
+			Assert.assertEquals("Second page total count should reflect scope-filtered results", Integer.valueOf(2), secondPage.getTotalCount());
+			Assert.assertEquals("First page should honor requested page size", 1, firstPage.getResults().size());
+			Assert.assertEquals("Second page should honor requested page size", 1, secondPage.getResults().size());
+			Assert.assertEquals("Pagination should return only associated resource images", Set.of(firstResourceFamily.getRawImageId(), secondResourceFamily.getRawImageId()), Set.copyOf(resultSourceImageIds));
+		});
+	}
+
+	@Test
 	public void addingMissingAspectRatioCreatesActiveCurrentPair() {
 		IntegrationTestExecutor.runTransactionallyAndForceRollback((app) -> {
 			MediaService mediaService = app.getInjector().getInstance(MediaService.class);
@@ -548,6 +791,186 @@ public class MediaServiceTests {
 				WHERE institution_id=?
 				LIMIT 1
 				""", Account.class, InstitutionId.COBALT).get();
+	}
+
+	@Nonnull
+	protected Account findExistingAdministratorAccount(@Nonnull Database database) {
+		requireNonNull(database);
+
+		return database.queryForObject("""
+				SELECT *
+				FROM v_account
+				WHERE institution_id=?
+				AND role_id='ADMINISTRATOR'
+				LIMIT 1
+				""", Account.class, InstitutionId.COBALT).get();
+	}
+
+	protected void assumeContentImageIdColumnExists(@Nonnull Database database) {
+		requireNonNull(database);
+
+		Boolean contentImageIdColumnExists = database.queryForObject("""
+				SELECT EXISTS (
+				  SELECT 1
+				  FROM information_schema.columns
+				  WHERE table_schema='cobalt'
+				  AND table_name='content'
+				  AND column_name='image_id'
+				)
+				""", Boolean.class).get();
+
+		Assume.assumeTrue("Branch schema must include content.image_id", contentImageIdColumnExists);
+	}
+
+	protected void assumeGroupSessionImageIdColumnExists(@Nonnull Database database) {
+		requireNonNull(database);
+
+		Boolean groupSessionImageIdColumnExists = database.queryForObject("""
+				SELECT EXISTS (
+				  SELECT 1
+				  FROM information_schema.columns
+				  WHERE table_schema='cobalt'
+				  AND table_name='group_session'
+				  AND column_name='image_id'
+				)
+				""", Boolean.class).get();
+
+		Assume.assumeTrue("Branch schema must include group_session.image_id", groupSessionImageIdColumnExists);
+	}
+
+	@Nonnull
+	protected MediaImageFamily createUploadedMediaImageFamily(@Nonnull Database database,
+																													 @Nonnull Account account,
+																													 @Nonnull String searchToken,
+																													 @Nonnull String label,
+																													 @Nonnull FileUploadTypeId cropFileUploadTypeId) {
+		requireNonNull(database);
+		requireNonNull(account);
+		requireNonNull(searchToken);
+		requireNonNull(label);
+		requireNonNull(cropFileUploadTypeId);
+
+		Integer cropWidth;
+		Integer cropHeight;
+		Integer thumbnailWidth;
+		Integer thumbnailHeight;
+		FileUploadTypeId thumbnailFileUploadTypeId = thumbnailFileUploadTypeIdForCropFileUploadTypeId(cropFileUploadTypeId);
+		String filenamePrefix = format("%s-%s", label, searchToken);
+
+		if (cropFileUploadTypeId == FileUploadTypeId.IMAGE_16X9) {
+			cropWidth = 1600;
+			cropHeight = 900;
+			thumbnailWidth = 320;
+			thumbnailHeight = 180;
+		} else if (cropFileUploadTypeId == FileUploadTypeId.IMAGE_4X3) {
+			cropWidth = 1200;
+			cropHeight = 900;
+			thumbnailWidth = 240;
+			thumbnailHeight = 180;
+		} else if (cropFileUploadTypeId == FileUploadTypeId.IMAGE_1X1) {
+			cropWidth = 800;
+			cropHeight = 800;
+			thumbnailWidth = 200;
+			thumbnailHeight = 200;
+		} else {
+			throw new IllegalArgumentException(format("Unsupported crop file upload type ID '%s'.", cropFileUploadTypeId));
+		}
+
+		UUID rawImageId = createUploadedImageWithFilename(database, account, FileUploadTypeId.IMAGE_RAW, null, 1600, 900,
+				format("%s-raw.jpg", filenamePrefix), format("Raw image for %s.", searchToken));
+		UUID cropImageId = createUploadedImageWithFilename(database, account, cropFileUploadTypeId, rawImageId, cropWidth, cropHeight,
+				format("%s-crop.jpg", filenamePrefix), format("Cropped image for %s.", searchToken));
+		UUID thumbnailImageId = createUploadedImageWithFilename(database, account, thumbnailFileUploadTypeId, cropImageId, thumbnailWidth, thumbnailHeight,
+				format("%s-thumbnail.jpg", filenamePrefix), format("Thumbnail image for %s.", searchToken));
+
+		return new MediaImageFamily(rawImageId, cropImageId, thumbnailImageId);
+	}
+
+	@Nonnull
+	protected FileUploadTypeId thumbnailFileUploadTypeIdForCropFileUploadTypeId(@Nonnull FileUploadTypeId cropFileUploadTypeId) {
+		requireNonNull(cropFileUploadTypeId);
+
+		return switch (cropFileUploadTypeId) {
+			case IMAGE_16X9 -> FileUploadTypeId.IMAGE_THUMBNAIL_16X9;
+			case IMAGE_4X3 -> FileUploadTypeId.IMAGE_THUMBNAIL_4X3;
+			case IMAGE_1X1 -> FileUploadTypeId.IMAGE_THUMBNAIL_1X1;
+			default -> throw new IllegalArgumentException(format("Unsupported crop file upload type ID '%s'.", cropFileUploadTypeId));
+		};
+	}
+
+	protected void createResourceContentWithImage(@Nonnull AdminContentService adminContentService,
+																								@Nonnull Account account,
+																								@Nonnull UUID imageId,
+																								@Nonnull LocalDate publishStartDate) {
+		requireNonNull(adminContentService);
+		requireNonNull(account);
+		requireNonNull(imageId);
+		requireNonNull(publishStartDate);
+
+		CreateContentRequest request = createContentRequest("media-image-gallery-scope", publishStartDate);
+		request.setImageId(imageId);
+		adminContentService.createContent(account, request);
+	}
+
+	@Nonnull
+	protected CreateContentRequest createContentRequest(@Nonnull String titleSuffix,
+																											@Nonnull LocalDate publishStartDate) {
+		requireNonNull(titleSuffix);
+		requireNonNull(publishStartDate);
+
+		return new CreateContentRequest() {{
+			setContentTypeId(ContentTypeId.ARTICLE);
+			setTitle(format("Media image gallery test %s %s", titleSuffix, UUID.randomUUID()));
+			setAuthor("Test Author");
+			setDescription("Media image gallery test description.");
+			setPublishStartDate(publishStartDate);
+			setPublishRecurring(false);
+			setSharedFlag(false);
+			setContentVisibilityTypeId(ContentVisibilityTypeId.PUBLIC);
+			setContentAudienceTypeIds(Set.of(ContentAudienceTypeId.MYSELF));
+		}};
+	}
+
+	@Nonnull
+	protected UUID createGroupSessionWithImage(@Nonnull GroupSessionService groupSessionService,
+																						 @Nonnull Account account,
+																						 @Nonnull UUID imageId,
+																						 @Nonnull String urlNameSuffix) {
+		requireNonNull(groupSessionService);
+		requireNonNull(account);
+		requireNonNull(imageId);
+		requireNonNull(urlNameSuffix);
+
+		CreateGroupSessionRequest request = createGroupSessionRequest(account, urlNameSuffix);
+		request.setImageId(imageId);
+		return groupSessionService.createGroupSession(request, account);
+	}
+
+	@Nonnull
+	protected CreateGroupSessionRequest createGroupSessionRequest(@Nonnull Account account,
+																																@Nonnull String urlNameSuffix) {
+		requireNonNull(account);
+		requireNonNull(urlNameSuffix);
+
+		return new CreateGroupSessionRequest() {{
+			setInstitutionId(InstitutionId.COBALT);
+			setGroupSessionSchedulingSystemId(GroupSessionSchedulingSystemId.COBALT);
+			setGroupSessionLocationTypeId(GroupSessionLocationTypeId.IN_PERSON);
+			setSubmitterAccountId(account.getAccountId());
+			setTitle("Media image gallery test");
+			setDescription("Media image gallery test description.");
+			setUrlName(format("media-image-gallery-test-%s-%s", urlNameSuffix, UUID.randomUUID()));
+			setInPersonLocation("Test location");
+			setFacilitatorName("Test Facilitator");
+			setFacilitatorEmailAddress("facilitator@example.com");
+			setStartDateTime(LocalDateTime.now().plusDays(7));
+			setEndDateTime(LocalDateTime.now().plusDays(7).plusHours(1));
+			setGroupSessionVisibilityTypeId(GroupSessionVisibilityTypeId.PUBLIC);
+			setDifferentEmailAddressForNotifications(false);
+			setSingleSessionFlag(true);
+			setSendFollowupEmail(false);
+			setSendReminderEmail(false);
+		}};
 	}
 
 	@Nonnull
@@ -686,5 +1109,41 @@ public class MediaServiceTests {
 		return findResult.getResults().stream()
 				.map(MediaImageGalleryItem::getSourceImageId)
 				.collect(Collectors.toList());
+	}
+
+	protected static class MediaImageFamily {
+		@Nonnull
+		private final UUID rawImageId;
+		@Nonnull
+		private final UUID cropImageId;
+		@Nonnull
+		private final UUID thumbnailImageId;
+
+		public MediaImageFamily(@Nonnull UUID rawImageId,
+														@Nonnull UUID cropImageId,
+														@Nonnull UUID thumbnailImageId) {
+			requireNonNull(rawImageId);
+			requireNonNull(cropImageId);
+			requireNonNull(thumbnailImageId);
+
+			this.rawImageId = rawImageId;
+			this.cropImageId = cropImageId;
+			this.thumbnailImageId = thumbnailImageId;
+		}
+
+		@Nonnull
+		public UUID getRawImageId() {
+			return this.rawImageId;
+		}
+
+		@Nonnull
+		public UUID getCropImageId() {
+			return this.cropImageId;
+		}
+
+		@Nonnull
+		public UUID getThumbnailImageId() {
+			return this.thumbnailImageId;
+		}
 	}
 }

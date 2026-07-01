@@ -30,6 +30,7 @@ import com.cobaltplatform.api.model.service.FindResult;
 import com.cobaltplatform.api.model.service.FileUploadResult;
 import com.cobaltplatform.api.model.service.MediaImageDetails;
 import com.cobaltplatform.api.model.service.MediaImageGalleryItem;
+import com.cobaltplatform.api.model.service.MediaImageScopeId;
 import com.cobaltplatform.api.model.service.MediaImageUploadResult;
 import com.cobaltplatform.api.model.service.MediaImageVariant;
 import com.cobaltplatform.api.model.service.MediaImageVariant.ImageType;
@@ -228,9 +229,50 @@ public class MediaService {
 																																		 @Nullable Integer pageNumber,
 																																		 @Nullable Integer pageSize,
 																																		 @Nullable String searchQuery) {
+		return findMediaImageGalleryItems(account, pageNumber, pageSize, searchQuery, (List<FileUploadTypeId>) null, (List<MediaImageScopeId>) null);
+	}
+
+	@Nonnull
+	public FindResult<MediaImageGalleryItem> findMediaImageGalleryItems(@Nonnull Account account,
+																																		 @Nullable Integer pageNumber,
+																																		 @Nullable Integer pageSize,
+																																		 @Nullable String searchQuery,
+																																		 @Nullable FileUploadTypeId fileUploadTypeId,
+																																		 @Nullable MediaImageScopeId mediaImageScopeId) {
+		return findMediaImageGalleryItems(account, pageNumber, pageSize, searchQuery,
+				fileUploadTypeId == null ? null : List.of(fileUploadTypeId),
+				mediaImageScopeId == null ? null : List.of(mediaImageScopeId));
+	}
+
+	@Nonnull
+	public FindResult<MediaImageGalleryItem> findMediaImageGalleryItems(@Nonnull Account account,
+																																		 @Nullable Integer pageNumber,
+																																		 @Nullable Integer pageSize,
+																																		 @Nullable String searchQuery,
+																																		 @Nullable List<FileUploadTypeId> fileUploadTypeIds,
+																																		 @Nullable List<MediaImageScopeId> mediaImageScopeIds) {
 		requireNonNull(account);
 
 		searchQuery = trimToNull(searchQuery);
+
+		EnumSet<FileUploadTypeId> requestedFileUploadTypeIds = EnumSet.noneOf(FileUploadTypeId.class);
+		EnumSet<MediaImageScopeId> requestedMediaImageScopeIds = EnumSet.noneOf(MediaImageScopeId.class);
+
+		if (fileUploadTypeIds != null)
+			for (FileUploadTypeId fileUploadTypeId : fileUploadTypeIds)
+				if (fileUploadTypeId != null)
+					requestedFileUploadTypeIds.add(fileUploadTypeId);
+
+		if (mediaImageScopeIds != null)
+			for (MediaImageScopeId mediaImageScopeId : mediaImageScopeIds)
+				if (mediaImageScopeId != null)
+					requestedMediaImageScopeIds.add(mediaImageScopeId);
+
+		if (!MEDIA_IMAGE_CROP_FILE_UPLOAD_TYPE_IDS.containsAll(requestedFileUploadTypeIds)) {
+			ValidationException validationException = new ValidationException();
+			validationException.add(new FieldError("fileUploadTypeId", getStrings().get("File Upload Type ID is invalid.")));
+			throw validationException;
+		}
 
 		if (pageNumber == null || pageNumber < 0)
 			pageNumber = 0;
@@ -242,6 +284,8 @@ public class MediaService {
 
 		String searchMatchRankSql = "0 AS search_match_rank";
 		String searchFilterSql = "";
+		String cropFileUploadTypeFilterSql = "AND crop.file_upload_type_id IN (?,?,?)";
+		String scopeFilterSql = "";
 		List<Object> parameters = new ArrayList<>();
 
 		if (searchQuery != null) {
@@ -268,17 +312,64 @@ public class MediaService {
 				parameters.add(searchQuery);
 		}
 
+		if (requestedFileUploadTypeIds.size() > 0)
+			cropFileUploadTypeFilterSql = format("AND crop.file_upload_type_id IN %s", sqlInListPlaceholders(requestedFileUploadTypeIds));
+
+		if (requestedMediaImageScopeIds.size() > 0) {
+			String associatedImageIdSql = requestedFileUploadTypeIds.size() == 0 ? "raw.image_id" : "crop.image_id";
+			List<String> scopeFilterSqlComponents = new ArrayList<>();
+
+			if (requestedMediaImageScopeIds.contains(MediaImageScopeId.RESOURCE))
+				scopeFilterSqlComponents.add(format("""
+						EXISTS (
+						  SELECT 1
+						  FROM v_institution_content vc
+						  WHERE vc.institution_id=?
+						  AND vc.content_status_id='LIVE'
+						  AND vc.image_id=%s
+						)
+						""", associatedImageIdSql));
+
+			if (requestedMediaImageScopeIds.contains(MediaImageScopeId.GROUP_SESSION))
+				scopeFilterSqlComponents.add(format("""
+						EXISTS (
+						  SELECT 1
+						  FROM v_group_session gs
+						  WHERE gs.institution_id=?
+						  AND gs.image_id=%s
+						)
+						""", associatedImageIdSql));
+
+			scopeFilterSql = format("""
+					AND (
+					  %s
+					)
+					""", scopeFilterSqlComponents.stream().collect(Collectors.joining("\n  OR ")));
+		}
+
 		parameters.add(account.getInstitutionId());
 		parameters.add(FileUploadStatusId.UPLOADED);
 		parameters.add(FileUploadStatusId.UPLOADED);
 		parameters.add(FileUploadStatusId.UPLOADED);
 		parameters.add(FileUploadTypeId.IMAGE_RAW);
-		parameters.add(FileUploadTypeId.IMAGE_4X3);
-		parameters.add(FileUploadTypeId.IMAGE_16X9);
-		parameters.add(FileUploadTypeId.IMAGE_1X1);
+
+		if (requestedFileUploadTypeIds.size() == 0) {
+			parameters.add(FileUploadTypeId.IMAGE_4X3);
+			parameters.add(FileUploadTypeId.IMAGE_16X9);
+			parameters.add(FileUploadTypeId.IMAGE_1X1);
+		} else {
+			parameters.addAll(requestedFileUploadTypeIds);
+		}
+
 		parameters.add(FileUploadTypeId.IMAGE_THUMBNAIL_4X3);
 		parameters.add(FileUploadTypeId.IMAGE_THUMBNAIL_16X9);
 		parameters.add(FileUploadTypeId.IMAGE_THUMBNAIL_1X1);
+
+		if (requestedMediaImageScopeIds.contains(MediaImageScopeId.RESOURCE))
+			parameters.add(account.getInstitutionId());
+
+		if (requestedMediaImageScopeIds.contains(MediaImageScopeId.GROUP_SESSION))
+			parameters.add(account.getInstitutionId());
 
 		if (searchQuery != null)
 			for (int i = 0; i < 6; ++i)
@@ -316,8 +407,9 @@ public class MediaService {
 				    AND crop.active=TRUE
 				    AND thumbnail.active=TRUE
 				    AND raw.file_upload_type_id=?
-				    AND crop.file_upload_type_id IN (?,?,?)
+				    %s
 				    AND thumbnail.file_upload_type_id IN (?,?,?)
+				    %s
 				    %s
 				), ranked_gallery_images AS (
 				  SELECT
@@ -344,7 +436,7 @@ public class MediaService {
 				ORDER BY gallery_uploaded_date DESC NULLS LAST, gallery_source_image_id
 				LIMIT ?
 				OFFSET ?
-				""", searchMatchRankSql, searchFilterSql), MediaImageGalleryItemWithTotalCount.class, parameters.toArray());
+				""", searchMatchRankSql, cropFileUploadTypeFilterSql, scopeFilterSql, searchFilterSql), MediaImageGalleryItemWithTotalCount.class, parameters.toArray());
 
 		if (thumbnailImages.size() == 0)
 			return new FindResult<>(List.of(), 0);
