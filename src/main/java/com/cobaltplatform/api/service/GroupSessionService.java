@@ -827,11 +827,8 @@ public class GroupSessionService implements AutoCloseable {
 		if (imageId != null && institutionId != null) {
 			image = getMediaService().findActiveUploadedMediaImageById(institutionId, imageId).orElse(null);
 
-			if (image == null) {
+			if (image == null)
 				validationException.add(new FieldError("imageId", getStrings().get("Image ID is invalid.")));
-			} else if (imageFileUploadId != null && !Objects.equals(imageFileUploadId, image.getFileUploadId())) {
-				validationException.add(new FieldError("imageFileUploadId", getStrings().get("Image file upload ID does not match image ID.")));
-			}
 		}
 
 		if (validationException.hasErrors())
@@ -1285,11 +1282,8 @@ public class GroupSessionService implements AutoCloseable {
 		if (imageId != null) {
 			image = getMediaService().findActiveUploadedMediaImageById(groupSession.getInstitutionId(), imageId).orElse(null);
 
-			if (image == null) {
+			if (image == null)
 				validationException.add(new FieldError("imageId", getStrings().get("Image ID is invalid.")));
-			} else if (imageFileUploadId != null && !Objects.equals(imageFileUploadId, image.getFileUploadId())) {
-				validationException.add(new FieldError("imageFileUploadId", getStrings().get("Image file upload ID does not match image ID.")));
-			}
 		}
 
 		if (validationException.hasErrors())
