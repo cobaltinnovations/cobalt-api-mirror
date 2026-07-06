@@ -27,6 +27,7 @@ import org.apache.commons.io.IOUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import software.amazon.awssdk.core.ResponseInputStream;
+import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3ClientBuilder;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
@@ -48,6 +49,7 @@ import javax.annotation.concurrent.ThreadSafe;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 import java.io.BufferedOutputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.net.URI;
@@ -210,6 +212,45 @@ public class UploadManager {
 		} catch (IOException e) {
 			throw new UncheckedIOException(e);
 		}
+	}
+
+	@Nonnull
+	public byte[] downloadFileLocatedByStorageKey(@Nonnull String storageKey) {
+		requireNonNull(storageKey);
+
+		try (ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+				 BufferedOutputStream bufferedOutputStream = new BufferedOutputStream(byteArrayOutputStream)) {
+			downloadFileLocatedByStorageKey(storageKey, bufferedOutputStream);
+			bufferedOutputStream.flush();
+			return byteArrayOutputStream.toByteArray();
+		} catch (IOException e) {
+			throw new UncheckedIOException(e);
+		}
+	}
+
+	public void uploadFileLocatedByStorageKey(@Nonnull String storageKey,
+																						@Nonnull String contentType,
+																						@Nonnull byte[] data,
+																						@Nonnull Boolean publicRead,
+																						@Nullable Map<String, String> metadata) {
+		requireNonNull(storageKey);
+		requireNonNull(contentType);
+		requireNonNull(data);
+		requireNonNull(publicRead);
+
+		if (metadata == null)
+			metadata = Map.of();
+
+		PutObjectRequest.Builder putObjectRequestBuilder = PutObjectRequest.builder()
+				.bucket(getConfiguration().getAmazonS3BucketName())
+				.key(storageKey)
+				.contentType(contentType)
+				.metadata(metadata);
+
+		if (publicRead)
+			putObjectRequestBuilder.acl(ObjectCannedACL.PUBLIC_READ);
+
+		getS3Client().putObject(putObjectRequestBuilder.build(), RequestBody.fromBytes(data));
 	}
 
 	@Nonnull

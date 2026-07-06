@@ -22,6 +22,11 @@ ALTER TABLE file_upload ADD COLUMN institution_id VARCHAR REFERENCES institution
 ALTER TABLE file_upload ADD COLUMN storage_bucket TEXT;
 ALTER TABLE file_upload ADD COLUMN storage_region TEXT;
 
+-- Historical file_upload rows point at objects that already exist.  Keep CREATED
+-- as the default for new presigned uploads, but mark preexisting uploads usable.
+UPDATE file_upload
+SET file_upload_status_id='UPLOADED';
+
 UPDATE file_upload fu
 SET institution_id = a.institution_id
 FROM account a
@@ -91,6 +96,54 @@ CREATE INDEX idx_image_active ON image(active);
 CREATE INDEX idx_image_image_hash ON image(image_hash) WHERE image_hash IS NOT NULL;
 CREATE INDEX idx_image_source_image_id_active ON image(source_image_id, active);
 CREATE TRIGGER set_last_updated BEFORE INSERT OR UPDATE ON image FOR EACH ROW EXECUTE PROCEDURE set_last_updated();
+
+CREATE TABLE legacy_image_migration_status (
+  legacy_image_migration_status_id TEXT PRIMARY KEY,
+  description TEXT NOT NULL
+);
+
+INSERT INTO legacy_image_migration_status (legacy_image_migration_status_id, description) VALUES
+  ('RAW_IMPORTED', 'Raw image imported'),
+  ('VARIANTS_GENERATED', 'Required crops and thumbnails generated'),
+  ('NEEDS_REVIEW', 'Manual review required'),
+  ('LOW_FIDELITY', 'Source image is too low fidelity for required variants'),
+  ('UNMIGRATABLE', 'Source image cannot be migrated'),
+  ('REPLACED', 'Source image replaced by a new upload');
+
+CREATE TABLE legacy_image_migration (
+  legacy_image_migration_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  legacy_file_upload_id UUID NOT NULL REFERENCES file_upload,
+  institution_id VARCHAR NOT NULL REFERENCES institution,
+  created_by_account_id UUID NOT NULL REFERENCES account,
+  legacy_url TEXT,
+  legacy_storage_key TEXT,
+  legacy_content_type TEXT,
+  legacy_filename TEXT,
+  legacy_image_migration_status_id TEXT NOT NULL REFERENCES legacy_image_migration_status,
+  source_width INTEGER,
+  source_height INTEGER,
+  source_filesize BIGINT,
+  source_image_hash TEXT,
+  raw_image_id UUID REFERENCES image(image_id),
+  crop_16x9_image_id UUID REFERENCES image(image_id),
+  thumbnail_16x9_image_id UUID REFERENCES image(image_id),
+  crop_4x3_image_id UUID REFERENCES image(image_id),
+  thumbnail_4x3_image_id UUID REFERENCES image(image_id),
+  crop_1x1_image_id UUID REFERENCES image(image_id),
+  thumbnail_1x1_image_id UUID REFERENCES image(image_id),
+  quality_report TEXT,
+  error_message TEXT,
+  created TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  last_updated TIMESTAMPTZ NOT NULL,
+  CHECK (source_width IS NULL OR source_width > 0),
+  CHECK (source_height IS NULL OR source_height > 0),
+  CHECK (source_image_hash IS NULL OR source_image_hash ~ '^[0-9a-f]{64}$')
+);
+
+CREATE UNIQUE INDEX legacy_image_migration_legacy_file_upload_id_unique_idx ON legacy_image_migration(legacy_file_upload_id);
+CREATE INDEX idx_legacy_image_migration_status_id ON legacy_image_migration(legacy_image_migration_status_id);
+CREATE INDEX idx_legacy_image_migration_institution_id ON legacy_image_migration(institution_id);
+CREATE TRIGGER set_last_updated BEFORE INSERT OR UPDATE ON legacy_image_migration FOR EACH ROW EXECUTE PROCEDURE set_last_updated();
 
 CREATE VIEW v_image AS
 SELECT
