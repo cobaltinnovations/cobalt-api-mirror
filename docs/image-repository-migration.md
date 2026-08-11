@@ -13,7 +13,7 @@ This document describes how legacy image uploads are migrated into the new image
 
 ## Relevant Schema
 
-The media migration schema is introduced in `sql/updates/257-media-uploads.sql`.
+The media migration schema is introduced in `sql/updates/259-media-uploads.sql`.
 
 Key tables and columns:
 

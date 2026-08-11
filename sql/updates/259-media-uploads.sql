@@ -1,5 +1,5 @@
 BEGIN;
-SELECT _v.register_patch('257-media-uploads', NULL, NULL);
+SELECT _v.register_patch('259-media-uploads', NULL, NULL);
 
 ALTER TABLE institution ADD COLUMN image_repository_enabled BOOLEAN NOT NULL DEFAULT FALSE;
 
