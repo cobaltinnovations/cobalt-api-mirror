@@ -844,6 +844,8 @@ public class MediaService {
 				cropFileUploadTypeId,
 				thumbnailFileUploadTypeId);
 
+		replaceMediaImageConsumerReferences(account, rawImage.getImageId(), cropFileUploadTypeId, cropImage);
+
 		getDatabase().execute("""
 				UPDATE image
 				SET active=FALSE
@@ -884,6 +886,109 @@ public class MediaService {
 				WHERE image_id IN (?,?)
 				AND active=FALSE
 				""", cropImage.getImageId(), thumbnailImageId);
+	}
+
+	protected void replaceMediaImageConsumerReferences(@Nonnull Account account,
+																				@Nonnull UUID rawImageId,
+																				@Nonnull FileUploadTypeId cropFileUploadTypeId,
+																				@Nonnull Image replacementCropImage) {
+		requireNonNull(account);
+		requireNonNull(rawImageId);
+		requireNonNull(cropFileUploadTypeId);
+		requireNonNull(replacementCropImage);
+
+		String supersededCropImageIdsSql = """
+				SELECT crop.image_id
+				FROM image crop
+				JOIN file_upload crop_file_upload ON crop_file_upload.file_upload_id=crop.file_upload_id
+				WHERE crop.source_image_id=?
+				AND crop_file_upload.file_upload_type_id=?
+				AND crop.image_id<>?
+				""";
+		UUID replacementCropImageId = replacementCropImage.getImageId();
+		UUID replacementCropFileUploadId = replacementCropImage.getFileUploadId();
+
+		getDatabase().execute(format("""
+				UPDATE content
+				SET image_id=?, image_file_upload_id=?
+				WHERE owner_institution_id=?
+				AND deleted_flag=FALSE
+				AND image_id IN (%s)
+				""", supersededCropImageIdsSql),
+				replacementCropImageId,
+				replacementCropFileUploadId,
+				account.getInstitutionId(),
+				rawImageId,
+				cropFileUploadTypeId,
+				replacementCropImageId);
+
+		getDatabase().execute(format("""
+				UPDATE group_session
+				SET image_id=?, image_file_upload_id=?
+				WHERE institution_id=?
+				AND group_session_status_id<>'DELETED'
+				AND image_id IN (%s)
+				""", supersededCropImageIdsSql),
+				replacementCropImageId,
+				replacementCropFileUploadId,
+				account.getInstitutionId(),
+				rawImageId,
+				cropFileUploadTypeId,
+				replacementCropImageId);
+
+		getDatabase().execute(format("""
+				UPDATE page
+				SET image_id=?, image_file_upload_id=?
+				WHERE institution_id=?
+				AND deleted_flag=FALSE
+				AND image_id IN (%s)
+				""", supersededCropImageIdsSql),
+				replacementCropImageId,
+				replacementCropFileUploadId,
+				account.getInstitutionId(),
+				rawImageId,
+				cropFileUploadTypeId,
+				replacementCropImageId);
+
+		getDatabase().execute(format("""
+				UPDATE page_row_column prc
+				SET image_id=?, image_file_upload_id=?
+				FROM page_row pr
+				JOIN page_section ps ON ps.page_section_id=pr.page_section_id
+				JOIN page p ON p.page_id=ps.page_id
+				WHERE prc.page_row_id=pr.page_row_id
+				AND p.institution_id=?
+				AND p.deleted_flag=FALSE
+				AND ps.deleted_flag=FALSE
+				AND pr.deleted_flag=FALSE
+				AND prc.image_id IN (%s)
+				""", supersededCropImageIdsSql),
+				replacementCropImageId,
+				replacementCropFileUploadId,
+				account.getInstitutionId(),
+				rawImageId,
+				cropFileUploadTypeId,
+				replacementCropImageId);
+
+		getDatabase().execute(format("""
+				UPDATE page_row_call_to_action prcta
+				SET image_id=?, image_file_upload_id=?
+				FROM page_row pr
+				JOIN page_section ps ON ps.page_section_id=pr.page_section_id
+				JOIN page p ON p.page_id=ps.page_id
+				WHERE prcta.page_row_id=pr.page_row_id
+				AND p.institution_id=?
+				AND p.deleted_flag=FALSE
+				AND ps.deleted_flag=FALSE
+				AND pr.deleted_flag=FALSE
+				AND prcta.image_id IN (%s)
+				""", supersededCropImageIdsSql),
+				replacementCropImageId,
+				replacementCropFileUploadId,
+				account.getInstitutionId(),
+				rawImageId,
+				cropFileUploadTypeId,
+				replacementCropImageId);
 	}
 
 	@Nonnull

@@ -773,17 +773,43 @@ public class MediaServiceTests {
 	}
 
 	@Test
-	public void replacingExistingAspectRatioInactivatesPreviousCropAndThumbnail() {
+	public void replacingExistingAspectRatioInactivatesPreviousPairAndRewiresLiveConsumers() {
 		IntegrationTestExecutor.runTransactionallyAndForceRollback((app) -> {
 			MediaService mediaService = app.getInjector().getInstance(MediaService.class);
+			AdminContentService adminContentService = app.getInjector().getInstance(AdminContentService.class);
+			GroupSessionService groupSessionService = app.getInjector().getInstance(GroupSessionService.class);
 			Database database = app.getInjector().getInstance(DatabaseProvider.class).getWritableMasterDatabase();
-			Account account = createAccount(app.getInjector().getInstance(AccountService.class));
+			assumeContentImageIdColumnExists(database);
+			assumeGroupSessionImageIdColumnExists(database);
+			assumePageBuilderImageIdColumnsExist(database);
+			Account account = findExistingAdministratorAccount(database);
 
 			UUID rawImageId = createUploadedImage(database, account, FileUploadTypeId.IMAGE_RAW, null, 1600, 900);
 			UUID previousCropImageId = createUploadedImage(database, account, FileUploadTypeId.IMAGE_16X9, rawImageId, 1600, 900);
 			UUID previousThumbnailImageId = createUploadedImage(database, account, FileUploadTypeId.IMAGE_THUMBNAIL_16X9, previousCropImageId, 320, 180);
+			UUID otherRatioCropImageId = createUploadedImage(database, account, FileUploadTypeId.IMAGE_4X3, rawImageId, 1200, 900);
+			createUploadedImage(database, account, FileUploadTypeId.IMAGE_THUMBNAIL_4X3, otherRatioCropImageId, 240, 180);
 			UUID newCropImageId = createUploadedImage(database, account, FileUploadTypeId.IMAGE_16X9, rawImageId, 1280, 720);
 			UUID newThumbnailImageId = createUploadedImage(database, account, FileUploadTypeId.IMAGE_THUMBNAIL_16X9, newCropImageId, 320, 180);
+			MediaImageFamily unrelatedFamily = createUploadedMediaImageFamily(database, account, "recrop", "unrelated", FileUploadTypeId.IMAGE_16X9);
+			UUID previousCropFileUploadId = findFileUploadIdByImageId(database, previousCropImageId);
+			UUID newCropFileUploadId = findFileUploadIdByImageId(database, newCropImageId);
+			UUID otherRatioCropFileUploadId = findFileUploadIdByImageId(database, otherRatioCropImageId);
+			UUID unrelatedCropFileUploadId = findFileUploadIdByImageId(database, unrelatedFamily.getCropImageId());
+
+			UUID liveContentId = createResourceContentWithImage(adminContentService, account, previousCropImageId, LocalDate.now());
+			UUID deletedContentId = createResourceContentWithImage(adminContentService, account, previousCropImageId, LocalDate.now());
+			database.execute("UPDATE content SET deleted_flag=TRUE WHERE content_id=?", deletedContentId);
+			UUID otherRatioContentId = createResourceContentWithImage(adminContentService, account, otherRatioCropImageId, LocalDate.now());
+			UUID unrelatedContentId = createResourceContentWithImage(adminContentService, account, unrelatedFamily.getCropImageId(), LocalDate.now());
+
+			UUID liveGroupSessionId = createGroupSessionWithImage(groupSessionService, account, previousCropImageId, "recrop-live");
+			UUID deletedGroupSessionId = createGroupSessionWithImage(groupSessionService, account, previousCropImageId, "recrop-deleted");
+			database.execute("UPDATE group_session SET group_session_status_id=? WHERE group_session_id=?",
+					GroupSessionStatusId.DELETED, deletedGroupSessionId);
+
+			PageBuilderImageAssociations pageBuilderAssociations = createPageBuilderImageAssociations(database, account,
+					previousCropImageId, previousCropImageId, previousCropImageId, previousCropImageId, previousCropImageId);
 
 			mediaService.confirmMediaImageUploaded(account, newThumbnailImageId);
 
@@ -791,6 +817,18 @@ public class MediaServiceTests {
 			Assert.assertFalse("Previous thumbnail should be inactive", mediaService.findImageById(previousThumbnailImageId).get().getActive());
 			Assert.assertTrue("New crop should be active", mediaService.findImageById(newCropImageId).get().getActive());
 			Assert.assertTrue("New thumbnail should be active", mediaService.findImageById(newThumbnailImageId).get().getActive());
+			assertImageAssociation(database, "content", "content_id", liveContentId, newCropImageId, newCropFileUploadId);
+			assertImageAssociation(database, "group_session", "group_session_id", liveGroupSessionId, newCropImageId, newCropFileUploadId);
+			assertImageAssociation(database, "page", "page_id", pageBuilderAssociations.getPageId(), newCropImageId, newCropFileUploadId);
+			assertImageAssociation(database, "page_row_column", "page_row_id", pageBuilderAssociations.getColumnPageRowId(), newCropImageId, newCropFileUploadId);
+			assertImageAssociation(database, "page_row_call_to_action", "page_row_id", pageBuilderAssociations.getCallToActionPageRowId(), newCropImageId, newCropFileUploadId);
+
+			assertImageAssociation(database, "content", "content_id", deletedContentId, previousCropImageId, previousCropFileUploadId);
+			assertImageAssociation(database, "group_session", "group_session_id", deletedGroupSessionId, previousCropImageId, previousCropFileUploadId);
+			assertImageAssociation(database, "page_row_column", "page_row_id", pageBuilderAssociations.getDeletedPageRowId(), previousCropImageId, previousCropFileUploadId);
+			assertImageAssociation(database, "page", "page_id", pageBuilderAssociations.getDeletedPageId(), previousCropImageId, previousCropFileUploadId);
+			assertImageAssociation(database, "content", "content_id", otherRatioContentId, otherRatioCropImageId, otherRatioCropFileUploadId);
+			assertImageAssociation(database, "content", "content_id", unrelatedContentId, unrelatedFamily.getCropImageId(), unrelatedCropFileUploadId);
 
 			MediaImageDetails mediaImageDetails = mediaService.findMediaImageDetails(account, rawImageId).get();
 			Set<UUID> variantImageIds = imageIds(mediaImageDetails);
@@ -819,6 +857,8 @@ public class MediaServiceTests {
 			Assert.assertFalse("Previous thumbnail should remain inactive", mediaService.findImageById(previousThumbnailImageId).get().getActive());
 			Assert.assertTrue("New crop should remain active", mediaService.findImageById(newCropImageId).get().getActive());
 			Assert.assertTrue("New thumbnail should remain active", mediaService.findImageById(newThumbnailImageId).get().getActive());
+			assertImageAssociation(database, "content", "content_id", liveContentId, newCropImageId, newCropFileUploadId);
+			assertImageAssociation(database, "page_row_call_to_action", "page_row_id", pageBuilderAssociations.getCallToActionPageRowId(), newCropImageId, newCropFileUploadId);
 
 			Assert.assertThrows(ValidationException.class, () -> mediaService.confirmMediaImageUploaded(account, previousThumbnailImageId));
 			Assert.assertThrows(ValidationException.class, () -> mediaService.createMediaImagePresignedUpload(account, new CreateMediaImagePresignedUploadRequest() {{
@@ -925,13 +965,14 @@ public class MediaServiceTests {
 		Assume.assumeTrue("Branch schema must include page-builder image_id columns", imageIdColumnCount == 3L);
 	}
 
-	protected void createPageBuilderImageAssociations(@Nonnull Database database,
-																								 @Nonnull Account account,
-																								 @Nonnull UUID heroImageId,
-																								 @Nonnull UUID columnImageId,
-																								 @Nonnull UUID callToActionImageId,
-																								 @Nonnull UUID deletedRowImageId,
-																								 @Nonnull UUID deletedPageImageId) {
+	@Nonnull
+	protected PageBuilderImageAssociations createPageBuilderImageAssociations(@Nonnull Database database,
+																														 @Nonnull Account account,
+																														 @Nonnull UUID heroImageId,
+																														 @Nonnull UUID columnImageId,
+																														 @Nonnull UUID callToActionImageId,
+																														 @Nonnull UUID deletedRowImageId,
+																														 @Nonnull UUID deletedPageImageId) {
 		UUID pageId = UUID.randomUUID();
 		UUID pageSectionId = UUID.randomUUID();
 		UUID customRowId = UUID.randomUUID();
@@ -977,6 +1018,8 @@ public class MediaServiceTests {
 				SELECT ?,?,?, 'DRAFT', i.image_id, i.file_upload_id, TRUE, ?, ?, ? FROM image i WHERE i.image_id=?
 				""", deletedPageId, "Deleted page scope", format("deleted-page-scope-%s", deletedPageId),
 				account.getInstitutionId(), account.getAccountId(), deletedPageId, deletedPageImageId);
+
+		return new PageBuilderImageAssociations(pageId, customRowId, callToActionRowId, deletedRowId, deletedPageId);
 	}
 
 	@Nonnull
@@ -1039,10 +1082,11 @@ public class MediaServiceTests {
 		};
 	}
 
-	protected void createResourceContentWithImage(@Nonnull AdminContentService adminContentService,
-																								@Nonnull Account account,
-																								@Nonnull UUID imageId,
-																								@Nonnull LocalDate publishStartDate) {
+	@Nonnull
+	protected UUID createResourceContentWithImage(@Nonnull AdminContentService adminContentService,
+																										 @Nonnull Account account,
+																										 @Nonnull UUID imageId,
+																										 @Nonnull LocalDate publishStartDate) {
 		requireNonNull(adminContentService);
 		requireNonNull(account);
 		requireNonNull(imageId);
@@ -1050,7 +1094,9 @@ public class MediaServiceTests {
 
 		CreateContentRequest request = createContentRequest("media-image-gallery-scope", publishStartDate);
 		request.setImageId(imageId);
-		adminContentService.publishContent(adminContentService.createContent(account, request).getContentId(), account);
+		UUID contentId = adminContentService.createContent(account, request).getContentId();
+		adminContentService.publishContent(contentId, account);
+		return contentId;
 	}
 
 	@Nonnull
@@ -1220,6 +1266,37 @@ public class MediaServiceTests {
 	}
 
 	@Nonnull
+	protected UUID findFileUploadIdByImageId(@Nonnull Database database,
+																					 @Nonnull UUID imageId) {
+		requireNonNull(database);
+		requireNonNull(imageId);
+
+		return database.queryForObject("SELECT file_upload_id FROM image WHERE image_id=?", UUID.class, imageId).get();
+	}
+
+	protected void assertImageAssociation(@Nonnull Database database,
+																			 @Nonnull String tableName,
+																			 @Nonnull String idColumnName,
+																			 @Nonnull UUID id,
+																			 @Nonnull UUID expectedImageId,
+																			 @Nonnull UUID expectedImageFileUploadId) {
+		requireNonNull(database);
+		requireNonNull(tableName);
+		requireNonNull(idColumnName);
+		requireNonNull(id);
+		requireNonNull(expectedImageId);
+		requireNonNull(expectedImageFileUploadId);
+
+		ImageAssociation imageAssociation = database.queryForObject(format("""
+				SELECT image_id, image_file_upload_id
+				FROM %s
+				WHERE %s=?
+				""", tableName, idColumnName), ImageAssociation.class, id).get();
+		Assert.assertEquals(expectedImageId, imageAssociation.getImageId());
+		Assert.assertEquals(expectedImageFileUploadId, imageAssociation.getImageFileUploadId());
+	}
+
+	@Nonnull
 	protected Set<UUID> imageIds(@Nonnull MediaImageDetails mediaImageDetails) {
 		return mediaImageDetails.getVariants().stream()
 				.map(Image::getImageId)
@@ -1250,6 +1327,81 @@ public class MediaServiceTests {
 		return findResult.getResults().stream()
 				.map(MediaImageGalleryItem::getSourceImageId)
 				.collect(Collectors.toList());
+	}
+
+	protected static class ImageAssociation {
+		@Nullable
+		private UUID imageId;
+		@Nullable
+		private UUID imageFileUploadId;
+
+		@Nullable
+		public UUID getImageId() {
+			return this.imageId;
+		}
+
+		public void setImageId(@Nullable UUID imageId) {
+			this.imageId = imageId;
+		}
+
+		@Nullable
+		public UUID getImageFileUploadId() {
+			return this.imageFileUploadId;
+		}
+
+		public void setImageFileUploadId(@Nullable UUID imageFileUploadId) {
+			this.imageFileUploadId = imageFileUploadId;
+		}
+	}
+
+	protected static class PageBuilderImageAssociations {
+		@Nonnull
+		private final UUID pageId;
+		@Nonnull
+		private final UUID columnPageRowId;
+		@Nonnull
+		private final UUID callToActionPageRowId;
+		@Nonnull
+		private final UUID deletedPageRowId;
+		@Nonnull
+		private final UUID deletedPageId;
+
+		public PageBuilderImageAssociations(@Nonnull UUID pageId,
+																				@Nonnull UUID columnPageRowId,
+																				@Nonnull UUID callToActionPageRowId,
+																				@Nonnull UUID deletedPageRowId,
+																				@Nonnull UUID deletedPageId) {
+			this.pageId = requireNonNull(pageId);
+			this.columnPageRowId = requireNonNull(columnPageRowId);
+			this.callToActionPageRowId = requireNonNull(callToActionPageRowId);
+			this.deletedPageRowId = requireNonNull(deletedPageRowId);
+			this.deletedPageId = requireNonNull(deletedPageId);
+		}
+
+		@Nonnull
+		public UUID getPageId() {
+			return this.pageId;
+		}
+
+		@Nonnull
+		public UUID getColumnPageRowId() {
+			return this.columnPageRowId;
+		}
+
+		@Nonnull
+		public UUID getCallToActionPageRowId() {
+			return this.callToActionPageRowId;
+		}
+
+		@Nonnull
+		public UUID getDeletedPageRowId() {
+			return this.deletedPageRowId;
+		}
+
+		@Nonnull
+		public UUID getDeletedPageId() {
+			return this.deletedPageId;
+		}
 	}
 
 	protected static class MediaImageFamily {

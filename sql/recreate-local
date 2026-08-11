@@ -267,6 +267,7 @@ PGPASSWORD=password psql -U cobalt -h localhost -p 5501 < updates/256-autism-cli
 PGPASSWORD=password psql -U cobalt -h localhost -p 5501 < updates/257-page-builder-v2.sql
 PGPASSWORD=password psql -U cobalt -h localhost -p 5501 < updates/258-page-subscription-email-additional-content.sql
 PGPASSWORD=password psql -U cobalt -h localhost -p 5501 < updates/259-media-uploads.sql
+PGPASSWORD=password psql -U cobalt -h localhost -p 5501 < updates/260-media-image-recrop-references.sql
 
 if [ -f "initial/bootstrap.sql" ]; then
   echo "Loading bootstrap data..."

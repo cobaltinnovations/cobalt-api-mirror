@@ -60,6 +60,18 @@ Successful rewires:
 
 The audit table remains keyed by the legacy `file_upload`, not by each consumer record. If multiple references point at the same legacy upload, the image family is generated once and each reference can be rewired independently.
 
+## Recrop Replacement
+
+Confirming a thumbnail makes its crop the current variant for that raw image and aspect ratio. In the same transaction, the service:
+
+- Replaces references to every older crop of that raw image and aspect ratio.
+- Updates both `image_id` and the compatibility `image_file_upload_id`.
+- Rewires non-deleted content, non-deleted group sessions, page heroes, page-row columns, and page-row calls to action.
+- Leaves deleted content, deleted group sessions, deleted page structures, other aspect ratios, and other image families unchanged.
+- Deactivates the superseded crop/thumbnail records and activates the confirmed pair.
+
+`sql/updates/260-media-image-recrop-references.sql` repairs references left stale by recrops completed before this behavior was deployed. If inconsistent data contains more than one active uploaded crop/thumbnail pair for a raw image and aspect ratio, the backfill treats the pair with the newest completed thumbnail as current.
+
 ## How A Single Migration Works
 
 Entry points:
