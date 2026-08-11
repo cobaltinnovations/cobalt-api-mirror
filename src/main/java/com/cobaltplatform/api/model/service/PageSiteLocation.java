@@ -21,6 +21,7 @@ package com.cobaltplatform.api.model.service;
 
 
 import com.cobaltplatform.api.model.db.SiteLocation;
+import com.cobaltplatform.api.model.db.Image;
 import com.cobaltplatform.api.model.db.SiteLocation.SiteLocationId;
 
 import javax.annotation.Nullable;
@@ -47,11 +48,19 @@ public class PageSiteLocation {
 	@Nullable
 	private String shortDescription;
 	@Nullable
+	private UUID imageId;
+	@Nullable
+	private UUID imageFileUploadId;
+	@Nullable
 	private String imageAltText;
 	@Nullable
 	private String imageUrl;
 	@Nullable
 	private String callToAction;
+	@Nullable
+	private Image image;
+	@Nullable
+	private Image imageThumbnail;
 
 	@Nullable
 	public UUID getPageId() {
@@ -117,6 +126,24 @@ public class PageSiteLocation {
 	}
 
 	@Nullable
+	public UUID getImageId() {
+		return this.imageId;
+	}
+
+	public void setImageId(@Nullable UUID imageId) {
+		this.imageId = imageId;
+	}
+
+	@Nullable
+	public UUID getImageFileUploadId() {
+		return this.imageFileUploadId;
+	}
+
+	public void setImageFileUploadId(@Nullable UUID imageFileUploadId) {
+		this.imageFileUploadId = imageFileUploadId;
+	}
+
+	@Nullable
 	public String getImageAltText() {
 		return imageAltText;
 	}
@@ -141,5 +168,23 @@ public class PageSiteLocation {
 
 	public void setCallToAction(@Nullable String callToAction) {
 		this.callToAction = callToAction;
+	}
+
+	@Nullable
+	public Image getImage() {
+		return this.image;
+	}
+
+	public void setImage(@Nullable Image image) {
+		this.image = image;
+	}
+
+	@Nullable
+	public Image getImageThumbnail() {
+		return this.imageThumbnail;
+	}
+
+	public void setImageThumbnail(@Nullable Image imageThumbnail) {
+		this.imageThumbnail = imageThumbnail;
 	}
 }

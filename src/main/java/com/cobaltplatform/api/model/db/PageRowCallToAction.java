@@ -41,9 +41,15 @@ public class PageRowCallToAction {
 	@Nullable
 	private String buttonUrl;
 	@Nullable
+	private UUID imageId;
+	@Nullable
 	private UUID imageFileUploadId;
 	@Nullable
 	private String imageUrl;
+	@Nullable
+	private Image image;
+	@Nullable
+	private Image imageThumbnail;
 
 	@Nullable
 	public UUID getPageRowCallToActionId() {
@@ -100,6 +106,15 @@ public class PageRowCallToAction {
 	}
 
 	@Nullable
+	public UUID getImageId() {
+		return this.imageId;
+	}
+
+	public void setImageId(@Nullable UUID imageId) {
+		this.imageId = imageId;
+	}
+
+	@Nullable
 	public UUID getImageFileUploadId() {
 		return imageFileUploadId;
 	}
@@ -115,5 +130,23 @@ public class PageRowCallToAction {
 
 	public void setImageUrl(@Nullable String imageUrl) {
 		this.imageUrl = imageUrl;
+	}
+
+	@Nullable
+	public Image getImage() {
+		return this.image;
+	}
+
+	public void setImage(@Nullable Image image) {
+		this.image = image;
+	}
+
+	@Nullable
+	public Image getImageThumbnail() {
+		return this.imageThumbnail;
+	}
+
+	public void setImageThumbnail(@Nullable Image imageThumbnail) {
+		this.imageThumbnail = imageThumbnail;
 	}
 }

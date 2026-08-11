@@ -19,9 +19,11 @@
 
 package com.cobaltplatform.api.model.api.response;
 
+import com.cobaltplatform.api.model.api.response.MediaImageApiResponse.MediaImageApiResponseFactory;
 import com.cobaltplatform.api.model.db.SiteLocation;
 import com.cobaltplatform.api.model.db.SiteLocation.SiteLocationId;
 import com.cobaltplatform.api.model.service.PageSiteLocation;
+import com.cobaltplatform.api.util.Formatter;
 import com.google.inject.assistedinject.Assisted;
 import com.google.inject.assistedinject.AssistedInject;
 
@@ -52,6 +54,12 @@ public class PageSiteLocationApiResponse {
 	@Nullable
 	private final String shortDescription;
 	@Nullable
+	private final UUID imageId;
+	@Nullable
+	private final PageImageApiResponse image;
+	@Nullable
+	private final UUID imageFileUploadId;
+	@Nullable
 	private final String imageAltText;
 	@Nullable
 	private final String imageUrl;
@@ -66,7 +74,11 @@ public class PageSiteLocationApiResponse {
 	}
 
 	@AssistedInject
-	public PageSiteLocationApiResponse(@Assisted @Nonnull PageSiteLocation pageSiteLocation) {
+	public PageSiteLocationApiResponse(@Nonnull Formatter formatter,
+																		 @Nonnull MediaImageApiResponseFactory mediaImageApiResponseFactory,
+																		 @Assisted @Nonnull PageSiteLocation pageSiteLocation) {
+		requireNonNull(formatter);
+		requireNonNull(mediaImageApiResponseFactory);
 		requireNonNull(pageSiteLocation);
 
 		this.pageId = pageSiteLocation.getPageId();
@@ -75,6 +87,10 @@ public class PageSiteLocationApiResponse {
 		this.headline = pageSiteLocation.getHeadline();
 		this.description = pageSiteLocation.getDescription();
 		this.shortDescription = pageSiteLocation.getShortDescription();
+		this.imageId = pageSiteLocation.getImageId();
+		this.image = pageSiteLocation.getImage() == null ? null : new PageImageApiResponse(formatter,
+				mediaImageApiResponseFactory, pageSiteLocation.getImage(), pageSiteLocation.getImageThumbnail());
+		this.imageFileUploadId = pageSiteLocation.getImageFileUploadId();
 		this.imageAltText = pageSiteLocation.getImageAltText();
 		this.imageUrl = pageSiteLocation.getImageUrl();
 		this.callToAction = pageSiteLocation.getCallToAction();
@@ -111,11 +127,28 @@ public class PageSiteLocationApiResponse {
 	}
 
 	@Nullable
+	public UUID getImageId() {
+		return this.imageId;
+	}
+
+	@Nullable
+	public PageImageApiResponse getImage() {
+		return this.image;
+	}
+
+	@Nullable
+	@Deprecated // Prefer "image.fileUploadId".
+	public UUID getImageFileUploadId() {
+		return this.imageFileUploadId;
+	}
+
+	@Nullable
 	public String getImageAltText() {
 		return imageAltText;
 	}
 
 	@Nullable
+	@Deprecated // Prefer "image.url".
 	public String getImageUrl() {
 		return imageUrl;
 	}

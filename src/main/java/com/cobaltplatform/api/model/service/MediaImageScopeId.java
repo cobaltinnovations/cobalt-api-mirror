@@ -24,5 +24,6 @@ package com.cobaltplatform.api.model.service;
  */
 public enum MediaImageScopeId {
 	RESOURCE,
-	GROUP_SESSION
+	GROUP_SESSION,
+	PAGE
 }

@@ -40,6 +40,8 @@ public class CreatePageRequest {
 	@Nullable
 	private String description;
 	@Nullable
+	private UUID imageId;
+	@Nullable
 	private UUID imageFileUploadId;
 	@Nullable
 	private String imageAltText;
@@ -82,6 +84,15 @@ public class CreatePageRequest {
 
 	public void setDescription(@Nullable String description) {
 		this.description = description;
+	}
+
+	@Nullable
+	public UUID getImageId() {
+		return this.imageId;
+	}
+
+	public void setImageId(@Nullable UUID imageId) {
+		this.imageId = imageId;
 	}
 
 	@Nullable

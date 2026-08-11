@@ -66,10 +66,13 @@ public class MediaImageMigrationLocalRunner {
 			boolean institutionMode = property("institutionId").isPresent()
 					&& !property("groupSessionId").isPresent()
 					&& !property("contentId").isPresent()
+					&& !property("pageId").isPresent()
+					&& !property("pageRowColumnId").isPresent()
+					&& !property("pageRowCallToActionId").isPresent()
 					&& !parseBoolean(property("seedLegacyGroupSession").orElse("false"));
 
 			if (reportOnly && !institutionMode)
-				throw new IllegalArgumentException("Report-only mode requires -DinstitutionId=<id> without -DgroupSessionId, -DcontentId, or -DseedLegacyGroupSession.");
+				throw new IllegalArgumentException("Report-only mode requires -DinstitutionId=<id> without a single-reference ID or -DseedLegacyGroupSession.");
 
 			if (institutionMode) {
 				InstitutionId institutionId = InstitutionId.valueOf(property("institutionId").get());
@@ -116,6 +119,35 @@ public class MediaImageMigrationLocalRunner {
 				return;
 			}
 
+			if (property("pageId").isPresent() || property("pageRowColumnId").isPresent()
+					|| property("pageRowCallToActionId").isPresent()) {
+				String referencePropertyName = property("pageId").isPresent() ? "pageId"
+						: property("pageRowColumnId").isPresent() ? "pageRowColumnId" : "pageRowCallToActionId";
+				UUID referenceId = UUID.fromString(property(referencePropertyName).get());
+				PageBuilderImageState beforeState = findPageBuilderImageState(database, referencePropertyName, referenceId)
+						.orElseThrow(() -> new IllegalArgumentException(format("Page-builder reference '%s' was not found.", referenceId)));
+				Account account = findAccount(database, property("accountId").map(UUID::fromString).orElse(null),
+						beforeState.getInstitutionId(), null, null);
+
+				System.out.printf("Migrating %s %s%n", referencePropertyName, referenceId);
+				System.out.printf("Before: imageId=%s imageFileUploadId=%s%n", beforeState.getImageId(), beforeState.getImageFileUploadId());
+
+				LegacyImageMigrationResult migrationResult = switch (referencePropertyName) {
+					case "pageId" -> mediaImageMigrationService.migrateLegacyPageImage(account, referenceId);
+					case "pageRowColumnId" -> mediaImageMigrationService.migrateLegacyPageRowColumnImage(account, referenceId);
+					case "pageRowCallToActionId" -> mediaImageMigrationService.migrateLegacyPageRowCallToActionImage(account, referenceId);
+					default -> throw new IllegalArgumentException(format("Unsupported reference property '%s'.", referencePropertyName));
+				};
+				PageBuilderImageState afterState = findPageBuilderImageState(database, referencePropertyName, referenceId).get();
+				LegacyImageMigrationAudit audit = findLegacyImageMigrationAudit(database, migrationResult.getLegacyFileUploadId()).orElse(null);
+
+				printSingleMigrationResult(migrationResult);
+				System.out.printf("After: imageId=%s imageFileUploadId=%s%n", afterState.getImageId(), afterState.getImageFileUploadId());
+				if (audit != null)
+					printAudit(audit);
+				return;
+			}
+
 			UUID groupSessionId;
 			Account account;
 
@@ -125,7 +157,7 @@ public class MediaImageMigrationLocalRunner {
 				groupSessionId = seedLegacyGroupSession(database, groupSessionService, uploadManager, configuration, account);
 			} else {
 				groupSessionId = UUID.fromString(property("groupSessionId")
-						.orElseThrow(() -> new IllegalArgumentException("Provide -DgroupSessionId=<uuid>, -DcontentId=<uuid>, or -DseedLegacyGroupSession=true.")));
+						.orElseThrow(() -> new IllegalArgumentException("Provide a supported single-reference ID or -DseedLegacyGroupSession=true.")));
 				account = findAccount(database, property("accountId").map(UUID::fromString).orElse(null), null, groupSessionId, null);
 			}
 
@@ -171,7 +203,7 @@ public class MediaImageMigrationLocalRunner {
 		requireNonNull(label);
 		requireNonNull(report);
 
-		System.out.printf("%s: institutionId=%s imageRepositoryEnabled=%s total=%s currentLegacyReferences=%s currentLegacyContentReferences=%s currentLegacyGroupSessionReferences=%s pending=%s pendingContentReferences=%s pendingGroupSessionReferences=%s attempted=%s rawImported=%s variantsGenerated=%s lowFidelity=%s unmigratable=%s needsReview=%s replaced=%s rewiredContent=%s rewiredGroupSessions=%s%n",
+		System.out.printf("%s: institutionId=%s imageRepositoryEnabled=%s total=%s currentLegacyReferences=%s currentLegacyContentReferences=%s currentLegacyGroupSessionReferences=%s currentLegacyPageReferences=%s currentLegacyPageRowColumnReferences=%s currentLegacyPageRowCallToActionReferences=%s pending=%s pendingContentReferences=%s pendingGroupSessionReferences=%s pendingPageReferences=%s pendingPageRowColumnReferences=%s pendingPageRowCallToActionReferences=%s attempted=%s rawImported=%s variantsGenerated=%s lowFidelity=%s unmigratable=%s needsReview=%s replaced=%s rewiredContent=%s rewiredGroupSessions=%s rewiredPages=%s rewiredPageRowColumns=%s rewiredPageRowCallToActions=%s%n",
 				label,
 				report.getInstitutionId(),
 				report.getImageRepositoryEnabled(),
@@ -179,9 +211,15 @@ public class MediaImageMigrationLocalRunner {
 				report.getCurrentLegacyReferenceCount(),
 				report.getCurrentLegacyContentReferenceCount(),
 				report.getCurrentLegacyGroupSessionReferenceCount(),
+				report.getCurrentLegacyPageReferenceCount(),
+				report.getCurrentLegacyPageRowColumnReferenceCount(),
+				report.getCurrentLegacyPageRowCallToActionReferenceCount(),
 				report.getPendingCount(),
 				report.getPendingContentReferenceCount(),
 				report.getPendingGroupSessionReferenceCount(),
+				report.getPendingPageReferenceCount(),
+				report.getPendingPageRowColumnReferenceCount(),
+				report.getPendingPageRowCallToActionReferenceCount(),
 				report.getAttemptedCount(),
 				report.getRawImportedCount(),
 				report.getVariantsGeneratedCount(),
@@ -190,7 +228,10 @@ public class MediaImageMigrationLocalRunner {
 				report.getNeedsReviewCount(),
 				report.getReplacedCount(),
 				report.getRewiredContentCount(),
-				report.getRewiredGroupSessionCount());
+				report.getRewiredGroupSessionCount(),
+				report.getRewiredPageCount(),
+				report.getRewiredPageRowColumnCount(),
+				report.getRewiredPageRowCallToActionCount());
 	}
 
 	protected static void printSingleMigrationResult(@Nonnull LegacyImageMigrationResult migrationResult) {
@@ -207,9 +248,10 @@ public class MediaImageMigrationLocalRunner {
 	protected static void printAudit(@Nonnull LegacyImageMigrationAudit audit) {
 		requireNonNull(audit);
 
-		System.out.printf("Audit: legacyFileUploadId=%s status=%s rawImageId=%s crop16x9ImageId=%s thumbnail16x9ImageId=%s%n",
+		System.out.printf("Audit: legacyFileUploadId=%s status=%s rawImageId=%s crop16x9ImageId=%s thumbnail16x9ImageId=%s crop4x3ImageId=%s thumbnail4x3ImageId=%s crop1x1ImageId=%s thumbnail1x1ImageId=%s%n",
 				audit.getLegacyFileUploadId(), audit.getLegacyImageMigrationStatusId(), audit.getRawImageId(),
-				audit.getCrop16X9ImageId(), audit.getThumbnail16X9ImageId());
+				audit.getCrop16X9ImageId(), audit.getThumbnail16X9ImageId(), audit.getCrop4X3ImageId(),
+				audit.getThumbnail4X3ImageId(), audit.getCrop1X1ImageId(), audit.getThumbnail1X1ImageId());
 	}
 
 	@Nonnull
@@ -364,6 +406,44 @@ public class MediaImageMigrationLocalRunner {
 	}
 
 	@Nonnull
+	protected static Optional<PageBuilderImageState> findPageBuilderImageState(@Nonnull Database database,
+																														 @Nonnull String referencePropertyName,
+																														 @Nonnull UUID referenceId) {
+		requireNonNull(database);
+		requireNonNull(referencePropertyName);
+		requireNonNull(referenceId);
+
+		if ("pageId".equals(referencePropertyName))
+			return database.queryForObject("""
+					SELECT p.page_id AS reference_id, p.institution_id, p.image_id, p.image_file_upload_id
+					FROM page p WHERE p.page_id=?
+					""", PageBuilderImageState.class, referenceId);
+
+		if ("pageRowColumnId".equals(referencePropertyName))
+			return database.queryForObject("""
+					SELECT prc.page_row_column_id AS reference_id, p.institution_id, prc.image_id, prc.image_file_upload_id
+					FROM page_row_column prc
+					JOIN page_row pr ON pr.page_row_id=prc.page_row_id
+					JOIN page_section ps ON ps.page_section_id=pr.page_section_id
+					JOIN page p ON p.page_id=ps.page_id
+					WHERE prc.page_row_column_id=?
+					""", PageBuilderImageState.class, referenceId);
+
+		if ("pageRowCallToActionId".equals(referencePropertyName))
+			return database.queryForObject("""
+					SELECT prcta.page_row_call_to_action_id AS reference_id, p.institution_id,
+					  prcta.image_id, prcta.image_file_upload_id
+					FROM page_row_call_to_action prcta
+					JOIN page_row pr ON pr.page_row_id=prcta.page_row_id
+					JOIN page_section ps ON ps.page_section_id=pr.page_section_id
+					JOIN page p ON p.page_id=ps.page_id
+					WHERE prcta.page_row_call_to_action_id=?
+					""", PageBuilderImageState.class, referenceId);
+
+		throw new IllegalArgumentException(format("Unsupported reference property '%s'.", referencePropertyName));
+	}
+
+	@Nonnull
 	protected static Optional<LegacyImageMigrationAudit> findLegacyImageMigrationAudit(@Nonnull Database database,
 																																										@Nonnull UUID legacyFileUploadId) {
 		requireNonNull(database);
@@ -382,6 +462,10 @@ public class MediaImageMigrationLocalRunner {
 
 		audit.setCrop16X9ImageId(findLegacyMigrationImageId(database, legacyFileUploadId, "crop_16x9_image_id").orElse(null));
 		audit.setThumbnail16X9ImageId(findLegacyMigrationImageId(database, legacyFileUploadId, "thumbnail_16x9_image_id").orElse(null));
+		audit.setCrop4X3ImageId(findLegacyMigrationImageId(database, legacyFileUploadId, "crop_4x3_image_id").orElse(null));
+		audit.setThumbnail4X3ImageId(findLegacyMigrationImageId(database, legacyFileUploadId, "thumbnail_4x3_image_id").orElse(null));
+		audit.setCrop1X1ImageId(findLegacyMigrationImageId(database, legacyFileUploadId, "crop_1x1_image_id").orElse(null));
+		audit.setThumbnail1X1ImageId(findLegacyMigrationImageId(database, legacyFileUploadId, "thumbnail_1x1_image_id").orElse(null));
 
 		return Optional.of(audit);
 	}
@@ -511,6 +595,53 @@ public class MediaImageMigrationLocalRunner {
 		}
 	}
 
+	public static class PageBuilderImageState {
+		@Nullable
+		private UUID referenceId;
+		@Nullable
+		private InstitutionId institutionId;
+		@Nullable
+		private UUID imageId;
+		@Nullable
+		private UUID imageFileUploadId;
+
+		@Nullable
+		public UUID getReferenceId() {
+			return this.referenceId;
+		}
+
+		public void setReferenceId(@Nullable UUID referenceId) {
+			this.referenceId = referenceId;
+		}
+
+		@Nullable
+		public InstitutionId getInstitutionId() {
+			return this.institutionId;
+		}
+
+		public void setInstitutionId(@Nullable InstitutionId institutionId) {
+			this.institutionId = institutionId;
+		}
+
+		@Nullable
+		public UUID getImageId() {
+			return this.imageId;
+		}
+
+		public void setImageId(@Nullable UUID imageId) {
+			this.imageId = imageId;
+		}
+
+		@Nullable
+		public UUID getImageFileUploadId() {
+			return this.imageFileUploadId;
+		}
+
+		public void setImageFileUploadId(@Nullable UUID imageFileUploadId) {
+			this.imageFileUploadId = imageFileUploadId;
+		}
+	}
+
 	public static class LegacyImageMigrationAudit {
 		@Nullable
 		private UUID legacyFileUploadId;
@@ -522,6 +653,14 @@ public class MediaImageMigrationLocalRunner {
 		private UUID crop16X9ImageId;
 		@Nullable
 		private UUID thumbnail16X9ImageId;
+		@Nullable
+		private UUID crop4X3ImageId;
+		@Nullable
+		private UUID thumbnail4X3ImageId;
+		@Nullable
+		private UUID crop1X1ImageId;
+		@Nullable
+		private UUID thumbnail1X1ImageId;
 
 		@Nullable
 		public UUID getLegacyFileUploadId() {
@@ -566,6 +705,42 @@ public class MediaImageMigrationLocalRunner {
 
 		public void setThumbnail16X9ImageId(@Nullable UUID thumbnail16X9ImageId) {
 			this.thumbnail16X9ImageId = thumbnail16X9ImageId;
+		}
+
+		@Nullable
+		public UUID getCrop4X3ImageId() {
+			return this.crop4X3ImageId;
+		}
+
+		public void setCrop4X3ImageId(@Nullable UUID crop4X3ImageId) {
+			this.crop4X3ImageId = crop4X3ImageId;
+		}
+
+		@Nullable
+		public UUID getThumbnail4X3ImageId() {
+			return this.thumbnail4X3ImageId;
+		}
+
+		public void setThumbnail4X3ImageId(@Nullable UUID thumbnail4X3ImageId) {
+			this.thumbnail4X3ImageId = thumbnail4X3ImageId;
+		}
+
+		@Nullable
+		public UUID getCrop1X1ImageId() {
+			return this.crop1X1ImageId;
+		}
+
+		public void setCrop1X1ImageId(@Nullable UUID crop1X1ImageId) {
+			this.crop1X1ImageId = crop1X1ImageId;
+		}
+
+		@Nullable
+		public UUID getThumbnail1X1ImageId() {
+			return this.thumbnail1X1ImageId;
+		}
+
+		public void setThumbnail1X1ImageId(@Nullable UUID thumbnail1X1ImageId) {
+			this.thumbnail1X1ImageId = thumbnail1X1ImageId;
 		}
 	}
 }

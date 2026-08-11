@@ -20,6 +20,7 @@
 package com.cobaltplatform.api.model.api.response;
 
 
+import com.cobaltplatform.api.model.api.response.MediaImageApiResponse.MediaImageApiResponseFactory;
 import com.cobaltplatform.api.model.api.response.PageSectionApiResponse.PageSectionApiResponseFactory;
 import com.cobaltplatform.api.model.api.response.PageSiteLocationApiResponse.PageSiteLocationApiResponseFactory;
 import com.cobaltplatform.api.model.db.Page;
@@ -66,6 +67,10 @@ public class PageApiResponse {
 	@Nullable
 	private final String description;
 	@Nullable
+	private final UUID imageId;
+	@Nullable
+	private final PageImageApiResponse image;
+	@Nullable
 	private final UUID imageFileUploadId;
 	@Nullable
 	private final String imageAltText;
@@ -107,14 +112,16 @@ public class PageApiResponse {
 												 @Nonnull Strings strings,
 												 @Assisted @Nonnull Page page,
 												 @Assisted @Nonnull Boolean includeDetails,
-												 @Nonnull PageService pageService,
-												 @Nonnull PageSectionApiResponseFactory pageSectionApiResponseFactory,
+																 @Nonnull PageService pageService,
+																 @Nonnull MediaImageApiResponseFactory mediaImageApiResponseFactory,
+																 @Nonnull PageSectionApiResponseFactory pageSectionApiResponseFactory,
 												 @Nonnull PageSiteLocationApiResponseFactory pageSiteLocationApiResponseFactory) {
 
 		requireNonNull(formatter);
 		requireNonNull(strings);
 		requireNonNull(page);
 		requireNonNull(pageService);
+		requireNonNull(mediaImageApiResponseFactory);
 		requireNonNull(pageSectionApiResponseFactory);
 		requireNonNull(pageSiteLocationApiResponseFactory);
 
@@ -126,6 +133,9 @@ public class PageApiResponse {
 		this.pageStatusId = page.getPageStatusId();
 		this.headline = page.getHeadline();
 		this.description = page.getDescription();
+		this.imageId = page.getImageId();
+		this.image = page.getImage() == null ? null : new PageImageApiResponse(formatter,
+				mediaImageApiResponseFactory, page.getImage(), page.getImageThumbnail());
 		this.imageFileUploadId = page.getImageFileUploadId();
 		this.imageAltText = page.getImageAltText();
 		this.imageUrl = page.getImageUrl();
@@ -188,6 +198,17 @@ public class PageApiResponse {
 	}
 
 	@Nullable
+	public UUID getImageId() {
+		return this.imageId;
+	}
+
+	@Nullable
+	public PageImageApiResponse getImage() {
+		return this.image;
+	}
+
+	@Nullable
+	@Deprecated // Prefer "image.fileUploadId".
 	public UUID getImageFileUploadId() {
 		return imageFileUploadId;
 	}
@@ -233,6 +254,7 @@ public class PageApiResponse {
 	}
 
 	@Nullable
+	@Deprecated // Prefer "image.url".
 	public String getImageUrl() {
 		return imageUrl;
 	}
@@ -262,4 +284,3 @@ public class PageApiResponse {
 		return Optional.ofNullable(this.mailingListEntryCountDescription);
 	}
 }
-

@@ -59,6 +59,9 @@ import com.cobaltplatform.api.model.db.Content;
 import com.cobaltplatform.api.model.db.ContentStatus.ContentStatusId;
 import com.cobaltplatform.api.model.db.GroupSession;
 import com.cobaltplatform.api.model.db.GroupSessionStatus.GroupSessionStatusId;
+import com.cobaltplatform.api.model.db.FileUploadStatus.FileUploadStatusId;
+import com.cobaltplatform.api.model.db.FileUploadType.FileUploadTypeId;
+import com.cobaltplatform.api.model.db.Image;
 import com.cobaltplatform.api.model.db.Institution.InstitutionId;
 import com.cobaltplatform.api.model.db.Page;
 import com.cobaltplatform.api.model.db.PageGroup;
@@ -85,6 +88,7 @@ import com.cobaltplatform.api.model.service.NavigationItem;
 import com.cobaltplatform.api.model.service.PageSiteLocation;
 import com.cobaltplatform.api.model.service.PageUrlValidationResult;
 import com.cobaltplatform.api.model.service.PageWithTotalCount;
+import com.cobaltplatform.api.util.DatabaseUtility;
 import com.cobaltplatform.api.util.Formatter;
 import com.cobaltplatform.api.util.ValidationException;
 import com.cobaltplatform.api.util.ValidationException.FieldError;
@@ -117,6 +121,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -153,6 +158,8 @@ public class PageService {
 	@Nonnull
 	private final Provider<ContentService> contentServiceProvider;
 	@Nonnull
+	private final MediaService mediaService;
+	@Nonnull
 	private final Logger logger;
 	@Nonnull
 	private final Formatter formatter;
@@ -164,6 +171,7 @@ public class PageService {
 										 @Nonnull Provider<AccountService> accountServiceProvider,
 										 @Nonnull Provider<GroupSessionService> groupSessionServiceProvider,
 										 @Nonnull Provider<ContentService> contentServiceProvider,
+										 @Nonnull MediaService mediaService,
 										 @Nonnull Strings strings,
 										 @Nonnull Formatter formatter) {
 		requireNonNull(databaseProvider);
@@ -172,6 +180,7 @@ public class PageService {
 		requireNonNull(accountServiceProvider);
 		requireNonNull(groupSessionServiceProvider);
 		requireNonNull(contentServiceProvider);
+		requireNonNull(mediaService);
 		requireNonNull(strings);
 		requireNonNull(formatter);
 
@@ -181,6 +190,7 @@ public class PageService {
 		this.accountServiceProvider = accountServiceProvider;
 		this.groupSessionServiceProvider = groupSessionServiceProvider;
 		this.contentServiceProvider = contentServiceProvider;
+		this.mediaService = mediaService;
 		this.strings = strings;
 		this.formatter = formatter;
 		this.logger = LoggerFactory.getLogger(getClass());
@@ -190,14 +200,16 @@ public class PageService {
 	public Optional<Page> findPageByPageRowId(@Nonnull UUID pageRowId) {
 		requireNonNull(pageRowId);
 
-		return getDatabase().queryForObject("""
+		Page page = getDatabase().queryForObject("""
 				SELECT *
 				FROM v_page vp
 				WHERE vp.page_id =
 				(SELECT ps.page_id
 				FROM page_section ps, page_row pr
 				WHERE ps.page_section_id = pr.page_section_id
-				AND pr.page_row_id = ?)""", Page.class, pageRowId);
+				AND pr.page_row_id = ?)""", Page.class, pageRowId).orElse(null);
+
+		return Optional.ofNullable(page == null ? null : applyImageToPage(page));
 	}
 
 	@Nonnull
@@ -240,7 +252,127 @@ public class PageService {
 		if (page == null)
 			return Optional.empty();
 
+		applyImageToPage(page);
 		return Optional.of(page);
+	}
+
+	@Nonnull
+	public <T extends Page> T applyImageToPage(@Nonnull T page) {
+		requireNonNull(page);
+		applyImagesToPages(List.of(page));
+		return page;
+	}
+
+	public void applyImagesToPages(@Nonnull List<? extends Page> pages) {
+		requireNonNull(pages);
+		Set<UUID> imageIds = pages.stream().map(Page::getImageId).filter(Objects::nonNull).collect(Collectors.toSet());
+		Map<UUID, Image> imagesById = findPageBuilderImagesById(imageIds);
+		Map<UUID, Image> thumbnailsBySourceImageId = findPageBuilderImageThumbnailsBySourceImageId(imageIds);
+
+		for (Page page : pages) {
+			UUID imageId = page.getImageId();
+			page.setImage(imageId == null ? null : imagesById.get(imageId));
+			page.setImageThumbnail(imageId == null ? null : thumbnailsBySourceImageId.get(imageId));
+		}
+	}
+
+	public void applyImagesToPageRowColumns(@Nonnull List<? extends PageRowColumn> pageRowColumns) {
+		requireNonNull(pageRowColumns);
+		Set<UUID> imageIds = pageRowColumns.stream().map(PageRowColumn::getImageId).filter(Objects::nonNull).collect(Collectors.toSet());
+		Map<UUID, Image> imagesById = findPageBuilderImagesById(imageIds);
+		Map<UUID, Image> thumbnailsBySourceImageId = findPageBuilderImageThumbnailsBySourceImageId(imageIds);
+
+		for (PageRowColumn pageRowColumn : pageRowColumns) {
+			UUID imageId = pageRowColumn.getImageId();
+			pageRowColumn.setImage(imageId == null ? null : imagesById.get(imageId));
+			pageRowColumn.setImageThumbnail(imageId == null ? null : thumbnailsBySourceImageId.get(imageId));
+		}
+	}
+
+	@Nonnull
+	protected PageRowCallToAction applyImageToPageRowCallToAction(@Nonnull PageRowCallToAction pageRowCallToAction) {
+		requireNonNull(pageRowCallToAction);
+		Set<UUID> imageIds = pageRowCallToAction.getImageId() == null ? Set.of() : Set.of(pageRowCallToAction.getImageId());
+		UUID imageId = pageRowCallToAction.getImageId();
+		pageRowCallToAction.setImage(imageId == null ? null : findPageBuilderImagesById(imageIds).get(imageId));
+		pageRowCallToAction.setImageThumbnail(imageId == null ? null : findPageBuilderImageThumbnailsBySourceImageId(imageIds).get(imageId));
+		return pageRowCallToAction;
+	}
+
+	public void applyImagesToPageSiteLocations(@Nonnull List<? extends PageSiteLocation> pageSiteLocations) {
+		requireNonNull(pageSiteLocations);
+		Set<UUID> imageIds = pageSiteLocations.stream().map(PageSiteLocation::getImageId).filter(Objects::nonNull).collect(Collectors.toSet());
+		Map<UUID, Image> imagesById = findPageBuilderImagesById(imageIds);
+		Map<UUID, Image> thumbnailsBySourceImageId = findPageBuilderImageThumbnailsBySourceImageId(imageIds);
+
+		for (PageSiteLocation pageSiteLocation : pageSiteLocations) {
+			UUID imageId = pageSiteLocation.getImageId();
+			pageSiteLocation.setImage(imageId == null ? null : imagesById.get(imageId));
+			pageSiteLocation.setImageThumbnail(imageId == null ? null : thumbnailsBySourceImageId.get(imageId));
+		}
+	}
+
+	@Nonnull
+	protected Map<UUID, Image> findPageBuilderImagesById(@Nonnull Set<UUID> imageIds) {
+		requireNonNull(imageIds);
+		if (imageIds.isEmpty())
+			return Map.of();
+
+		return getDatabase().queryForList(format("""
+				SELECT *
+				FROM v_image
+				WHERE image_id IN %s
+				""", DatabaseUtility.sqlInListPlaceholders(imageIds)), Image.class, DatabaseUtility.sqlVaragsParameters(imageIds)).stream()
+				.collect(Collectors.toMap(Image::getImageId, Function.identity()));
+	}
+
+	@Nonnull
+	protected Map<UUID, Image> findPageBuilderImageThumbnailsBySourceImageId(@Nonnull Set<UUID> imageIds) {
+		requireNonNull(imageIds);
+		if (imageIds.isEmpty())
+			return Map.of();
+
+		List<Object> parameters = new ArrayList<>(imageIds);
+		parameters.add(FileUploadStatusId.UPLOADED);
+		parameters.add(FileUploadTypeId.IMAGE_4X3);
+		parameters.add(FileUploadTypeId.IMAGE_THUMBNAIL_4X3);
+		parameters.add(FileUploadTypeId.IMAGE_16X9);
+		parameters.add(FileUploadTypeId.IMAGE_THUMBNAIL_16X9);
+		parameters.add(FileUploadTypeId.IMAGE_1X1);
+		parameters.add(FileUploadTypeId.IMAGE_THUMBNAIL_1X1);
+		List<Image> thumbnails = getDatabase().queryForList(format("""
+				SELECT thumbnail.*
+				FROM v_image thumbnail
+				JOIN v_image crop ON crop.image_id=thumbnail.source_image_id
+				WHERE crop.image_id IN %s
+				AND thumbnail.active=TRUE
+				AND thumbnail.file_upload_status_id=?
+				AND (
+				  (crop.file_upload_type_id=? AND thumbnail.file_upload_type_id=?)
+				  OR (crop.file_upload_type_id=? AND thumbnail.file_upload_type_id=?)
+				  OR (crop.file_upload_type_id=? AND thumbnail.file_upload_type_id=?)
+				)
+				ORDER BY thumbnail.image_id
+				""", DatabaseUtility.sqlInListPlaceholders(imageIds)), Image.class, DatabaseUtility.sqlVaragsParameters(parameters));
+
+		Map<UUID, Image> thumbnailsBySourceImageId = new HashMap<>();
+		for (Image thumbnail : thumbnails)
+			thumbnailsBySourceImageId.putIfAbsent(thumbnail.getSourceImageId(), thumbnail);
+		return thumbnailsBySourceImageId;
+	}
+
+	@Nullable
+	protected Image validatePageBuilderImage(@Nullable InstitutionId institutionId,
+																			 @Nullable UUID imageId,
+																			 @Nonnull ValidationException validationException) {
+		requireNonNull(validationException);
+		if (imageId == null)
+			return null;
+
+		Image image = getMediaService().findActiveUploadedMediaCropImageById(institutionId, imageId).orElse(null);
+		if (image == null)
+			validationException.add(new FieldError("imageId", getStrings().get("Image ID is invalid.")));
+		return image;
 	}
 
 	@Nonnull
@@ -582,11 +714,13 @@ public class PageService {
 		String urlName = request.getUrlName() == null ? null : WebUtility.normalizeUrlName(request.getUrlName().toLowerCase()).orElse(null);
 		String headline = trimToNull(request.getHeadline());
 		String description = trimToNull(request.getDescription());
+		UUID imageId = request.getImageId();
 		UUID imageFileUploadId = request.getImageFileUploadId();
 		String imageAltText = trimToNull(request.getImageAltText());
 		UUID pageId = UUID.randomUUID();
 		UUID createdByAccountId = request.getCreatedByAccountId();
 		InstitutionId institutionId = request.getInstitutionId();
+		Image image = null;
 		Instant publishedDate = null;
 		ValidationException validationException = new ValidationException();
 
@@ -605,19 +739,25 @@ public class PageService {
 		else if (urlNameExistsForInstitutionId(urlName, institutionId, pageId))
 			validationException.add(new FieldError("urlName", getStrings().get("Friendly URL name is already in use.")));
 
+		if (imageId != null)
+			image = validatePageBuilderImage(institutionId, imageId, validationException);
+
 		if (validationException.hasErrors())
 			throw validationException;
+
+		if (image != null)
+			imageFileUploadId = image.getFileUploadId();
 
 		UUID pageGroupId = UUID.randomUUID();
 		createPageGroupIfMissing(pageGroupId);
 
 		getDatabase().execute("""
 						INSERT INTO page
-						  (page_id, name, url_name, page_status_id, headline, description, image_file_upload_id, image_alt_text, 
+						  (page_id, name, url_name, page_status_id, headline, description, image_id, image_file_upload_id, image_alt_text,
 						  published_date, institution_id, created_by_account_id, page_group_id)
 						VALUES
-						  (?,?,?,?,?,?,?,?,?,?,?,?)   
-						""", pageId, name, urlName, PageStatusId.DRAFT, headline, description, imageFileUploadId, imageAltText,
+						  (?,?,?,?,?,?,?,?,?,?,?,?,?)
+						""", pageId, name, urlName, PageStatusId.DRAFT, headline, description, imageId, imageFileUploadId, imageAltText,
 				publishedDate, institutionId, createdByAccountId, pageGroupId);
 
 		createDefaultPageSection(pageId, createdByAccountId);
@@ -648,15 +788,21 @@ public class PageService {
 
 		String headline = trimToNull(request.getHeadline());
 		String description = trimToNull(request.getDescription());
+		UUID imageId = request.getImageId();
 		String imageFileUploadIdString = request.getImageFileUploadId();
 		String imageAltText = trimToNull(request.getImageAltText());
 		UUID pageId = request.getPageId();
 		InstitutionId institutionId = request.getInstitutionId();
 		UUID imageFileUploadId = null;
+		Image image = null;
 		ValidationException validationException = new ValidationException();
+		Page existingPage = findPageById(pageId, institutionId, true).orElse(null);
 
-		if (!hasAccessToPage(pageId, institutionId))
+		if (existingPage == null)
 			validationException.add(new FieldError("page", getStrings().get("You do not have permission to update this page.")));
+
+		if (imageId != null)
+			image = validatePageBuilderImage(institutionId, imageId, validationException);
 
 		if (validationException.hasErrors())
 			throw validationException;
@@ -664,11 +810,19 @@ public class PageService {
 		if (isValidUUID(imageFileUploadIdString))
 			imageFileUploadId = UUID.fromString(imageFileUploadIdString);
 
+		if (image != null) {
+			imageFileUploadId = image.getFileUploadId();
+		} else if (existingPage != null && Objects.equals(imageFileUploadId, existingPage.getImageFileUploadId())) {
+			imageId = existingPage.getImageId();
+		} else {
+			imageId = null;
+		}
+
 		getDatabase().execute("""
 				UPDATE page SET
-				  headline=?, description=?, image_file_upload_id=?, image_alt_text=?
+				  headline=?, description=?, image_id=?, image_file_upload_id=?, image_alt_text=?
 				WHERE page_id=?   
-				""", headline, description, imageFileUploadId, imageAltText, pageId);
+				""", headline, description, imageId, imageFileUploadId, imageAltText, pageId);
 
 		return pageId;
 	}
@@ -1378,35 +1532,43 @@ public class PageService {
 		requireNonNull(pageRowId);
 		requireNonNull(displayOrder);
 
-		return getDatabase().queryForObject("""
+		PageRowColumn pageRowColumn = getDatabase().queryForObject("""
 				SELECT *
 				FROM v_page_row_column
 				WHERE page_row_id = ?
 				AND column_display_order = ?
-				""", PageRowColumn.class, pageRowId, displayOrder);
+				""", PageRowColumn.class, pageRowId, displayOrder).orElse(null);
+		if (pageRowColumn != null)
+			applyImagesToPageRowColumns(List.of(pageRowColumn));
+		return Optional.ofNullable(pageRowColumn);
 	}
 
 	@Nonnull
 	public Optional<PageRowColumn> findPageRowColumnById(@Nullable UUID pageRowColumnId) {
 		requireNonNull(pageRowColumnId);
 
-		return getDatabase().queryForObject("""
+		PageRowColumn pageRowColumn = getDatabase().queryForObject("""
 				SELECT *
 				FROM v_page_row_column
 				WHERE page_row_column_id = ?
-				""", PageRowColumn.class, pageRowColumnId);
+				""", PageRowColumn.class, pageRowColumnId).orElse(null);
+		if (pageRowColumn != null)
+			applyImagesToPageRowColumns(List.of(pageRowColumn));
+		return Optional.ofNullable(pageRowColumn);
 	}
 
 	@Nonnull
 	public List<PageRowColumn> findPageRowColumnsByPageRowId(@Nullable UUID pageRowId) {
 		requireNonNull(pageRowId);
 
-		return getDatabase().queryForList("""
+		List<PageRowColumn> pageRowColumns = getDatabase().queryForList("""
 				SELECT *
 				FROM v_page_row_column
 				WHERE page_row_id = ?
 				ORDER BY column_display_order ASC
 				""", PageRowColumn.class, pageRowId);
+		applyImagesToPageRowColumns(pageRowColumns);
+		return pageRowColumns;
 	}
 
 	@Nonnull
@@ -1476,6 +1638,7 @@ public class PageService {
 		updatePageRowColumnRequest.setColumnDisplayOrder(0);
 		updatePageRowColumnRequest.setDescription(request.getColumnOne().getDescription());
 		updatePageRowColumnRequest.setHeadline(request.getColumnOne().getHeadline());
+		updatePageRowColumnRequest.setImageId(request.getColumnOne().getImageId());
 		updatePageRowColumnRequest.setImageFileUploadId(request.getColumnOne().getImageFileUploadId());
 		updatePageRowColumnRequest.setImageAltText(request.getColumnOne().getImageAltText());
 		updatePageRowColumnRequest.setPageRowId(pageRowId);
@@ -1511,6 +1674,7 @@ public class PageService {
 		updatePageRowColumnRequest1.setColumnDisplayOrder(0);
 		updatePageRowColumnRequest1.setDescription(request.getColumnOne().getDescription());
 		updatePageRowColumnRequest1.setHeadline(request.getColumnOne().getHeadline());
+		updatePageRowColumnRequest1.setImageId(request.getColumnOne().getImageId());
 		updatePageRowColumnRequest1.setImageFileUploadId(request.getColumnOne().getImageFileUploadId());
 		updatePageRowColumnRequest1.setImageAltText(request.getColumnOne().getImageAltText());
 		updatePageRowColumnRequest1.setPageRowId(pageRowId);
@@ -1521,6 +1685,7 @@ public class PageService {
 		updatePageRowColumnRequest2.setColumnDisplayOrder(1);
 		updatePageRowColumnRequest2.setDescription(request.getColumnTwo().getDescription());
 		updatePageRowColumnRequest2.setHeadline(request.getColumnTwo().getHeadline());
+		updatePageRowColumnRequest2.setImageId(request.getColumnTwo().getImageId());
 		updatePageRowColumnRequest2.setImageFileUploadId(request.getColumnTwo().getImageFileUploadId());
 		updatePageRowColumnRequest2.setImageAltText(request.getColumnTwo().getImageAltText());
 		updatePageRowColumnRequest2.setPageRowId(pageRowId);
@@ -1556,6 +1721,7 @@ public class PageService {
 		updatePageRowColumnRequest1.setColumnDisplayOrder(0);
 		updatePageRowColumnRequest1.setDescription(request.getColumnOne().getDescription());
 		updatePageRowColumnRequest1.setHeadline(request.getColumnOne().getHeadline());
+		updatePageRowColumnRequest1.setImageId(request.getColumnOne().getImageId());
 		updatePageRowColumnRequest1.setImageFileUploadId(request.getColumnOne().getImageFileUploadId());
 		updatePageRowColumnRequest1.setImageAltText(request.getColumnOne().getImageAltText());
 		updatePageRowColumnRequest1.setPageRowId(pageRowId);
@@ -1566,6 +1732,7 @@ public class PageService {
 		updatePageRowColumnRequest2.setColumnDisplayOrder(1);
 		updatePageRowColumnRequest2.setDescription(request.getColumnTwo().getDescription());
 		updatePageRowColumnRequest2.setHeadline(request.getColumnTwo().getHeadline());
+		updatePageRowColumnRequest2.setImageId(request.getColumnTwo().getImageId());
 		updatePageRowColumnRequest2.setImageFileUploadId(request.getColumnTwo().getImageFileUploadId());
 		updatePageRowColumnRequest2.setImageAltText(request.getColumnTwo().getImageAltText());
 		updatePageRowColumnRequest2.setPageRowId(pageRowId);
@@ -1576,6 +1743,7 @@ public class PageService {
 		updatePageRowColumnRequest3.setColumnDisplayOrder(2);
 		updatePageRowColumnRequest3.setDescription(request.getColumnThree().getDescription());
 		updatePageRowColumnRequest3.setHeadline(request.getColumnThree().getHeadline());
+		updatePageRowColumnRequest3.setImageId(request.getColumnThree().getImageId());
 		updatePageRowColumnRequest3.setImageFileUploadId(request.getColumnThree().getImageFileUploadId());
 		updatePageRowColumnRequest3.setImageAltText(request.getColumnThree().getImageAltText());
 		updatePageRowColumnRequest3.setPageRowId(pageRowId);
@@ -1673,12 +1841,15 @@ public class PageService {
 		UUID pageRowColumnId = UUID.randomUUID();
 		String headline = trimToNull(request.getHeadline());
 		String description = trimToNull(request.getDescription());
+		UUID imageId = request.getImageId();
 		String imageFileUploadIdString = request.getImageFileUploadId();
 		String imageAltText = trimToNull(request.getImageAltText());
 		Boolean usePlaceholderImage = request.getUsePlaceholderImage() == null ? false : request.getUsePlaceholderImage();
 		Integer columnDisplayOrder = request.getColumnDisplayOrder();
 		PageRowColumnContentOrderId contentOrderId = request.getContentOrderId() == null ? PageRowColumnContentOrderId.IMAGE_THEN_TEXT : request.getContentOrderId();
 		UUID imageFileUploadId = null;
+		Image image = null;
+		Page page = findPageByPageRowId(pageRowId).orElse(null);
 
 		if (isValidUUID(imageFileUploadIdString))
 			imageFileUploadId = UUID.fromString(imageFileUploadIdString);
@@ -1689,16 +1860,23 @@ public class PageService {
 			validationException.add(new FieldError("pageRowId", getStrings().get("Page row is required.")));
 		if (columnDisplayOrder == null)
 			validationException.add(new FieldError("columnDisplayOrder", getStrings().get("Column display order is required.")));
+		if (page == null)
+			validationException.add(new FieldError("pageRowId", getStrings().get("Page row is invalid.")));
+		if (imageId != null)
+			image = validatePageBuilderImage(page == null ? null : page.getInstitutionId(), imageId, validationException);
 
 		if (validationException.hasErrors())
 			throw validationException;
 
+		if (image != null)
+			imageFileUploadId = image.getFileUploadId();
+
 		getDatabase().execute("""
 				INSERT INTO page_row_column
-				  (page_row_column_id, page_row_id, headline, description, image_file_upload_id, image_alt_text, use_placeholder_image, column_display_order, content_order_id)
+				  (page_row_column_id, page_row_id, headline, description, image_id, image_file_upload_id, image_alt_text, use_placeholder_image, column_display_order, content_order_id)
 				VALUES
-				  (?,?,?,?,?,?,?,?,?)
-				""", pageRowColumnId, pageRowId, headline, description, imageFileUploadId, imageAltText, usePlaceholderImage, columnDisplayOrder, contentOrderId.name());
+				  (?,?,?,?,?,?,?,?,?,?)
+				""", pageRowColumnId, pageRowId, headline, description, imageId, imageFileUploadId, imageAltText, usePlaceholderImage, columnDisplayOrder, contentOrderId.name());
 
 		return pageRowColumnId;
 	}
@@ -1744,12 +1922,17 @@ public class PageService {
 		UUID pageRowId = request.getPageRowId();
 		String headline = trimToNull(request.getHeadline());
 		String description = trimToNull(request.getDescription());
+		UUID imageId = request.getImageId();
 		String imageAltText = trimToNull(request.getImageAltText());
 		Boolean usePlaceholderImage = request.getUsePlaceholderImage();
 		Integer columnDisplayOrder = request.getColumnDisplayOrder();
 		PageRowColumnContentOrderId contentOrderId = request.getContentOrderId();
 		String imageFileUploadIdString = request.getImageFileUploadId();
 		UUID imageFileUploadId = null;
+		Image image = null;
+		Page page = pageRowId == null ? null : findPageByPageRowId(pageRowId).orElse(null);
+		PageRowColumn existingPageRowColumn = pageRowId == null || columnDisplayOrder == null ? null
+				: findPageRowColumnByPageRowIdAndDisplayOrder(pageRowId, columnDisplayOrder).orElse(null);
 
 		if (isValidUUID(imageFileUploadIdString))
 			imageFileUploadId = UUID.fromString(imageFileUploadIdString);
@@ -1760,16 +1943,30 @@ public class PageService {
 			validationException.add(new FieldError("pageRowId", getStrings().get("Page row is required.")));
 		if (columnDisplayOrder == null)
 			validationException.add(new FieldError("columnDisplayOrder", getStrings().get("Display order is required.")));
+		if (page == null)
+			validationException.add(new FieldError("pageRowId", getStrings().get("Page row is invalid.")));
+		if (existingPageRowColumn == null)
+			validationException.add(new FieldError("columnDisplayOrder", getStrings().get("Page row column is invalid.")));
+		if (imageId != null)
+			image = validatePageBuilderImage(page == null ? null : page.getInstitutionId(), imageId, validationException);
 
 		if (validationException.hasErrors())
 			throw validationException;
 
+		if (image != null) {
+			imageFileUploadId = image.getFileUploadId();
+		} else if (Objects.equals(imageFileUploadId, existingPageRowColumn.getImageFileUploadId())) {
+			imageId = existingPageRowColumn.getImageId();
+		} else {
+			imageId = null;
+		}
+
 		getDatabase().execute("""
 				UPDATE page_row_column SET
-				headline=?, description=?, image_file_upload_id=?, image_alt_text=?, use_placeholder_image=COALESCE(?, use_placeholder_image), content_order_id=COALESCE(?, content_order_id)
+				headline=?, description=?, image_id=?, image_file_upload_id=?, image_alt_text=?, use_placeholder_image=COALESCE(?, use_placeholder_image), content_order_id=COALESCE(?, content_order_id)
 				WHERE page_row_id=? 
 				AND column_display_order=?
-				""", headline, description, imageFileUploadId, imageAltText, usePlaceholderImage, contentOrderId == null ? null : contentOrderId.name(), pageRowId, columnDisplayOrder);
+				""", headline, description, imageId, imageFileUploadId, imageAltText, usePlaceholderImage, contentOrderId == null ? null : contentOrderId.name(), pageRowId, columnDisplayOrder);
 
 	}
 
@@ -1903,18 +2100,38 @@ public class PageService {
 		UUID pageRowId = request.getPageRowId();
 		String headline = trimToNull(request.getHeadline());
 		String description = trimToNull(request.getDescription());
+		UUID imageId = request.getImageId();
 		String imageAltText = trimToNull(request.getImageAltText());
 		Boolean usePlaceholderImage = request.getUsePlaceholderImage();
 		PageRowColumnContentOrderId contentOrderId = request.getContentOrderId();
 		String imageFileUploadIdString = request.getImageFileUploadId();
 		UUID imageFileUploadId = isValidUUID(imageFileUploadIdString) ? UUID.fromString(imageFileUploadIdString) : null;
+		Page page = findPageByPageRowId(pageRowId).orElse(null);
+		PageRowColumn existingPageRowColumn = findPageRowColumnById(pageRowColumnId).orElse(null);
+		ValidationException validationException = new ValidationException();
+		Image image = validatePageBuilderImage(page == null ? null : page.getInstitutionId(), imageId, validationException);
+
+		if (page == null)
+			validationException.add(new FieldError("pageRowId", getStrings().get("Page row is invalid.")));
+		if (existingPageRowColumn == null || !pageRowId.equals(existingPageRowColumn.getPageRowId()))
+			validationException.add(new FieldError("pageRowColumnId", getStrings().get("Page row column is invalid.")));
+		if (validationException.hasErrors())
+			throw validationException;
+
+		if (image != null) {
+			imageFileUploadId = image.getFileUploadId();
+		} else if (Objects.equals(imageFileUploadId, existingPageRowColumn.getImageFileUploadId())) {
+			imageId = existingPageRowColumn.getImageId();
+		} else {
+			imageId = null;
+		}
 
 		getDatabase().execute("""
 				UPDATE page_row_column SET
-				headline=?, description=?, image_file_upload_id=?, image_alt_text=?, use_placeholder_image=COALESCE(?, use_placeholder_image), content_order_id=COALESCE(?, content_order_id)
+				headline=?, description=?, image_id=?, image_file_upload_id=?, image_alt_text=?, use_placeholder_image=COALESCE(?, use_placeholder_image), content_order_id=COALESCE(?, content_order_id)
 				WHERE page_row_column_id=?
 				AND page_row_id=?
-				""", headline, description, imageFileUploadId, imageAltText, usePlaceholderImage,
+				""", headline, description, imageId, imageFileUploadId, imageAltText, usePlaceholderImage,
 				contentOrderId == null ? null : contentOrderId.name(), pageRowColumnId, pageRowId);
 	}
 
@@ -2231,11 +2448,12 @@ public class PageService {
 		if (pageRowId == null)
 			return Optional.empty();
 
-		return getDatabase().queryForObject("""
+		PageRowCallToAction pageRowCallToAction = getDatabase().queryForObject("""
 				SELECT *
 				FROM v_page_row_call_to_action
 				WHERE page_row_id = ?
-				""", PageRowCallToAction.class, pageRowId);
+				""", PageRowCallToAction.class, pageRowId).orElse(null);
+		return Optional.ofNullable(pageRowCallToAction == null ? null : applyImageToPageRowCallToAction(pageRowCallToAction));
 	}
 
 	@Nonnull
@@ -2484,7 +2702,9 @@ public class PageService {
 		String description = trimToEmpty(request.getDescription());
 		String buttonText = trimToEmpty(request.getButtonText());
 		String buttonUrl = trimToEmpty(request.getButtonUrl());
+		UUID imageId = request.getImageId();
 		UUID imageFileUploadId = isValidUUID(request.getImageFileUploadId()) ? UUID.fromString(request.getImageFileUploadId()) : null;
+		Image image = null;
 
 		ValidationException validationException = new ValidationException();
 
@@ -2498,9 +2718,14 @@ public class PageService {
 			validationException.add(new FieldError("rowTypeId", getStrings().get("A valid CTA row type is required.")));
 		if (trimToNull(buttonUrl) != null && !isValidPageCallToActionUrl(buttonUrl))
 			validationException.add(new FieldError("buttonUrl", getStrings().get("Button URL must be an HTTP(S) URL or a same-origin relative URL.")));
+		if (imageId != null)
+			image = validatePageBuilderImage(institutionId, imageId, validationException);
 
 		if (validationException.hasErrors())
 			throw validationException;
+
+		if (image != null)
+			imageFileUploadId = image.getFileUploadId();
 
 		Integer displayOrder = getDatabase().queryForObject("""
 				SELECT COALESCE(MAX(display_order) + 1, 0)
@@ -2524,9 +2749,10 @@ public class PageService {
 					description,
 					button_text,
 					button_url,
+					image_id,
 					image_file_upload_id
-				) VALUES (?,?,?,?,?,?,?)
-				""", pageRowCallToActionId, pageRowId, headline, description, buttonText, buttonUrl, imageFileUploadId);
+				) VALUES (?,?,?,?,?,?,?,?)
+				""", pageRowCallToActionId, pageRowId, headline, description, buttonText, buttonUrl, imageId, imageFileUploadId);
 
 		return pageRowId;
 	}
@@ -2572,11 +2798,14 @@ public class PageService {
 		String description = trimToEmpty(request.getDescription());
 		String buttonText = trimToEmpty(request.getButtonText());
 		String buttonUrl = trimToEmpty(request.getButtonUrl());
+		UUID imageId = request.getImageId();
 		UUID imageFileUploadId = isValidUUID(request.getImageFileUploadId()) ? UUID.fromString(request.getImageFileUploadId()) : null;
+		Image image = null;
 
 		ValidationException validationException = new ValidationException();
 
 		Optional<PageRow> pageRow = findPageRowById(pageRowId, institutionId);
+		PageRowCallToAction existingPageRowCallToAction = findPageRowCallToActionByRowId(pageRowId).orElse(null);
 
 		if (!pageRow.isPresent())
 			validationException.add(new FieldError("pageRow", getStrings().get("Page row not found.")));
@@ -2585,15 +2814,27 @@ public class PageService {
 					.get(format("Row provided is of type %s, %s is required.", pageRow.get().getRowTypeId(), expectedRowTypeId))));
 		if (trimToNull(buttonUrl) != null && !isValidPageCallToActionUrl(buttonUrl))
 			validationException.add(new FieldError("buttonUrl", getStrings().get("Button URL must be an HTTP(S) URL or a same-origin relative URL.")));
+		if (existingPageRowCallToAction == null)
+			validationException.add(new FieldError("pageRow", getStrings().get("Call-to-Action row data not found.")));
+		if (imageId != null)
+			image = validatePageBuilderImage(institutionId, imageId, validationException);
 
 		if (validationException.hasErrors())
 			throw validationException;
 
+		if (image != null) {
+			imageFileUploadId = image.getFileUploadId();
+		} else if (Objects.equals(imageFileUploadId, existingPageRowCallToAction.getImageFileUploadId())) {
+			imageId = existingPageRowCallToAction.getImageId();
+		} else {
+			imageId = null;
+		}
+
 		getDatabase().execute("""
 				UPDATE page_row_call_to_action
-				SET headline=?, description=?, button_text=?, button_url=?, image_file_upload_id=?
+				SET headline=?, description=?, button_text=?, button_url=?, image_id=?, image_file_upload_id=?
 				WHERE page_row_id=?
-				""", headline, description, buttonText, buttonUrl, imageFileUploadId, pageRowId);
+				""", headline, description, buttonText, buttonUrl, imageId, imageFileUploadId, pageRowId);
 	}
 
 	@Nonnull
@@ -2742,8 +2983,8 @@ public class PageService {
 		if (institutionId == null)
 			return List.of();
 
-		return getDatabase().queryForList("""
-				SELECT psl.*, p.headline, p.description, p.url_name, p.image_file_upload_id, p.image_alt_text, p.image_url
+		List<PageSiteLocation> pageSiteLocations = getDatabase().queryForList("""
+				SELECT psl.*, p.headline, p.description, p.url_name, p.image_id, p.image_file_upload_id, p.image_alt_text, p.image_url
 				FROM v_page p, page_site_location psl
 				WHERE p.page_id = psl.page_id
 				AND p.institution_id=?
@@ -2752,6 +2993,8 @@ public class PageService {
 				AND p.page_status_id = ?
 				ORDER BY psl.site_location_id, psl.display_order
 				""", PageSiteLocation.class, institutionId, PageStatusId.LIVE);
+		applyImagesToPageSiteLocations(pageSiteLocations);
+		return pageSiteLocations;
 	}
 
 	@Nonnull
@@ -2760,8 +3003,8 @@ public class PageService {
 		if (siteLocationId == null || institutionId == null)
 			return List.of();
 
-		return getDatabase().queryForList("""
-				SELECT psl.*, p.headline, p.description, p.url_name, p.image_file_upload_id, p.image_alt_text, p.image_url
+		List<PageSiteLocation> pageSiteLocations = getDatabase().queryForList("""
+				SELECT psl.*, p.headline, p.description, p.url_name, p.image_id, p.image_file_upload_id, p.image_alt_text, p.image_url
 				FROM v_page p, page_site_location psl
 				WHERE p.page_id = psl.page_id
 				AND p.institution_id=?
@@ -2771,6 +3014,8 @@ public class PageService {
 				AND p.page_status_id = ?
 				ORDER BY psl.site_location_id, psl.display_order
 				""", PageSiteLocation.class, institutionId, siteLocationId, PageStatusId.LIVE);
+		applyImagesToPageSiteLocations(pageSiteLocations);
+		return pageSiteLocations;
 	}
 
 	@Nonnull
@@ -2779,8 +3024,8 @@ public class PageService {
 		if (pageId == null || institutionId == null)
 			return List.of();
 
-		return getDatabase().queryForList("""
-				SELECT psl.*, p.headline, p.description, p.url_name, p.image_file_upload_id, p.image_alt_text, p.image_url
+		List<PageSiteLocation> pageSiteLocations = getDatabase().queryForList("""
+				SELECT psl.*, p.headline, p.description, p.url_name, p.image_id, p.image_file_upload_id, p.image_alt_text, p.image_url
 				FROM v_page p, page_site_location psl
 				WHERE p.page_id = psl.page_id
 				AND p.institution_id=?
@@ -2790,6 +3035,8 @@ public class PageService {
 				AND p.page_id=?
 				ORDER BY psl.site_location_id, psl.display_order
 				""", PageSiteLocation.class, institutionId, PageStatusId.LIVE, pageId);
+		applyImagesToPageSiteLocations(pageSiteLocations);
+		return pageSiteLocations;
 	}
 
 	@Nonnull
@@ -2801,16 +3048,15 @@ public class PageService {
 		return getDatabase().queryForList("""
 					SELECT
 					  ('/pages/' || p.url_name) as url,
-					  ifu.url AS image_url,
+					  p.image_url,
 					  p.name,
 					  p.page_id,
 					  p.url_name AS page_url_name
 					FROM
-					  page p, page_site_location psl, file_upload ifu
+					  v_page p, page_site_location psl
 					WHERE
 					  p.page_id=psl.page_id
-					  AND p.image_file_upload_id=ifu.file_upload_id
-					  AND p.deleted_flag = FALSE
+					  AND p.image_url IS NOT NULL
 						AND NOW() >= COALESCE(psl.publish_start_date, '-infinity'::TIMESTAMPTZ)
 						AND NOW() < COALESCE(psl.publish_end_date, 'infinity'::TIMESTAMPTZ)
 					  AND p.institution_id=?
@@ -2894,6 +3140,7 @@ public class PageService {
 		parameters.add(offset);
 
 		List<PageWithTotalCount> pages = getDatabase().queryForList(query.toString(), PageWithTotalCount.class, parameters.toArray());
+		applyImagesToPages(pages);
 
 		FindResult<? extends Page> findResult = new FindResult<>(pages, pages.size() == 0 ? 0 : pages.get(0).getTotalCount());
 
@@ -2966,9 +3213,9 @@ public class PageService {
 
 		getDatabase().execute("""
 				INSERT INTO page
-				(page_id,name,url_name,page_status_id,headline,description,image_file_upload_id,
+				(page_id,name,url_name,page_status_id,headline,description,image_id,image_file_upload_id,
 				 image_alt_text,published_date,deleted_flag,institution_id,created_by_account_id, parent_page_id, page_group_id)
-				SELECT ?,?,?,?,headline,description,image_file_upload_id,
+				SELECT ?,?,?,?,headline,description,image_id,image_file_upload_id,
 				       image_alt_text,published_date,deleted_flag,institution_id,?,?, ?
 				FROM page
 				WHERE page_id=?
@@ -3015,8 +3262,8 @@ public class PageService {
 
 				getDatabase().execute("""
 						INSERT INTO page_row_column
-						(page_row_id,headline,description,image_file_upload_id,image_alt_text,use_placeholder_image,column_display_order,content_order_id)
-						SELECT ?,headline,description,image_file_upload_id,image_alt_text,use_placeholder_image,column_display_order,content_order_id
+						(page_row_id,headline,description,image_id,image_file_upload_id,image_alt_text,use_placeholder_image,column_display_order,content_order_id)
+						SELECT ?,headline,description,image_id,image_file_upload_id,image_alt_text,use_placeholder_image,column_display_order,content_order_id
 						FROM page_row_column
 						WHERE page_row_id = ?""", newPageRowId, pageRow.getPageRowId());
 
@@ -3062,8 +3309,8 @@ public class PageService {
 
 				getDatabase().execute("""
 						INSERT INTO page_row_call_to_action
-						(page_row_id, headline, description, button_text, button_url, image_file_upload_id)
-						SELECT ?, headline, description, button_text, button_url, image_file_upload_id
+						(page_row_id, headline, description, button_text, button_url, image_id, image_file_upload_id)
+						SELECT ?, headline, description, button_text, button_url, image_id, image_file_upload_id
 						FROM page_row_call_to_action
 						WHERE page_row_id=?
 						""", newPageRowId, pageRow.getPageRowId());
@@ -3078,7 +3325,7 @@ public class PageService {
 		if (mailingListEntryId == null)
 			return List.of();
 
-		return getDatabase().queryForList("""
+		List<Page> pages = getDatabase().queryForList("""
 				WITH groups AS (
 				  SELECT DISTINCT p.page_group_id
 				  FROM mailing_list_entry mle
@@ -3100,6 +3347,8 @@ public class PageService {
 				  COALESCE(p.last_updated, p.created) DESC,            -- otherwise latest activity
 				  p.created DESC;
 				""", Page.class, mailingListEntryId, PageStatusId.LIVE);
+		applyImagesToPages(pages);
+		return pages;
 	}
 
 	@Nonnull
@@ -3150,5 +3399,10 @@ public class PageService {
 	@Nonnull
 	protected ContentService getContentService() {
 		return this.contentServiceProvider.get();
+	}
+
+	@Nonnull
+	protected MediaService getMediaService() {
+		return this.mediaService;
 	}
 }

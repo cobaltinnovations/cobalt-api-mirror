@@ -41,15 +41,21 @@ The implemented service migrates institution-scoped legacy image references for:
 
 - Content: `content.image_file_upload_id` where the legacy upload type is `CONTENT_IMAGE`.
 - Group sessions: `group_session.image_file_upload_id` where the legacy upload type is `GROUP_SESSION_IMAGE`.
+- Page heroes: `page.image_file_upload_id` where the legacy upload type is `PAGE_IMAGE`.
+- Page row columns: `page_row_column.image_file_upload_id` on active rows and non-deleted pages.
+- Page row calls to action: `page_row_call_to_action.image_file_upload_id` on active rows and non-deleted pages.
 
-Current required variants for both reference types:
+Content and group-session references remain fixed at:
 
 - Required crop: `IMAGE_16X9`
 - Required thumbnail: `IMAGE_THUMBNAIL_16X9`
 
+Page-builder references choose one crop from `IMAGE_16X9`, `IMAGE_4X3`, and `IMAGE_1X1`. Crops are ranked by the fraction of source pixels retained by a centered crop. The closest crop that passes its minimum-size quality gate is selected; ties are resolved in `16:9`, `4:3`, then `1:1` order. Only the selected crop and its matching thumbnail are generated.
+
 Successful rewires:
 
 - `content.image_id` or `group_session.image_id` is set to the generated `IMAGE_16X9` crop.
+- Page-builder `image_id` is set to the selected qualifying crop.
 - The legacy `image_file_upload_id` fallback column is updated to the generated crop file upload.
 
 The audit table remains keyed by the legacy `file_upload`, not by each consumer record. If multiple references point at the same legacy upload, the image family is generated once and each reference can be rewired independently.
@@ -61,6 +67,9 @@ Entry points:
 ```java
 mediaImageMigrationService.migrateLegacyContentImage(account, contentId);
 mediaImageMigrationService.migrateLegacyGroupSessionImage(account, groupSessionId);
+mediaImageMigrationService.migrateLegacyPageImage(account, pageId);
+mediaImageMigrationService.migrateLegacyPageRowColumnImage(account, pageRowColumnId);
+mediaImageMigrationService.migrateLegacyPageRowCallToActionImage(account, pageRowCallToActionId);
 ```
 
 Processing flow:
@@ -84,7 +93,7 @@ Retry behavior:
 
 - Existing raw/crop/thumbnail image IDs are reused.
 - Missing variants can be generated later.
-- A previously migrated content item or group session can be passed to the runner again without duplicating image families.
+- A previously migrated reference can be passed to the runner again without duplicating image families. Page-builder retries resolve the legacy upload through any of the three audit crop columns.
 
 ## Quality Gates
 
@@ -121,12 +130,18 @@ The report includes:
 - `institutionId`
 - `imageRepositoryEnabled`
 - `totalCount`: unique legacy image uploads in scope, including audited rows.
-- `currentLegacyReferenceCount`: current legacy references across content and group sessions.
+- `currentLegacyReferenceCount`: current legacy references across content, group sessions, and page-builder placements.
 - `currentLegacyContentReferenceCount`
 - `currentLegacyGroupSessionReferenceCount`
+- `currentLegacyPageReferenceCount`
+- `currentLegacyPageRowColumnReferenceCount`
+- `currentLegacyPageRowCallToActionReferenceCount`
 - `pendingCount`: current legacy references that still need migration or rewire.
 - `pendingContentReferenceCount`
 - `pendingGroupSessionReferenceCount`
+- `pendingPageReferenceCount`
+- `pendingPageRowColumnReferenceCount`
+- `pendingPageRowCallToActionReferenceCount`
 - `attemptedCount`: rows with a migration audit record.
 - `rawImportedCount`
 - `variantsGeneratedCount`
@@ -136,6 +151,9 @@ The report includes:
 - `replacedCount`
 - `rewiredContentCount`
 - `rewiredGroupSessionCount`
+- `rewiredPageCount`
+- `rewiredPageRowColumnCount`
+- `rewiredPageRowCallToActionCount`
 
 Use this report before and after each batch. It is the safest way to understand migration progress without scanning S3 or manually joining image tables.
 
@@ -150,7 +168,7 @@ mediaImageMigrationService.migratePendingLegacyImagesForInstitution(account, lim
 Behavior:
 
 - Uses the account's institution as the scope.
-- Selects pending current legacy references for content and group sessions.
+- Selects pending current legacy references for content, group sessions, page heroes, row columns, and row calls to action.
 - Processes at most `limit` references.
 - Captures a before report and after report.
 - Returns one result per processed reference, including reference type and reference ID.
@@ -209,7 +227,7 @@ mvn -q -DskipTests test-compile exec:java \
   -Dlimit=25
 ```
 
-This processes both content and group-session legacy image references for the institution.
+This processes content, group-session, and page-builder legacy image references for the institution.
 
 ### Migrate One Existing Content Item
 
@@ -229,6 +247,18 @@ mvn -q -DskipTests test-compile exec:java \
   -Dexec.mainClass=com.cobaltplatform.api.util.MediaImageMigrationLocalRunner \
   -Dcommit=true \
   -DgroupSessionId=<group-session-id>
+```
+
+### Migrate One Page-Builder Placement
+
+Use exactly one of `pageId`, `pageRowColumnId`, or `pageRowCallToActionId`:
+
+```bash
+mvn -q -DskipTests test-compile exec:java \
+  -Dexec.classpathScope=test \
+  -Dexec.mainClass=com.cobaltplatform.api.util.MediaImageMigrationLocalRunner \
+  -Dcommit=true \
+  -DpageRowColumnId=<page-row-column-id>
 ```
 
 ### Seed And Migrate A Local Test Group Session
@@ -263,16 +293,15 @@ Expected high-fidelity result:
 
 - Status: `VARIANTS_GENERATED`
 - Raw image created or reused.
-- `IMAGE_16X9` crop created or reused.
-- `IMAGE_THUMBNAIL_16X9` thumbnail created or reused.
-- Content or group session rewired to the crop.
+- The required crop and matching thumbnail are created or reused. Content and group sessions use 16:9; page-builder placements use the closest qualifying crop.
+- The consumer is rewired to the crop. A page-builder migration also rewires every active page-builder placement sharing that legacy upload.
 
 Expected low-fidelity result:
 
 - Status: `LOW_FIDELITY`
 - Raw image created or reused.
-- No 16:9 crop/thumbnail.
-- Content or group session remains on the legacy fallback.
+- No qualifying required crop/thumbnail.
+- The consumer remains on the legacy fallback.
 - `quality_report` contains the reason.
 
 ## Useful Verification Queries
@@ -368,6 +397,30 @@ WITH legacy_refs AS (
   WHERE gs.institution_id='<institution-id>'
   AND gs.group_session_status_id<>'DELETED'
   AND fu.file_upload_type_id='GROUP_SESSION_IMAGE'
+	UNION ALL
+	SELECT 'PAGE', p.page_id, p.image_file_upload_id, p.created
+	FROM page p JOIN file_upload fu ON fu.file_upload_id=p.image_file_upload_id
+	WHERE p.institution_id='<institution-id>' AND p.deleted_flag=FALSE
+	AND fu.file_upload_type_id='PAGE_IMAGE'
+	UNION ALL
+	SELECT 'PAGE_ROW_COLUMN', prc.page_row_column_id, prc.image_file_upload_id, prc.created
+	FROM page_row_column prc
+	JOIN file_upload fu ON fu.file_upload_id=prc.image_file_upload_id
+	JOIN page_row pr ON pr.page_row_id=prc.page_row_id
+	JOIN page_section ps ON ps.page_section_id=pr.page_section_id
+	JOIN page p ON p.page_id=ps.page_id
+	WHERE p.institution_id='<institution-id>' AND p.deleted_flag=FALSE
+	AND ps.deleted_flag=FALSE AND pr.deleted_flag=FALSE AND fu.file_upload_type_id='PAGE_IMAGE'
+	UNION ALL
+	SELECT 'PAGE_ROW_CALL_TO_ACTION', prcta.page_row_call_to_action_id,
+	  prcta.image_file_upload_id, prcta.created
+	FROM page_row_call_to_action prcta
+	JOIN file_upload fu ON fu.file_upload_id=prcta.image_file_upload_id
+	JOIN page_row pr ON pr.page_row_id=prcta.page_row_id
+	JOIN page_section ps ON ps.page_section_id=pr.page_section_id
+	JOIN page p ON p.page_id=ps.page_id
+	WHERE p.institution_id='<institution-id>' AND p.deleted_flag=FALSE
+	AND ps.deleted_flag=FALSE AND pr.deleted_flag=FALSE AND fu.file_upload_type_id='PAGE_IMAGE'
 )
 SELECT
   lr.reference_type,
@@ -406,8 +459,12 @@ Covered scenarios:
 - Low-fidelity legacy group-session image imports raw but does not rewire.
 - High-fidelity legacy content image migrates and rewires, including legacy MIME normalization.
 - Retrying a migration reuses existing raw/crop/thumbnail records.
-- Institution report includes the feature flag, status counts, and content/group-session reference breakdowns.
-- Institution batch migration processes pending content and group-session references incrementally by `limit`.
+- Closest-crop ranking covers square, 4:3, 16:9, portrait, intermediate, quality-fallback, and no-qualifying-crop sources.
+- Page-builder migrations rewire shared hero, row-column, and CTA references and retry through every audit crop column.
+- Institution report includes the feature flag, status counts, and per-reference-type page-builder breakdowns.
+- Institution batch migration processes all pending reference types incrementally by `limit`.
+- Page-builder request compatibility covers selected-image precedence, unchanged legacy IDs, replacement, clearing, and duplication.
+- `PAGE` gallery scope covers active draft hero, row-column, and CTA associations, crop filters, combined scopes, and deleted-row/page exclusions.
 
 ## Production Implementation Notes
 

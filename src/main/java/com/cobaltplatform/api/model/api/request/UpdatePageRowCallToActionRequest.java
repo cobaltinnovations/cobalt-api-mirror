@@ -39,6 +39,8 @@ public class UpdatePageRowCallToActionRequest {
 	@Nullable
 	private String buttonUrl;
 	@Nullable
+	private UUID imageId;
+	@Nullable
 	private String imageFileUploadId;
 
 	@Nullable
@@ -84,6 +86,15 @@ public class UpdatePageRowCallToActionRequest {
 
 	public void setButtonUrl(@Nullable String buttonUrl) {
 		this.buttonUrl = buttonUrl;
+	}
+
+	@Nullable
+	public UUID getImageId() {
+		return this.imageId;
+	}
+
+	public void setImageId(@Nullable UUID imageId) {
+		this.imageId = imageId;
 	}
 
 	@Nullable

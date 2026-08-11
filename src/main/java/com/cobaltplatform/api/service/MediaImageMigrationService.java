@@ -77,6 +77,11 @@ public class MediaImageMigrationService {
 	@Nonnull
 	private static final Map<FileUploadTypeId, CropSpec> CROP_SPECS_BY_FILE_UPLOAD_TYPE_ID;
 	@Nonnull
+	private static final List<FileUploadTypeId> PAGE_BUILDER_CROP_FILE_UPLOAD_TYPE_IDS = List.of(
+			FileUploadTypeId.IMAGE_16X9,
+			FileUploadTypeId.IMAGE_4X3,
+			FileUploadTypeId.IMAGE_1X1);
+	@Nonnull
 	private final Provider<SystemService> systemServiceProvider;
 	@Nonnull
 	private final DatabaseProvider databaseProvider;
@@ -192,6 +197,168 @@ public class MediaImageMigrationService {
 	}
 
 	@Nonnull
+	public LegacyImageMigrationResult migrateLegacyPageImage(@Nonnull Account account,
+																									 @Nonnull UUID pageId) {
+		return migrateLegacyPageBuilderImage(account, LegacyImageMigrationReferenceTypeId.PAGE, pageId);
+	}
+
+	@Nonnull
+	public LegacyImageMigrationResult migrateLegacyPageRowColumnImage(@Nonnull Account account,
+																												 @Nonnull UUID pageRowColumnId) {
+		return migrateLegacyPageBuilderImage(account, LegacyImageMigrationReferenceTypeId.PAGE_ROW_COLUMN, pageRowColumnId);
+	}
+
+	@Nonnull
+	public LegacyImageMigrationResult migrateLegacyPageRowCallToActionImage(@Nonnull Account account,
+																														 @Nonnull UUID pageRowCallToActionId) {
+		return migrateLegacyPageBuilderImage(account, LegacyImageMigrationReferenceTypeId.PAGE_ROW_CALL_TO_ACTION,
+				pageRowCallToActionId);
+	}
+
+	@Nonnull
+	protected LegacyImageMigrationResult migrateLegacyPageBuilderImage(@Nonnull Account account,
+																										 @Nonnull LegacyImageMigrationReferenceTypeId referenceTypeId,
+																										 @Nonnull UUID referenceId) {
+		requireNonNull(account);
+		requireNonNull(referenceTypeId);
+		requireNonNull(referenceId);
+
+		PageBuilderLegacyImage pageBuilderLegacyImage = findPageBuilderLegacyImage(account, referenceTypeId, referenceId).orElse(null);
+
+		if (pageBuilderLegacyImage == null)
+			throw new ValidationException(new FieldError("referenceId", "Page builder image reference ID is invalid."));
+
+		UUID legacyFileUploadId = pageBuilderLegacyImage.getImageId() == null
+				? pageBuilderLegacyImage.getImageFileUploadId()
+				: findLegacyFileUploadIdForMigratedPageBuilderCrop(account, pageBuilderLegacyImage.getImageId())
+				.orElse(pageBuilderLegacyImage.getImageFileUploadId());
+
+		if (legacyFileUploadId == null)
+			throw new ValidationException(new FieldError("imageFileUploadId", "Page builder reference has no legacy image."));
+
+		LegacyImageMigrationResult migrationResult = migrateLegacyPageBuilderImageFileUpload(account, legacyFileUploadId);
+
+		if (migrationResult.getMigrationStatusId() == LegacyImageMigrationStatusId.VARIANTS_GENERATED) {
+			FileUploadTypeId selectedCropFileUploadTypeId = closestQualifiedPageBuilderCropFileUploadTypeId(
+					migrationResult.getSourceWidth(), migrationResult.getSourceHeight()).orElseThrow();
+			UUID cropImageId = migrationResult.getCropImageIdsByFileUploadTypeId().get(selectedCropFileUploadTypeId);
+			UUID cropFileUploadId = migrationResult.getCropFileUploadIdsByFileUploadTypeId().get(selectedCropFileUploadTypeId);
+
+			rewirePageBuilderLegacyImageReferences(account, legacyFileUploadId, cropImageId, cropFileUploadId);
+		}
+
+		return migrationResult;
+	}
+
+	@Nonnull
+	protected Optional<PageBuilderLegacyImage> findPageBuilderLegacyImage(@Nonnull Account account,
+																											 @Nonnull LegacyImageMigrationReferenceTypeId referenceTypeId,
+																											 @Nonnull UUID referenceId) {
+		requireNonNull(account);
+		requireNonNull(referenceTypeId);
+		requireNonNull(referenceId);
+
+		if (referenceTypeId == LegacyImageMigrationReferenceTypeId.PAGE)
+			return getDatabase().queryForObject("""
+					SELECT page_id AS reference_id, image_id, image_file_upload_id
+					FROM page
+					WHERE page_id=?
+					AND institution_id=?
+					AND deleted_flag=FALSE
+					""", PageBuilderLegacyImage.class, referenceId, account.getInstitutionId());
+
+		if (referenceTypeId == LegacyImageMigrationReferenceTypeId.PAGE_ROW_COLUMN)
+			return getDatabase().queryForObject("""
+					SELECT prc.page_row_column_id AS reference_id, prc.image_id, prc.image_file_upload_id
+					FROM page_row_column prc
+					JOIN page_row pr ON pr.page_row_id=prc.page_row_id
+					JOIN page_section ps ON ps.page_section_id=pr.page_section_id
+					JOIN page p ON p.page_id=ps.page_id
+					WHERE prc.page_row_column_id=?
+					AND p.institution_id=?
+					AND p.deleted_flag=FALSE
+					AND ps.deleted_flag=FALSE
+					AND pr.deleted_flag=FALSE
+					""", PageBuilderLegacyImage.class, referenceId, account.getInstitutionId());
+
+		if (referenceTypeId == LegacyImageMigrationReferenceTypeId.PAGE_ROW_CALL_TO_ACTION)
+			return getDatabase().queryForObject("""
+					SELECT prcta.page_row_call_to_action_id AS reference_id, prcta.image_id, prcta.image_file_upload_id
+					FROM page_row_call_to_action prcta
+					JOIN page_row pr ON pr.page_row_id=prcta.page_row_id
+					JOIN page_section ps ON ps.page_section_id=pr.page_section_id
+					JOIN page p ON p.page_id=ps.page_id
+					WHERE prcta.page_row_call_to_action_id=?
+					AND p.institution_id=?
+					AND p.deleted_flag=FALSE
+					AND ps.deleted_flag=FALSE
+					AND pr.deleted_flag=FALSE
+					""", PageBuilderLegacyImage.class, referenceId, account.getInstitutionId());
+
+		throw new IllegalArgumentException(format("Unsupported page builder legacy image reference type ID '%s'.", referenceTypeId));
+	}
+
+	@Nonnull
+	protected Optional<UUID> findLegacyFileUploadIdForMigratedPageBuilderCrop(@Nonnull Account account,
+																															 @Nonnull UUID imageId) {
+		requireNonNull(account);
+		requireNonNull(imageId);
+
+		return getDatabase().queryForObject("""
+				SELECT legacy_file_upload_id
+				FROM legacy_image_migration
+				WHERE institution_id=?
+				AND (crop_16x9_image_id=? OR crop_4x3_image_id=? OR crop_1x1_image_id=?)
+				""", UUID.class, account.getInstitutionId(), imageId, imageId, imageId);
+	}
+
+	protected void rewirePageBuilderLegacyImageReferences(@Nonnull Account account,
+																								 @Nonnull UUID legacyFileUploadId,
+																								 @Nonnull UUID cropImageId,
+																								 @Nonnull UUID cropFileUploadId) {
+		requireNonNull(account);
+		requireNonNull(legacyFileUploadId);
+		requireNonNull(cropImageId);
+		requireNonNull(cropFileUploadId);
+
+		getDatabase().execute("""
+				UPDATE page
+				SET image_id=?, image_file_upload_id=?
+				WHERE institution_id=?
+				AND deleted_flag=FALSE
+				AND image_file_upload_id=?
+				""", cropImageId, cropFileUploadId, account.getInstitutionId(), legacyFileUploadId);
+
+		getDatabase().execute("""
+				UPDATE page_row_column prc
+				SET image_id=?, image_file_upload_id=?
+				FROM page_row pr
+				JOIN page_section ps ON ps.page_section_id=pr.page_section_id
+				JOIN page p ON p.page_id=ps.page_id
+				WHERE prc.page_row_id=pr.page_row_id
+				AND p.institution_id=?
+				AND p.deleted_flag=FALSE
+				AND ps.deleted_flag=FALSE
+				AND pr.deleted_flag=FALSE
+				AND prc.image_file_upload_id=?
+				""", cropImageId, cropFileUploadId, account.getInstitutionId(), legacyFileUploadId);
+
+		getDatabase().execute("""
+				UPDATE page_row_call_to_action prcta
+				SET image_id=?, image_file_upload_id=?
+				FROM page_row pr
+				JOIN page_section ps ON ps.page_section_id=pr.page_section_id
+				JOIN page p ON p.page_id=ps.page_id
+				WHERE prcta.page_row_id=pr.page_row_id
+				AND p.institution_id=?
+				AND p.deleted_flag=FALSE
+				AND ps.deleted_flag=FALSE
+				AND pr.deleted_flag=FALSE
+				AND prcta.image_file_upload_id=?
+				""", cropImageId, cropFileUploadId, account.getInstitutionId(), legacyFileUploadId);
+	}
+
+	@Nonnull
 	protected Optional<UUID> findLegacyFileUploadIdForMigratedCrop(@Nonnull Account account,
 																																 @Nonnull UUID imageId) {
 		return findLegacyFileUploadIdForMigratedCrop(account, imageId, FileUploadTypeId.IMAGE_16X9);
@@ -240,10 +407,43 @@ public class MediaImageMigrationService {
 				  WHERE gs.institution_id=?
 				  AND fu.file_upload_type_id=?
 				  AND gs.group_session_status_id<>'DELETED'
+				), page_refs AS (
+				  SELECT 'PAGE' AS reference_type_id, p.page_id AS reference_id,
+				    p.image_file_upload_id AS legacy_file_upload_id, p.created
+				  FROM page p
+				  JOIN file_upload fu ON fu.file_upload_id=p.image_file_upload_id
+				  WHERE p.institution_id=? AND p.deleted_flag=FALSE AND fu.file_upload_type_id=?
+				), page_row_column_refs AS (
+				  SELECT 'PAGE_ROW_COLUMN' AS reference_type_id, prc.page_row_column_id AS reference_id,
+				    prc.image_file_upload_id AS legacy_file_upload_id, prc.created
+				  FROM page_row_column prc
+				  JOIN file_upload fu ON fu.file_upload_id=prc.image_file_upload_id
+				  JOIN page_row pr ON pr.page_row_id=prc.page_row_id
+				  JOIN page_section ps ON ps.page_section_id=pr.page_section_id
+				  JOIN page p ON p.page_id=ps.page_id
+				  WHERE p.institution_id=? AND p.deleted_flag=FALSE AND ps.deleted_flag=FALSE AND pr.deleted_flag=FALSE
+				  AND fu.file_upload_type_id=?
+				), page_row_call_to_action_refs AS (
+				  SELECT 'PAGE_ROW_CALL_TO_ACTION' AS reference_type_id,
+				    prcta.page_row_call_to_action_id AS reference_id,
+				    prcta.image_file_upload_id AS legacy_file_upload_id, prcta.created
+				  FROM page_row_call_to_action prcta
+				  JOIN file_upload fu ON fu.file_upload_id=prcta.image_file_upload_id
+				  JOIN page_row pr ON pr.page_row_id=prcta.page_row_id
+				  JOIN page_section ps ON ps.page_section_id=pr.page_section_id
+				  JOIN page p ON p.page_id=ps.page_id
+				  WHERE p.institution_id=? AND p.deleted_flag=FALSE AND ps.deleted_flag=FALSE AND pr.deleted_flag=FALSE
+				  AND fu.file_upload_type_id=?
 				), legacy_refs AS (
 				  SELECT * FROM content_refs
 				  UNION ALL
 				  SELECT * FROM group_session_refs
+				  UNION ALL
+				  SELECT * FROM page_refs
+				  UNION ALL
+				  SELECT * FROM page_row_column_refs
+				  UNION ALL
+				  SELECT * FROM page_row_call_to_action_refs
 				), legacy_candidates AS (
 				  SELECT DISTINCT legacy_file_upload_id
 				  FROM legacy_refs
@@ -252,7 +452,7 @@ public class MediaImageMigrationService {
 				  FROM legacy_image_migration lim
 				  JOIN file_upload fu ON fu.file_upload_id=lim.legacy_file_upload_id
 				  WHERE lim.institution_id=?
-				  AND fu.file_upload_type_id IN (?,?)
+				  AND fu.file_upload_type_id IN (?,?,?)
 				), migration_scope AS (
 				  SELECT legacy_file_upload_id FROM legacy_candidates
 				  UNION
@@ -271,9 +471,15 @@ public class MediaImageMigrationService {
 				  (SELECT COUNT(*) FROM legacy_refs) AS current_legacy_reference_count,
 				  (SELECT COUNT(*) FROM content_refs) AS current_legacy_content_reference_count,
 				  (SELECT COUNT(*) FROM group_session_refs) AS current_legacy_group_session_reference_count,
+				  (SELECT COUNT(*) FROM page_refs) AS current_legacy_page_reference_count,
+				  (SELECT COUNT(*) FROM page_row_column_refs) AS current_legacy_page_row_column_reference_count,
+				  (SELECT COUNT(*) FROM page_row_call_to_action_refs) AS current_legacy_page_row_call_to_action_reference_count,
 				  (SELECT COUNT(*) FROM pending_refs) AS pending_count,
 				  (SELECT COUNT(*) FROM pending_refs WHERE reference_type_id='CONTENT') AS pending_content_reference_count,
 				  (SELECT COUNT(*) FROM pending_refs WHERE reference_type_id='GROUP_SESSION') AS pending_group_session_reference_count,
+				  (SELECT COUNT(*) FROM pending_refs WHERE reference_type_id='PAGE') AS pending_page_reference_count,
+				  (SELECT COUNT(*) FROM pending_refs WHERE reference_type_id='PAGE_ROW_COLUMN') AS pending_page_row_column_reference_count,
+				  (SELECT COUNT(*) FROM pending_refs WHERE reference_type_id='PAGE_ROW_CALL_TO_ACTION') AS pending_page_row_call_to_action_reference_count,
 				  (SELECT COUNT(*)
 				   FROM legacy_image_migration lim
 				   JOIN migration_scope ms ON ms.legacy_file_upload_id=lim.legacy_file_upload_id) AS attempted_count,
@@ -312,14 +518,38 @@ public class MediaImageMigrationService {
 				   JOIN legacy_image_migration lim ON lim.crop_16x9_image_id=gs.image_id
 				   JOIN migration_scope ms ON ms.legacy_file_upload_id=lim.legacy_file_upload_id
 				   WHERE gs.institution_id=?
-				   AND gs.group_session_status_id<>'DELETED') AS rewired_group_session_count
+				   AND gs.group_session_status_id<>'DELETED') AS rewired_group_session_count,
+				  (SELECT COUNT(*) FROM page p
+				   JOIN legacy_image_migration lim ON p.image_id IN (lim.crop_16x9_image_id,lim.crop_4x3_image_id,lim.crop_1x1_image_id)
+				   JOIN migration_scope ms ON ms.legacy_file_upload_id=lim.legacy_file_upload_id
+				   WHERE p.institution_id=? AND p.deleted_flag=FALSE) AS rewired_page_count,
+				  (SELECT COUNT(*) FROM page_row_column prc
+				   JOIN page_row pr ON pr.page_row_id=prc.page_row_id
+				   JOIN page_section ps ON ps.page_section_id=pr.page_section_id
+				   JOIN page p ON p.page_id=ps.page_id
+				   JOIN legacy_image_migration lim ON prc.image_id IN (lim.crop_16x9_image_id,lim.crop_4x3_image_id,lim.crop_1x1_image_id)
+				   JOIN migration_scope ms ON ms.legacy_file_upload_id=lim.legacy_file_upload_id
+				   WHERE p.institution_id=? AND p.deleted_flag=FALSE AND ps.deleted_flag=FALSE AND pr.deleted_flag=FALSE)
+				    AS rewired_page_row_column_count,
+				  (SELECT COUNT(*) FROM page_row_call_to_action prcta
+				   JOIN page_row pr ON pr.page_row_id=prcta.page_row_id
+				   JOIN page_section ps ON ps.page_section_id=pr.page_section_id
+				   JOIN page p ON p.page_id=ps.page_id
+				   JOIN legacy_image_migration lim ON prcta.image_id IN (lim.crop_16x9_image_id,lim.crop_4x3_image_id,lim.crop_1x1_image_id)
+				   JOIN migration_scope ms ON ms.legacy_file_upload_id=lim.legacy_file_upload_id
+				   WHERE p.institution_id=? AND p.deleted_flag=FALSE AND ps.deleted_flag=FALSE AND pr.deleted_flag=FALSE)
+				    AS rewired_page_row_call_to_action_count
 				FROM institution i
 				WHERE i.institution_id=?
 				""", LegacyImageMigrationInstitutionReport.class,
 				institutionId, FileUploadTypeId.CONTENT_IMAGE,
 				institutionId, FileUploadTypeId.GROUP_SESSION_IMAGE,
-				institutionId, FileUploadTypeId.CONTENT_IMAGE, FileUploadTypeId.GROUP_SESSION_IMAGE,
-				institutionId, institutionId, institutionId).orElseThrow(() -> new ValidationException(new FieldError("institutionId", "Institution ID is invalid.")));
+				institutionId, FileUploadTypeId.PAGE_IMAGE,
+				institutionId, FileUploadTypeId.PAGE_IMAGE,
+				institutionId, FileUploadTypeId.PAGE_IMAGE,
+				institutionId, FileUploadTypeId.CONTENT_IMAGE, FileUploadTypeId.GROUP_SESSION_IMAGE, FileUploadTypeId.PAGE_IMAGE,
+				institutionId, institutionId, institutionId, institutionId, institutionId, institutionId)
+				.orElseThrow(() -> new ValidationException(new FieldError("institutionId", "Institution ID is invalid.")));
 	}
 
 	@Nonnull
@@ -359,10 +589,43 @@ public class MediaImageMigrationService {
 				  WHERE gs.institution_id=?
 				  AND fu.file_upload_type_id=?
 				  AND gs.group_session_status_id<>'DELETED'
+				), page_refs AS (
+				  SELECT 'PAGE' AS reference_type_id, p.page_id AS reference_id,
+				    p.image_file_upload_id AS legacy_file_upload_id, p.created
+				  FROM page p
+				  JOIN file_upload fu ON fu.file_upload_id=p.image_file_upload_id
+				  WHERE p.institution_id=? AND p.deleted_flag=FALSE AND fu.file_upload_type_id=?
+				), page_row_column_refs AS (
+				  SELECT 'PAGE_ROW_COLUMN' AS reference_type_id, prc.page_row_column_id AS reference_id,
+				    prc.image_file_upload_id AS legacy_file_upload_id, prc.created
+				  FROM page_row_column prc
+				  JOIN file_upload fu ON fu.file_upload_id=prc.image_file_upload_id
+				  JOIN page_row pr ON pr.page_row_id=prc.page_row_id
+				  JOIN page_section ps ON ps.page_section_id=pr.page_section_id
+				  JOIN page p ON p.page_id=ps.page_id
+				  WHERE p.institution_id=? AND p.deleted_flag=FALSE AND ps.deleted_flag=FALSE AND pr.deleted_flag=FALSE
+				  AND fu.file_upload_type_id=?
+				), page_row_call_to_action_refs AS (
+				  SELECT 'PAGE_ROW_CALL_TO_ACTION' AS reference_type_id,
+				    prcta.page_row_call_to_action_id AS reference_id,
+				    prcta.image_file_upload_id AS legacy_file_upload_id, prcta.created
+				  FROM page_row_call_to_action prcta
+				  JOIN file_upload fu ON fu.file_upload_id=prcta.image_file_upload_id
+				  JOIN page_row pr ON pr.page_row_id=prcta.page_row_id
+				  JOIN page_section ps ON ps.page_section_id=pr.page_section_id
+				  JOIN page p ON p.page_id=ps.page_id
+				  WHERE p.institution_id=? AND p.deleted_flag=FALSE AND ps.deleted_flag=FALSE AND pr.deleted_flag=FALSE
+				  AND fu.file_upload_type_id=?
 				), legacy_refs AS (
 				  SELECT * FROM content_refs
 				  UNION ALL
 				  SELECT * FROM group_session_refs
+				  UNION ALL
+				  SELECT * FROM page_refs
+				  UNION ALL
+				  SELECT * FROM page_row_column_refs
+				  UNION ALL
+				  SELECT * FROM page_row_call_to_action_refs
 				)
 				SELECT
 				  lr.reference_type_id,
@@ -377,6 +640,9 @@ public class MediaImageMigrationService {
 				""", LegacyImageReference.class,
 				institutionId, FileUploadTypeId.CONTENT_IMAGE,
 				institutionId, FileUploadTypeId.GROUP_SESSION_IMAGE,
+				institutionId, FileUploadTypeId.PAGE_IMAGE,
+				institutionId, FileUploadTypeId.PAGE_IMAGE,
+				institutionId, FileUploadTypeId.PAGE_IMAGE,
 				limit);
 	}
 
@@ -456,6 +722,15 @@ public class MediaImageMigrationService {
 		if (legacyImageReference.getReferenceTypeId() == LegacyImageMigrationReferenceTypeId.GROUP_SESSION)
 			return migrateLegacyGroupSessionImage(account, legacyImageReference.getReferenceId());
 
+		if (legacyImageReference.getReferenceTypeId() == LegacyImageMigrationReferenceTypeId.PAGE)
+			return migrateLegacyPageImage(account, legacyImageReference.getReferenceId());
+
+		if (legacyImageReference.getReferenceTypeId() == LegacyImageMigrationReferenceTypeId.PAGE_ROW_COLUMN)
+			return migrateLegacyPageRowColumnImage(account, legacyImageReference.getReferenceId());
+
+		if (legacyImageReference.getReferenceTypeId() == LegacyImageMigrationReferenceTypeId.PAGE_ROW_CALL_TO_ACTION)
+			return migrateLegacyPageRowCallToActionImage(account, legacyImageReference.getReferenceId());
+
 		throw new IllegalArgumentException(format("Unsupported legacy image reference type ID '%s'.", legacyImageReference.getReferenceTypeId()));
 	}
 
@@ -472,7 +747,25 @@ public class MediaImageMigrationService {
 		LegacyImageMigrationResult[] migrationResult = new LegacyImageMigrationResult[1];
 
 		Runnable migration = () -> migrationResult[0] = migrateLegacyImageFileUploadInternal(account, legacyFileUploadId,
-				requestedCropFileUploadTypeIds, imageAltText);
+				requestedCropFileUploadTypeIds, imageAltText, false);
+
+		if (getDatabase().currentTransaction().isPresent())
+			migration.run();
+		else
+			getDatabase().transaction(() -> migration.run());
+
+		return migrationResult[0];
+	}
+
+	@Nonnull
+	protected LegacyImageMigrationResult migrateLegacyPageBuilderImageFileUpload(@Nonnull Account account,
+																													 @Nonnull UUID legacyFileUploadId) {
+		requireNonNull(account);
+		requireNonNull(legacyFileUploadId);
+
+		LegacyImageMigrationResult[] migrationResult = new LegacyImageMigrationResult[1];
+		Runnable migration = () -> migrationResult[0] = migrateLegacyImageFileUploadInternal(account, legacyFileUploadId,
+				EnumSet.noneOf(FileUploadTypeId.class), null, true);
 
 		if (getDatabase().currentTransaction().isPresent())
 			migration.run();
@@ -484,9 +777,10 @@ public class MediaImageMigrationService {
 
 	@Nonnull
 	protected LegacyImageMigrationResult migrateLegacyImageFileUploadInternal(@Nonnull Account account,
-																																						@Nonnull UUID legacyFileUploadId,
-																																						@Nonnull EnumSet<FileUploadTypeId> requestedCropFileUploadTypeIds,
-																																						@Nullable String imageAltText) {
+																									@Nonnull UUID legacyFileUploadId,
+																									@Nonnull EnumSet<FileUploadTypeId> requestedCropFileUploadTypeIds,
+																									@Nullable String imageAltText,
+																									boolean selectClosestPageBuilderCrop) {
 		requireNonNull(account);
 		requireNonNull(legacyFileUploadId);
 		requireNonNull(requestedCropFileUploadTypeIds);
@@ -541,6 +835,14 @@ public class MediaImageMigrationService {
 			seedExistingVariants(existingLegacyImageMigration, cropImageIdsByFileUploadTypeId, cropFileUploadIdsByFileUploadTypeId,
 					thumbnailImageIdsByCropFileUploadTypeId, thumbnailFileUploadIdsByCropFileUploadTypeId);
 
+		if (selectClosestPageBuilderCrop) {
+			Optional<FileUploadTypeId> selectedCropFileUploadTypeId = closestQualifiedPageBuilderCropFileUploadTypeId(
+					sourceImage.getWidth(), sourceImage.getHeight(), qualityMessages);
+			requestedCropFileUploadTypeIds = selectedCropFileUploadTypeId
+					.map(EnumSet::of)
+					.orElseGet(() -> EnumSet.noneOf(FileUploadTypeId.class));
+		}
+
 		for (FileUploadTypeId cropFileUploadTypeId : requestedCropFileUploadTypeIds) {
 			if (cropImageIdsByFileUploadTypeId.containsKey(cropFileUploadTypeId)
 					&& thumbnailImageIdsByCropFileUploadTypeId.containsKey(cropFileUploadTypeId))
@@ -575,7 +877,7 @@ public class MediaImageMigrationService {
 		}
 
 		LegacyImageMigrationStatusId migrationStatusId = requestedCropFileUploadTypeIds.size() == 0
-				? LegacyImageMigrationStatusId.RAW_IMPORTED
+				? selectClosestPageBuilderCrop ? LegacyImageMigrationStatusId.LOW_FIDELITY : LegacyImageMigrationStatusId.RAW_IMPORTED
 				: cropImageIdsByFileUploadTypeId.keySet().containsAll(requestedCropFileUploadTypeIds)
 				&& thumbnailImageIdsByCropFileUploadTypeId.keySet().containsAll(requestedCropFileUploadTypeIds)
 				? LegacyImageMigrationStatusId.VARIANTS_GENERATED
@@ -589,6 +891,51 @@ public class MediaImageMigrationService {
 
 		upsertLegacyImageMigration(account, legacyFileUpload, result, null);
 		return result;
+	}
+
+	@Nonnull
+	protected static Optional<FileUploadTypeId> closestQualifiedPageBuilderCropFileUploadTypeId(@Nullable Integer sourceWidth,
+																														 @Nullable Integer sourceHeight) {
+		if (sourceWidth == null || sourceHeight == null)
+			return Optional.empty();
+
+		return closestQualifiedPageBuilderCropFileUploadTypeId(sourceWidth, sourceHeight, new ArrayList<>());
+	}
+
+	@Nonnull
+	protected static Optional<FileUploadTypeId> closestQualifiedPageBuilderCropFileUploadTypeId(@Nonnull Integer sourceWidth,
+																														 @Nonnull Integer sourceHeight,
+																														 @Nonnull List<String> qualityMessages) {
+		requireNonNull(sourceWidth);
+		requireNonNull(sourceHeight);
+		requireNonNull(qualityMessages);
+
+		List<FileUploadTypeId> rankedCropFileUploadTypeIds = new ArrayList<>(PAGE_BUILDER_CROP_FILE_UPLOAD_TYPE_IDS);
+		rankedCropFileUploadTypeIds.sort((first, second) -> {
+			CropWindow firstCropWindow = cropWindowFor(sourceWidth, sourceHeight, CROP_SPECS_BY_FILE_UPLOAD_TYPE_ID.get(first));
+			CropWindow secondCropWindow = cropWindowFor(sourceWidth, sourceHeight, CROP_SPECS_BY_FILE_UPLOAD_TYPE_ID.get(second));
+			long firstRetainedArea = (long) firstCropWindow.getWidth() * firstCropWindow.getHeight();
+			long secondRetainedArea = (long) secondCropWindow.getWidth() * secondCropWindow.getHeight();
+			int retainedAreaComparison = Long.compare(secondRetainedArea, firstRetainedArea);
+			return retainedAreaComparison == 0
+					? Integer.compare(PAGE_BUILDER_CROP_FILE_UPLOAD_TYPE_IDS.indexOf(first),
+					PAGE_BUILDER_CROP_FILE_UPLOAD_TYPE_IDS.indexOf(second))
+					: retainedAreaComparison;
+		});
+
+		for (FileUploadTypeId cropFileUploadTypeId : rankedCropFileUploadTypeIds) {
+			CropSpec cropSpec = CROP_SPECS_BY_FILE_UPLOAD_TYPE_ID.get(cropFileUploadTypeId);
+			CropWindow cropWindow = cropWindowFor(sourceWidth, sourceHeight, cropSpec);
+
+			if (cropWindow.getWidth() >= cropSpec.getMinimumWidth() && cropWindow.getHeight() >= cropSpec.getMinimumHeight())
+				return Optional.of(cropFileUploadTypeId);
+
+			qualityMessages.add(format("%s requires at least %dx%d; source can provide only %dx%d after crop.",
+					cropFileUploadTypeId.name(), cropSpec.getMinimumWidth(), cropSpec.getMinimumHeight(),
+					cropWindow.getWidth(), cropWindow.getHeight()));
+		}
+
+		return Optional.empty();
 	}
 
 	@Nonnull
@@ -1068,7 +1415,7 @@ public class MediaImageMigrationService {
 	}
 
 	@Nonnull
-	protected CropWindow cropWindowFor(@Nonnull Integer sourceWidth,
+	protected static CropWindow cropWindowFor(@Nonnull Integer sourceWidth,
 																		 @Nonnull Integer sourceHeight,
 																		 @Nonnull CropSpec cropSpec) {
 		requireNonNull(sourceWidth);
@@ -1287,11 +1634,23 @@ public class MediaImageMigrationService {
 		@Nullable
 		private Long currentLegacyGroupSessionReferenceCount;
 		@Nullable
+		private Long currentLegacyPageReferenceCount;
+		@Nullable
+		private Long currentLegacyPageRowColumnReferenceCount;
+		@Nullable
+		private Long currentLegacyPageRowCallToActionReferenceCount;
+		@Nullable
 		private Long pendingCount;
 		@Nullable
 		private Long pendingContentReferenceCount;
 		@Nullable
 		private Long pendingGroupSessionReferenceCount;
+		@Nullable
+		private Long pendingPageReferenceCount;
+		@Nullable
+		private Long pendingPageRowColumnReferenceCount;
+		@Nullable
+		private Long pendingPageRowCallToActionReferenceCount;
 		@Nullable
 		private Long attemptedCount;
 		@Nullable
@@ -1310,6 +1669,12 @@ public class MediaImageMigrationService {
 		private Long rewiredContentCount;
 		@Nullable
 		private Long rewiredGroupSessionCount;
+		@Nullable
+		private Long rewiredPageCount;
+		@Nullable
+		private Long rewiredPageRowColumnCount;
+		@Nullable
+		private Long rewiredPageRowCallToActionCount;
 
 		@Nullable
 		public InstitutionId getInstitutionId() {
@@ -1366,6 +1731,33 @@ public class MediaImageMigrationService {
 		}
 
 		@Nullable
+		public Long getCurrentLegacyPageReferenceCount() {
+			return this.currentLegacyPageReferenceCount;
+		}
+
+		public void setCurrentLegacyPageReferenceCount(@Nullable Long currentLegacyPageReferenceCount) {
+			this.currentLegacyPageReferenceCount = currentLegacyPageReferenceCount;
+		}
+
+		@Nullable
+		public Long getCurrentLegacyPageRowColumnReferenceCount() {
+			return this.currentLegacyPageRowColumnReferenceCount;
+		}
+
+		public void setCurrentLegacyPageRowColumnReferenceCount(@Nullable Long currentLegacyPageRowColumnReferenceCount) {
+			this.currentLegacyPageRowColumnReferenceCount = currentLegacyPageRowColumnReferenceCount;
+		}
+
+		@Nullable
+		public Long getCurrentLegacyPageRowCallToActionReferenceCount() {
+			return this.currentLegacyPageRowCallToActionReferenceCount;
+		}
+
+		public void setCurrentLegacyPageRowCallToActionReferenceCount(@Nullable Long currentLegacyPageRowCallToActionReferenceCount) {
+			this.currentLegacyPageRowCallToActionReferenceCount = currentLegacyPageRowCallToActionReferenceCount;
+		}
+
+		@Nullable
 		public Long getPendingCount() {
 			return this.pendingCount;
 		}
@@ -1390,6 +1782,33 @@ public class MediaImageMigrationService {
 
 		public void setPendingGroupSessionReferenceCount(@Nullable Long pendingGroupSessionReferenceCount) {
 			this.pendingGroupSessionReferenceCount = pendingGroupSessionReferenceCount;
+		}
+
+		@Nullable
+		public Long getPendingPageReferenceCount() {
+			return this.pendingPageReferenceCount;
+		}
+
+		public void setPendingPageReferenceCount(@Nullable Long pendingPageReferenceCount) {
+			this.pendingPageReferenceCount = pendingPageReferenceCount;
+		}
+
+		@Nullable
+		public Long getPendingPageRowColumnReferenceCount() {
+			return this.pendingPageRowColumnReferenceCount;
+		}
+
+		public void setPendingPageRowColumnReferenceCount(@Nullable Long pendingPageRowColumnReferenceCount) {
+			this.pendingPageRowColumnReferenceCount = pendingPageRowColumnReferenceCount;
+		}
+
+		@Nullable
+		public Long getPendingPageRowCallToActionReferenceCount() {
+			return this.pendingPageRowCallToActionReferenceCount;
+		}
+
+		public void setPendingPageRowCallToActionReferenceCount(@Nullable Long pendingPageRowCallToActionReferenceCount) {
+			this.pendingPageRowCallToActionReferenceCount = pendingPageRowCallToActionReferenceCount;
 		}
 
 		@Nullable
@@ -1472,11 +1891,41 @@ public class MediaImageMigrationService {
 		public void setRewiredGroupSessionCount(@Nullable Long rewiredGroupSessionCount) {
 			this.rewiredGroupSessionCount = rewiredGroupSessionCount;
 		}
+
+		@Nullable
+		public Long getRewiredPageCount() {
+			return this.rewiredPageCount;
+		}
+
+		public void setRewiredPageCount(@Nullable Long rewiredPageCount) {
+			this.rewiredPageCount = rewiredPageCount;
+		}
+
+		@Nullable
+		public Long getRewiredPageRowColumnCount() {
+			return this.rewiredPageRowColumnCount;
+		}
+
+		public void setRewiredPageRowColumnCount(@Nullable Long rewiredPageRowColumnCount) {
+			this.rewiredPageRowColumnCount = rewiredPageRowColumnCount;
+		}
+
+		@Nullable
+		public Long getRewiredPageRowCallToActionCount() {
+			return this.rewiredPageRowCallToActionCount;
+		}
+
+		public void setRewiredPageRowCallToActionCount(@Nullable Long rewiredPageRowCallToActionCount) {
+			this.rewiredPageRowCallToActionCount = rewiredPageRowCallToActionCount;
+		}
 	}
 
 	public enum LegacyImageMigrationReferenceTypeId {
 		CONTENT,
-		GROUP_SESSION
+		GROUP_SESSION,
+		PAGE,
+		PAGE_ROW_COLUMN,
+		PAGE_ROW_CALL_TO_ACTION
 	}
 
 	public static class LegacyImageReference {
@@ -1831,6 +2280,42 @@ public class MediaImageMigrationService {
 
 		public void setGroupSessionId(@Nullable UUID groupSessionId) {
 			this.groupSessionId = groupSessionId;
+		}
+
+		@Nullable
+		public UUID getImageId() {
+			return this.imageId;
+		}
+
+		public void setImageId(@Nullable UUID imageId) {
+			this.imageId = imageId;
+		}
+
+		@Nullable
+		public UUID getImageFileUploadId() {
+			return this.imageFileUploadId;
+		}
+
+		public void setImageFileUploadId(@Nullable UUID imageFileUploadId) {
+			this.imageFileUploadId = imageFileUploadId;
+		}
+	}
+
+	protected static class PageBuilderLegacyImage {
+		@Nullable
+		private UUID referenceId;
+		@Nullable
+		private UUID imageId;
+		@Nullable
+		private UUID imageFileUploadId;
+
+		@Nullable
+		public UUID getReferenceId() {
+			return this.referenceId;
+		}
+
+		public void setReferenceId(@Nullable UUID referenceId) {
+			this.referenceId = referenceId;
 		}
 
 		@Nullable

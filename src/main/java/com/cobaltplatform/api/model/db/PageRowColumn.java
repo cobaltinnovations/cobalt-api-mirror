@@ -39,6 +39,8 @@ public class PageRowColumn {
 	@Nullable
 	private String description;
 	@Nullable
+	private UUID imageId;
+	@Nullable
 	private UUID imageFileUploadId;
 	@Nullable
 	private String imageAltText;
@@ -50,6 +52,10 @@ public class PageRowColumn {
 	private Integer columnDisplayOrder;
 	@Nullable
 	private PageRowColumnContentOrderId contentOrderId;
+	@Nullable
+	private Image image;
+	@Nullable
+	private Image imageThumbnail;
 
 	@Nullable
 	public UUID getPageRowColumnId() {
@@ -85,6 +91,15 @@ public class PageRowColumn {
 
 	public void setDescription(@Nullable String description) {
 		this.description = description;
+	}
+
+	@Nullable
+	public UUID getImageId() {
+		return this.imageId;
+	}
+
+	public void setImageId(@Nullable UUID imageId) {
+		this.imageId = imageId;
 	}
 
 	@Nullable
@@ -139,5 +154,23 @@ public class PageRowColumn {
 
 	public void setUsePlaceholderImage(@Nullable Boolean usePlaceholderImage) {
 		this.usePlaceholderImage = usePlaceholderImage;
+	}
+
+	@Nullable
+	public Image getImage() {
+		return this.image;
+	}
+
+	public void setImage(@Nullable Image image) {
+		this.image = image;
+	}
+
+	@Nullable
+	public Image getImageThumbnail() {
+		return this.imageThumbnail;
+	}
+
+	public void setImageThumbnail(@Nullable Image imageThumbnail) {
+		this.imageThumbnail = imageThumbnail;
 	}
 }

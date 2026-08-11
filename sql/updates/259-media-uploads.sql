@@ -317,4 +317,89 @@ CREATE VIEW v_group_session AS
    LEFT OUTER JOIN v_image i ON gs.image_id = i.image_id
   WHERE gs.group_session_status_id::text <> 'DELETED'::text;
 
+ALTER TABLE page ADD COLUMN image_id UUID REFERENCES image(image_id);
+CREATE INDEX idx_page_image_id ON page(image_id) WHERE image_id IS NOT NULL;
+
+UPDATE page p
+SET image_id=i.image_id
+FROM image i
+WHERE p.image_file_upload_id=i.file_upload_id
+AND p.image_id IS NULL;
+
+CREATE OR REPLACE VIEW v_page AS
+SELECT
+  p.page_id,
+  p.name,
+  p.url_name,
+  p.page_status_id,
+  p.headline,
+  p.description,
+  p.image_file_upload_id,
+  p.image_alt_text,
+  p.published_date,
+  p.deleted_flag,
+  p.institution_id,
+  p.parent_page_id,
+  p.created_by_account_id,
+  p.created,
+  p.last_updated,
+  p.page_group_id,
+  MIN(p.created) OVER (PARTITION BY p.page_group_id) AS original_create_date,
+  COALESCE(i.url, fu.url) AS image_url,
+  p.image_id
+FROM page p
+LEFT JOIN file_upload fu ON p.image_file_upload_id=fu.file_upload_id
+LEFT JOIN v_image i ON p.image_id=i.image_id
+WHERE p.deleted_flag=FALSE;
+
+ALTER TABLE page_row_column ADD COLUMN image_id UUID REFERENCES image(image_id);
+CREATE INDEX idx_page_row_column_image_id ON page_row_column(image_id) WHERE image_id IS NOT NULL;
+
+UPDATE page_row_column prc
+SET image_id=i.image_id
+FROM image i
+WHERE prc.image_file_upload_id=i.file_upload_id
+AND prc.image_id IS NULL;
+
+DROP VIEW v_page_row_column;
+
+CREATE VIEW v_page_row_column AS
+SELECT pr.*, COALESCE(i.url, fu.url) AS image_url
+FROM page_row_column pr
+LEFT OUTER JOIN file_upload fu ON pr.image_file_upload_id=fu.file_upload_id
+LEFT OUTER JOIN v_image i ON pr.image_id=i.image_id;
+
+ALTER TABLE page_row_call_to_action ADD COLUMN image_id UUID REFERENCES image(image_id);
+CREATE INDEX idx_page_row_call_to_action_image_id ON page_row_call_to_action(image_id) WHERE image_id IS NOT NULL;
+
+UPDATE page_row_call_to_action prcta
+SET image_id=i.image_id
+FROM image i
+WHERE prcta.image_file_upload_id=i.file_upload_id
+AND prcta.image_id IS NULL;
+
+CREATE OR REPLACE VIEW v_page_row_call_to_action AS
+SELECT
+  prcta.page_row_call_to_action_id,
+  pr.page_row_id,
+  pr.page_section_id,
+  pr.display_order,
+  pr.row_type_id,
+  prcta.headline,
+  prcta.description,
+  prcta.button_text,
+  prcta.button_url,
+  prcta.image_file_upload_id,
+  COALESCE(i.url, fu.url) AS image_url,
+  pr.created,
+  pr.last_updated,
+  prcta.image_id
+FROM
+  page_row_call_to_action prcta
+  JOIN page_row pr ON prcta.page_row_id=pr.page_row_id
+  LEFT OUTER JOIN file_upload fu ON prcta.image_file_upload_id=fu.file_upload_id
+  LEFT OUTER JOIN v_image i ON prcta.image_id=i.image_id
+WHERE
+  pr.deleted_flag=FALSE;
+
 COMMIT;

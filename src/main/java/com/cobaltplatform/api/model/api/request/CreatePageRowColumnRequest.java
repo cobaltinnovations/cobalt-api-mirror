@@ -23,6 +23,7 @@ import com.cobaltplatform.api.model.db.PageRowColumnContentOrder.PageRowColumnCo
 
 import javax.annotation.Nullable;
 import javax.annotation.concurrent.NotThreadSafe;
+import java.util.UUID;
 
 /**
  * @author Transmogrify, LLC.
@@ -33,6 +34,8 @@ public class CreatePageRowColumnRequest {
 	private String headline;
 	@Nullable
 	private String description;
+	@Nullable
+	private UUID imageId;
 	@Nullable
 	private String imageFileUploadId;
 	@Nullable
@@ -61,6 +64,15 @@ public class CreatePageRowColumnRequest {
 
 	public void setDescription(@Nullable String description) {
 		this.description = description;
+	}
+
+	@Nullable
+	public UUID getImageId() {
+		return this.imageId;
+	}
+
+	public void setImageId(@Nullable UUID imageId) {
+		this.imageId = imageId;
 	}
 
 	@Nullable

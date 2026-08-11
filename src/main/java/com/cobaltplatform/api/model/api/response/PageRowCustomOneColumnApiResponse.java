@@ -19,9 +19,9 @@
 
 package com.cobaltplatform.api.model.api.response;
 
+import com.cobaltplatform.api.model.api.response.PageRowColumnApiResponse.PageRowImageApiResponseFactory;
 import com.cobaltplatform.api.model.db.BackgroundColor.BackgroundColorId;
 import com.cobaltplatform.api.model.db.PageRow;
-import com.cobaltplatform.api.model.db.PageRowColumn;
 import com.cobaltplatform.api.model.db.PageRowPadding.PageRowPaddingId;
 import com.cobaltplatform.api.model.db.RowType.RowTypeId;
 import com.cobaltplatform.api.service.PageService;
@@ -56,7 +56,7 @@ public class PageRowCustomOneColumnApiResponse {
 	@Nonnull
 	private final PageRowPaddingId paddingBottomId;
 	@Nonnull
-	private final PageRowColumn columnOne;
+	private final PageRowColumnApiResponse columnOne;
 	@Nonnull
 	private final RowTypeId rowTypeId;
 	@Nonnull
@@ -72,13 +72,15 @@ public class PageRowCustomOneColumnApiResponse {
 
 	@AssistedInject
 	public PageRowCustomOneColumnApiResponse(@Nonnull Formatter formatter,
-																					 @Nonnull Strings strings,
-																					 @Assisted @Nonnull PageRow pageRow,
-																					 @Nonnull PageService pageService) {
+																			 @Nonnull Strings strings,
+																			 @Assisted @Nonnull PageRow pageRow,
+																			 @Nonnull PageRowImageApiResponseFactory pageRowImageApiResponseFactory,
+																			 @Nonnull PageService pageService) {
 
 		requireNonNull(formatter);
 		requireNonNull(strings);
 		requireNonNull(pageRow);
+		requireNonNull(pageRowImageApiResponseFactory);
 		requireNonNull(pageService);
 
 		this.pageRowId = pageRow.getPageRowId();
@@ -90,7 +92,8 @@ public class PageRowCustomOneColumnApiResponse {
 		this.backgroundColorId = pageRow.getBackgroundColorId() == null ? BackgroundColorId.WHITE : pageRow.getBackgroundColorId();
 		this.paddingTopId = pageRow.getPaddingTopId() == null ? PageRowPaddingId.MEDIUM : pageRow.getPaddingTopId();
 		this.paddingBottomId = pageRow.getPaddingBottomId() == null ? PageRowPaddingId.MEDIUM : pageRow.getPaddingBottomId();
-		this.columnOne = pageService.findPageRowColumnByPageRowIdAndDisplayOrder(pageRow.getPageRowId(), 0).orElse(null);
+		this.columnOne = pageService.findPageRowColumnByPageRowIdAndDisplayOrder(pageRow.getPageRowId(), 0)
+				.map(pageRowImageApiResponseFactory::create).orElse(null);
 	}
 
 	@Nonnull
@@ -115,7 +118,7 @@ public class PageRowCustomOneColumnApiResponse {
 	}
 
 	@Nonnull
-	public PageRowColumn getColumnOne() {
+	public PageRowColumnApiResponse getColumnOne() {
 		return columnOne;
 	}
 

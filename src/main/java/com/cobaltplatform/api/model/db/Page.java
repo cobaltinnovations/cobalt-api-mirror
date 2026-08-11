@@ -47,6 +47,8 @@ public class Page {
 	@Nullable
 	private String description;
 	@Nullable
+	private UUID imageId;
+	@Nullable
 	private UUID imageFileUploadId;
 	@Nullable
 	private String imageAltText;
@@ -70,6 +72,10 @@ public class Page {
 	private Instant lastUpdated;
 	@Nullable
 	private Instant originalCreateDate;
+	@Nullable
+	private Image image;
+	@Nullable
+	private Image imageThumbnail;
 
 	// Sometimes joined in - the number of mailing list entries across all rows in this page
 	@Nullable
@@ -127,6 +133,15 @@ public class Page {
 
 	public void setDescription(@Nullable String description) {
 		this.description = description;
+	}
+
+	@Nullable
+	public UUID getImageId() {
+		return this.imageId;
+	}
+
+	public void setImageId(@Nullable UUID imageId) {
+		this.imageId = imageId;
 	}
 
 	@Nullable
@@ -235,6 +250,24 @@ public class Page {
 
 	public void setOriginalCreateDate(@Nullable Instant originalCreateDate) {
 		this.originalCreateDate = originalCreateDate;
+	}
+
+	@Nullable
+	public Image getImage() {
+		return this.image;
+	}
+
+	public void setImage(@Nullable Image image) {
+		this.image = image;
+	}
+
+	@Nullable
+	public Image getImageThumbnail() {
+		return this.imageThumbnail;
+	}
+
+	public void setImageThumbnail(@Nullable Image imageThumbnail) {
+		this.imageThumbnail = imageThumbnail;
 	}
 
 	@Nullable

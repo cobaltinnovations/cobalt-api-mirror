@@ -21,6 +21,7 @@ package com.cobaltplatform.api.model.api.response;
 
 import com.cobaltplatform.api.model.api.response.ContentApiResponse.ContentApiResponseFactory;
 import com.cobaltplatform.api.model.api.response.GroupSessionApiResponse.GroupSessionApiResponseFactory;
+import com.cobaltplatform.api.model.api.response.MediaImageApiResponse.MediaImageApiResponseFactory;
 import com.cobaltplatform.api.model.api.response.PageRowColumnApiResponse.PageRowImageApiResponseFactory;
 import com.cobaltplatform.api.model.api.response.PageRowCustomOneColumnApiResponse.PageCustomOneColumnApiResponseFactory;
 import com.cobaltplatform.api.model.api.response.PageRowCustomThreeColumnApiResponse.PageCustomThreeColumnApiResponseFactory;
@@ -34,7 +35,6 @@ import com.cobaltplatform.api.model.db.Page;
 import com.cobaltplatform.api.model.db.PageRow;
 import com.cobaltplatform.api.model.db.PageRowPadding.PageRowPaddingId;
 import com.cobaltplatform.api.model.db.PageRowCallToAction;
-import com.cobaltplatform.api.model.db.PageRowColumn;
 import com.cobaltplatform.api.model.db.PageRowMailingList;
 import com.cobaltplatform.api.model.db.PageRowTag;
 import com.cobaltplatform.api.model.db.PageStatus;
@@ -85,11 +85,11 @@ public class PageRowApiResponse {
 	@Nullable
 	private List<GroupSessionApiResponse> groupSessions;
 	@Nonnull
-	private PageRowColumn columnOne;
+	private PageRowColumnApiResponse columnOne;
 	@Nonnull
-	private PageRowColumn columnTwo;
+	private PageRowColumnApiResponse columnTwo;
 	@Nonnull
-	private PageRowColumn columnThree;
+	private PageRowColumnApiResponse columnThree;
 	@Nullable
 	private List<PageRowColumnApiResponse> columns;
 	@Nonnull
@@ -110,6 +110,10 @@ public class PageRowApiResponse {
 	private String buttonText;
 	@Nullable
 	private String buttonUrl;
+	@Nullable
+	private UUID imageId;
+	@Nullable
+	private PageImageApiResponse image;
 	@Nullable
 	private UUID imageFileUploadId;
 	@Nullable
@@ -132,7 +136,8 @@ public class PageRowApiResponse {
 														@Nonnull PageService pageService,
 														@Nonnull PageCustomOneColumnApiResponseFactory pageCustomOneColumnApiResponseFactory,
 														@Nonnull PageCustomTwoColumnApiResponseFactory pageCustomTwoColumnApiResponseFactory,
-														@Nonnull PageRowImageApiResponseFactory pageRowImageApiResponseFactory,
+																		@Nonnull PageRowImageApiResponseFactory pageRowImageApiResponseFactory,
+																		@Nonnull MediaImageApiResponseFactory mediaImageApiResponseFactory,
 														@Nonnull ContentApiResponseFactory contentApiResponseFactory,
 														@Nonnull GroupSessionApiResponseFactory groupSessionApiResponseFactory,
 														@Nonnull TagGroupApiResponseFactory tagGroupApiResponseFactory,
@@ -148,6 +153,7 @@ public class PageRowApiResponse {
 		requireNonNull(pageCustomTwoColumnApiResponseFactory);
 		requireNonNull(pageCustomThreeColumnApiResponseFactory);
 		requireNonNull(pageRowImageApiResponseFactory);
+		requireNonNull(mediaImageApiResponseFactory);
 		requireNonNull(contentApiResponseFactory);
 		requireNonNull(groupSessionApiResponseFactory);
 		requireNonNull(tagGroupApiResponseFactory);
@@ -192,19 +198,25 @@ public class PageRowApiResponse {
 		} else if (this.rowTypeId.equals(RowTypeId.ONE_COLUMN_IMAGE)
 				|| this.rowTypeId.equals(RowTypeId.ONE_COLUMN_IMAGE_RIGHT)
 				|| this.rowTypeId.equals(RowTypeId.ONE_COLUMN_TEXT))
-			this.columnOne = pageService.findPageRowColumnByPageRowIdAndDisplayOrder(pageRow.getPageRowId(), 0).orElse(null);
+			this.columnOne = pageService.findPageRowColumnByPageRowIdAndDisplayOrder(pageRow.getPageRowId(), 0)
+					.map(pageRowImageApiResponseFactory::create).orElse(null);
 		else if (this.rowTypeId.equals(RowTypeId.CUSTOM_ROW))
 			this.columns = pageService.findPageRowColumnsByPageRowId(pageRow.getPageRowId()).stream()
 					.map(pageRowImageApiResponseFactory::create)
 					.collect(Collectors.toList());
 		else if (this.rowTypeId.equals(RowTypeId.TWO_COLUMN_IMAGE)
 				|| this.rowTypeId.equals(RowTypeId.TWO_COLUMN_TEXT)) {
-			this.columnOne = pageService.findPageRowColumnByPageRowIdAndDisplayOrder(pageRow.getPageRowId(), 0).orElse(null);
-			this.columnTwo = pageService.findPageRowColumnByPageRowIdAndDisplayOrder(pageRow.getPageRowId(), 1).orElse(null);
+			this.columnOne = pageService.findPageRowColumnByPageRowIdAndDisplayOrder(pageRow.getPageRowId(), 0)
+					.map(pageRowImageApiResponseFactory::create).orElse(null);
+			this.columnTwo = pageService.findPageRowColumnByPageRowIdAndDisplayOrder(pageRow.getPageRowId(), 1)
+					.map(pageRowImageApiResponseFactory::create).orElse(null);
 		} else if (this.rowTypeId.equals(RowTypeId.THREE_COLUMN_IMAGE)) {
-			this.columnOne = pageService.findPageRowColumnByPageRowIdAndDisplayOrder(pageRow.getPageRowId(), 0).orElse(null);
-			this.columnTwo = pageService.findPageRowColumnByPageRowIdAndDisplayOrder(pageRow.getPageRowId(), 1).orElse(null);
-			this.columnThree = pageService.findPageRowColumnByPageRowIdAndDisplayOrder(pageRow.getPageRowId(), 2).orElse(null);
+			this.columnOne = pageService.findPageRowColumnByPageRowIdAndDisplayOrder(pageRow.getPageRowId(), 0)
+					.map(pageRowImageApiResponseFactory::create).orElse(null);
+			this.columnTwo = pageService.findPageRowColumnByPageRowIdAndDisplayOrder(pageRow.getPageRowId(), 1)
+					.map(pageRowImageApiResponseFactory::create).orElse(null);
+			this.columnThree = pageService.findPageRowColumnByPageRowIdAndDisplayOrder(pageRow.getPageRowId(), 2)
+					.map(pageRowImageApiResponseFactory::create).orElse(null);
 		} else if (this.rowTypeId.equals(RowTypeId.MAILING_LIST)) {
 			PageRowMailingList pageRowMailingList = pageService.findPageRowMailingListByRowId(pageRow.getPageRowId()).orElse(null);
 			this.mailingListId = pageRowMailingList == null ? null : pageRowMailingList.getMailingListId();
@@ -216,6 +228,9 @@ public class PageRowApiResponse {
 			this.description = pageRowCallToAction == null ? null : pageRowCallToAction.getDescription();
 			this.buttonText = pageRowCallToAction == null ? null : pageRowCallToAction.getButtonText();
 			this.buttonUrl = pageRowCallToAction == null ? null : pageRowCallToAction.getButtonUrl();
+			this.imageId = pageRowCallToAction == null ? null : pageRowCallToAction.getImageId();
+			this.image = pageRowCallToAction == null || pageRowCallToAction.getImage() == null ? null
+					: new PageImageApiResponse(formatter, mediaImageApiResponseFactory, pageRowCallToAction.getImage(), pageRowCallToAction.getImageThumbnail());
 			this.imageFileUploadId = pageRowCallToAction == null ? null : pageRowCallToAction.getImageFileUploadId();
 			this.imageUrl = pageRowCallToAction == null ? null : pageRowCallToAction.getImageUrl();
 		}
@@ -308,17 +323,17 @@ public class PageRowApiResponse {
 	}
 
 	@Nonnull
-	public PageRowColumn getColumnOne() {
+	public PageRowColumnApiResponse getColumnOne() {
 		return columnOne;
 	}
 
 	@Nonnull
-	public PageRowColumn getColumnTwo() {
+	public PageRowColumnApiResponse getColumnTwo() {
 		return columnTwo;
 	}
 
 	@Nonnull
-	public PageRowColumn getColumnThree() {
+	public PageRowColumnApiResponse getColumnThree() {
 		return columnThree;
 	}
 
@@ -373,11 +388,23 @@ public class PageRowApiResponse {
 	}
 
 	@Nonnull
+	public Optional<UUID> getImageId() {
+		return Optional.ofNullable(this.imageId);
+	}
+
+	@Nonnull
+	public Optional<PageImageApiResponse> getImage() {
+		return Optional.ofNullable(this.image);
+	}
+
+	@Nonnull
+	@Deprecated // Prefer "image.fileUploadId".
 	public Optional<UUID> getImageFileUploadId() {
 		return Optional.ofNullable(this.imageFileUploadId);
 	}
 
 	@Nonnull
+	@Deprecated // Prefer "image.url".
 	public Optional<String> getImageUrl() {
 		return Optional.ofNullable(this.imageUrl);
 	}

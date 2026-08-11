@@ -19,6 +19,7 @@
 
 package com.cobaltplatform.api.model.api.response;
 
+import com.cobaltplatform.api.model.api.response.MediaImageApiResponse.MediaImageApiResponseFactory;
 import com.cobaltplatform.api.model.db.PageRowColumn;
 import com.cobaltplatform.api.model.db.PageRowColumnContentOrder.PageRowColumnContentOrderId;
 import com.cobaltplatform.api.util.Formatter;
@@ -47,6 +48,10 @@ public class PageRowColumnApiResponse {
 	@Nullable
 	private String description;
 	@Nullable
+	private UUID imageId;
+	@Nullable
+	private PageImageApiResponse image;
+	@Nullable
 	private UUID imageFileUploadId;
 	@Nullable
 	private String imageAltText;
@@ -69,16 +74,21 @@ public class PageRowColumnApiResponse {
 	@AssistedInject
 	public PageRowColumnApiResponse(@Nonnull Formatter formatter,
 																	@Nonnull Strings strings,
+																	@Nonnull MediaImageApiResponseFactory mediaImageApiResponseFactory,
 																	@Assisted @Nonnull PageRowColumn pageRowImage) {
 
 		requireNonNull(formatter);
 		requireNonNull(strings);
+		requireNonNull(mediaImageApiResponseFactory);
 		requireNonNull(pageRowImage);
 
 		this.pageRowColumnId = pageRowImage.getPageRowColumnId();
 		this.pageRowId = pageRowImage.getPageRowId();
 		this.headline = pageRowImage.getHeadline();
 		this.description = pageRowImage.getDescription();
+		this.imageId = pageRowImage.getImageId();
+		this.image = pageRowImage.getImage() == null ? null : new PageImageApiResponse(formatter,
+				mediaImageApiResponseFactory, pageRowImage.getImage(), pageRowImage.getImageThumbnail());
 		this.imageFileUploadId = pageRowImage.getImageFileUploadId();
 		this.imageAltText = pageRowImage.getImageAltText();
 		this.imageUrl = pageRowImage.getImageUrl();
@@ -108,6 +118,17 @@ public class PageRowColumnApiResponse {
 	}
 
 	@Nullable
+	public UUID getImageId() {
+		return this.imageId;
+	}
+
+	@Nullable
+	public PageImageApiResponse getImage() {
+		return this.image;
+	}
+
+	@Nullable
+	@Deprecated // Prefer "image.fileUploadId".
 	public UUID getImageFileUploadId() {
 		return imageFileUploadId;
 	}
@@ -118,6 +139,7 @@ public class PageRowColumnApiResponse {
 	}
 
 	@Nullable
+	@Deprecated // Prefer "image.url".
 	public String getImageUrl() {
 		return imageUrl;
 	}

@@ -80,6 +80,29 @@ import static java.util.Objects.requireNonNull;
 @ThreadSafe
 public class MediaImageMigrationServiceTests {
 	@Test
+	public void pageBuilderCropSelectionPreservesTheMostSourceArea() {
+		Assert.assertEquals(FileUploadTypeId.IMAGE_1X1,
+				MediaImageMigrationService.closestQualifiedPageBuilderCropFileUploadTypeId(1600, 1600).orElse(null));
+		Assert.assertEquals(FileUploadTypeId.IMAGE_4X3,
+				MediaImageMigrationService.closestQualifiedPageBuilderCropFileUploadTypeId(1600, 1200).orElse(null));
+		Assert.assertEquals(FileUploadTypeId.IMAGE_16X9,
+				MediaImageMigrationService.closestQualifiedPageBuilderCropFileUploadTypeId(1600, 900).orElse(null));
+		Assert.assertEquals(FileUploadTypeId.IMAGE_1X1,
+				MediaImageMigrationService.closestQualifiedPageBuilderCropFileUploadTypeId(1200, 1600).orElse(null));
+		Assert.assertEquals(FileUploadTypeId.IMAGE_4X3,
+				MediaImageMigrationService.closestQualifiedPageBuilderCropFileUploadTypeId(1500, 1000).orElse(null));
+	}
+
+	@Test
+	public void pageBuilderCropSelectionFallsBackByQualityAndCanRejectEveryCrop() {
+		Assert.assertEquals("The closest 4:3 crop is too small, so a viable square crop should be selected",
+				FileUploadTypeId.IMAGE_1X1,
+				MediaImageMigrationService.closestQualifiedPageBuilderCropFileUploadTypeId(1100, 900).orElse(null));
+		Assert.assertFalse("No supported crop should pass for a small source",
+				MediaImageMigrationService.closestQualifiedPageBuilderCropFileUploadTypeId(640, 480).isPresent());
+	}
+
+	@Test
 	public void highFidelityLegacyGroupSessionImageMigratesAndRewiresToCrop() {
 		FakeUploadManagerModule fakeUploadManagerModule = new FakeUploadManagerModule();
 
@@ -217,6 +240,56 @@ public class MediaImageMigrationServiceTests {
 	}
 
 	@Test
+	public void legacyPageBuilderImagesChooseClosestCropAndRewireSharedReferences() {
+		FakeUploadManagerModule fakeUploadManagerModule = new FakeUploadManagerModule();
+
+		IntegrationTestExecutor.runTransactionallyAndForceRollback((app) -> {
+			Database database = app.getInjector().getInstance(DatabaseProvider.class).getWritableMasterDatabase();
+			assumeImageMigrationSchemaExists(database);
+
+			MediaImageMigrationService mediaImageMigrationService = app.getInjector().getInstance(MediaImageMigrationService.class);
+			FakeUploadManager fakeUploadManager = (FakeUploadManager) app.getInjector().getInstance(UploadManager.class);
+			Account account = findExistingAdministratorAccount(database);
+			UUID legacyFileUploadId = createLegacyImageFileUpload(database, fakeUploadManager, account,
+					createPngImage(1600, 1200), "legacy-page-builder-4x3.png", FileUploadTypeId.PAGE_IMAGE, "image/png");
+			PageBuilderReferenceIds referenceIds = createPageBuilderImageReferences(database, account, legacyFileUploadId);
+
+			LegacyImageMigrationResult migrationResult = mediaImageMigrationService.migrateLegacyPageImage(account, referenceIds.getPageId());
+			UUID cropImageId = migrationResult.getCropImageIdsByFileUploadTypeId().get(FileUploadTypeId.IMAGE_4X3);
+			UUID cropFileUploadId = migrationResult.getCropFileUploadIdsByFileUploadTypeId().get(FileUploadTypeId.IMAGE_4X3);
+
+			Assert.assertEquals(LegacyImageMigrationStatusId.VARIANTS_GENERATED, migrationResult.getMigrationStatusId());
+			Assert.assertNotNull("The closest 4:3 crop should be generated", cropImageId);
+			Assert.assertNotNull("The matching 4:3 thumbnail should be generated",
+					migrationResult.getThumbnailImageIdsByCropFileUploadTypeId().get(FileUploadTypeId.IMAGE_4X3));
+			Assert.assertFalse("Unselected 16:9 crop should not be generated",
+					migrationResult.getCropImageIdsByFileUploadTypeId().containsKey(FileUploadTypeId.IMAGE_16X9));
+			Assert.assertFalse("Unselected square crop should not be generated",
+					migrationResult.getCropImageIdsByFileUploadTypeId().containsKey(FileUploadTypeId.IMAGE_1X1));
+
+			for (UUID rewiredImageId : database.queryForList("""
+					SELECT image_id FROM page WHERE page_id=?
+					UNION ALL SELECT image_id FROM page_row_column WHERE page_row_column_id=?
+					UNION ALL SELECT image_id FROM page_row_call_to_action WHERE page_row_call_to_action_id=?
+					""", UUID.class, referenceIds.getPageId(), referenceIds.getPageRowColumnId(), referenceIds.getPageRowCallToActionId()))
+				Assert.assertEquals("Every page-builder reference sharing the upload should be rewired", cropImageId, rewiredImageId);
+
+			for (UUID rewiredFileUploadId : database.queryForList("""
+					SELECT image_file_upload_id FROM page WHERE page_id=?
+					UNION ALL SELECT image_file_upload_id FROM page_row_column WHERE page_row_column_id=?
+					UNION ALL SELECT image_file_upload_id FROM page_row_call_to_action WHERE page_row_call_to_action_id=?
+					""", UUID.class, referenceIds.getPageId(), referenceIds.getPageRowColumnId(), referenceIds.getPageRowCallToActionId()))
+				Assert.assertEquals(cropFileUploadId, rewiredFileUploadId);
+
+			LegacyImageMigrationResult retryResult = mediaImageMigrationService.migrateLegacyPageRowColumnImage(account,
+					referenceIds.getPageRowColumnId());
+			Assert.assertEquals(cropImageId, retryResult.getCropImageIdsByFileUploadTypeId().get(FileUploadTypeId.IMAGE_4X3));
+			Assert.assertEquals("Retry through a non-16:9 audit crop must not duplicate the family",
+					Integer.valueOf(4), fakeUploadManager.getStoredObjectCount());
+		}, fakeUploadManagerModule);
+	}
+
+	@Test
 	public void institutionReportAndBatchMigrationAreScopedToContentAndGroupSessionsIncrementally() {
 		FakeUploadManagerModule fakeUploadManagerModule = new FakeUploadManagerModule();
 
@@ -326,6 +399,29 @@ public class MediaImageMigrationServiceTests {
 				  WHERE gs.institution_id=?
 				  AND gs.group_session_status_id<>'DELETED'
 				  AND fu.file_upload_type_id=?
+				  UNION
+				  SELECT DISTINCT p.image_file_upload_id AS legacy_file_upload_id
+				  FROM page p
+				  JOIN file_upload fu ON fu.file_upload_id=p.image_file_upload_id
+				  WHERE p.institution_id=? AND p.deleted_flag=FALSE AND fu.file_upload_type_id=?
+				  UNION
+				  SELECT DISTINCT prc.image_file_upload_id AS legacy_file_upload_id
+				  FROM page_row_column prc
+				  JOIN file_upload fu ON fu.file_upload_id=prc.image_file_upload_id
+				  JOIN page_row pr ON pr.page_row_id=prc.page_row_id
+				  JOIN page_section ps ON ps.page_section_id=pr.page_section_id
+				  JOIN page p ON p.page_id=ps.page_id
+				  WHERE p.institution_id=? AND p.deleted_flag=FALSE AND ps.deleted_flag=FALSE AND pr.deleted_flag=FALSE
+				  AND fu.file_upload_type_id=?
+				  UNION
+				  SELECT DISTINCT prcta.image_file_upload_id AS legacy_file_upload_id
+				  FROM page_row_call_to_action prcta
+				  JOIN file_upload fu ON fu.file_upload_id=prcta.image_file_upload_id
+				  JOIN page_row pr ON pr.page_row_id=prcta.page_row_id
+				  JOIN page_section ps ON ps.page_section_id=pr.page_section_id
+				  JOIN page p ON p.page_id=ps.page_id
+				  WHERE p.institution_id=? AND p.deleted_flag=FALSE AND ps.deleted_flag=FALSE AND pr.deleted_flag=FALSE
+				  AND fu.file_upload_type_id=?
 				)
 				INSERT INTO legacy_image_migration (
 				  legacy_file_upload_id,
@@ -357,7 +453,57 @@ public class MediaImageMigrationServiceTests {
 				ON CONFLICT (legacy_file_upload_id) DO NOTHING
 				""", account.getInstitutionId(), FileUploadTypeId.CONTENT_IMAGE,
 				account.getInstitutionId(), FileUploadTypeId.GROUP_SESSION_IMAGE,
+				account.getInstitutionId(), FileUploadTypeId.PAGE_IMAGE,
+				account.getInstitutionId(), FileUploadTypeId.PAGE_IMAGE,
+				account.getInstitutionId(), FileUploadTypeId.PAGE_IMAGE,
 				account.getAccountId());
+	}
+
+	@Nonnull
+	protected PageBuilderReferenceIds createPageBuilderImageReferences(@Nonnull Database database,
+																										 @Nonnull Account account,
+																										 @Nonnull UUID legacyFileUploadId) {
+		requireNonNull(database);
+		requireNonNull(account);
+		requireNonNull(legacyFileUploadId);
+
+		UUID pageId = UUID.randomUUID();
+		UUID pageSectionId = UUID.randomUUID();
+		UUID pageRowColumnRowId = UUID.randomUUID();
+		UUID pageRowColumnId = UUID.randomUUID();
+		UUID pageRowCallToActionRowId = UUID.randomUUID();
+		UUID pageRowCallToActionId = UUID.randomUUID();
+
+		database.execute("INSERT INTO page_group (page_group_id) VALUES (?)", pageId);
+		database.execute("""
+				INSERT INTO page (page_id,name,url_name,page_status_id,image_file_upload_id,institution_id,
+				  created_by_account_id,page_group_id)
+				VALUES (?,?,?,'DRAFT',?,?,?,?)
+				""", pageId, "Migration Test Page", format("migration-test-%s", pageId), legacyFileUploadId,
+				account.getInstitutionId(), account.getAccountId(), pageId);
+		database.execute("""
+				INSERT INTO page_section (page_section_id,page_id,name,background_color_id,display_order,created_by_account_id)
+				VALUES (?,?,'Migration Test','WHITE',0,?)
+				""", pageSectionId, pageId, account.getAccountId());
+		database.execute("""
+				INSERT INTO page_row (page_row_id,page_section_id,row_type_id,display_order,created_by_account_id)
+				VALUES (?,?,'CUSTOM_ROW',0,?)
+				""", pageRowColumnRowId, pageSectionId, account.getAccountId());
+		database.execute("""
+				INSERT INTO page_row_column (page_row_column_id,page_row_id,image_file_upload_id,column_display_order)
+				VALUES (?,?,?,0)
+				""", pageRowColumnId, pageRowColumnRowId, legacyFileUploadId);
+		database.execute("""
+				INSERT INTO page_row (page_row_id,page_section_id,row_type_id,display_order,created_by_account_id)
+				VALUES (?,?,'CALL_TO_ACTION_BLOCK',1,?)
+				""", pageRowCallToActionRowId, pageSectionId, account.getAccountId());
+		database.execute("""
+				INSERT INTO page_row_call_to_action
+				  (page_row_call_to_action_id,page_row_id,headline,description,button_text,button_url,image_file_upload_id)
+				VALUES (?,?,'Headline','Description','Button','https://example.com',?)
+				""", pageRowCallToActionId, pageRowCallToActionRowId, legacyFileUploadId);
+
+		return new PageBuilderReferenceIds(pageId, pageRowColumnId, pageRowCallToActionId);
 	}
 
 	@Nonnull
@@ -603,6 +749,38 @@ public class MediaImageMigrationServiceTests {
 
 		public void setImageFileUploadId(@Nullable UUID imageFileUploadId) {
 			this.imageFileUploadId = imageFileUploadId;
+		}
+	}
+
+	protected static class PageBuilderReferenceIds {
+		@Nonnull
+		private final UUID pageId;
+		@Nonnull
+		private final UUID pageRowColumnId;
+		@Nonnull
+		private final UUID pageRowCallToActionId;
+
+		public PageBuilderReferenceIds(@Nonnull UUID pageId,
+														 @Nonnull UUID pageRowColumnId,
+														 @Nonnull UUID pageRowCallToActionId) {
+			this.pageId = requireNonNull(pageId);
+			this.pageRowColumnId = requireNonNull(pageRowColumnId);
+			this.pageRowCallToActionId = requireNonNull(pageRowCallToActionId);
+		}
+
+		@Nonnull
+		public UUID getPageId() {
+			return this.pageId;
+		}
+
+		@Nonnull
+		public UUID getPageRowColumnId() {
+			return this.pageRowColumnId;
+		}
+
+		@Nonnull
+		public UUID getPageRowCallToActionId() {
+			return this.pageRowCallToActionId;
 		}
 	}
 

@@ -39,6 +39,8 @@ public class UpdatePageRowColumnRequest {
 	@Nullable
 	private String description;
 	@Nullable
+	private UUID imageId;
+	@Nullable
 	private String imageFileUploadId;
 	@Nullable
 	private String imageAltText;
@@ -72,6 +74,15 @@ public class UpdatePageRowColumnRequest {
 
 	public void setDescription(@Nullable String description) {
 		this.description = description;
+	}
+
+	@Nullable
+	public UUID getImageId() {
+		return this.imageId;
+	}
+
+	public void setImageId(@Nullable UUID imageId) {
+		this.imageId = imageId;
 	}
 
 	@Nullable

@@ -187,6 +187,29 @@ public class MediaService {
 	}
 
 	@Nonnull
+	public Optional<Image> findActiveUploadedMediaCropImageById(@Nullable InstitutionId institutionId,
+																									@Nullable UUID imageId) {
+		if (institutionId == null || imageId == null)
+			return Optional.empty();
+
+		return getDatabase().queryForObject("""
+				SELECT *
+				FROM v_image
+				WHERE image_id=?
+				AND institution_id=?
+				AND active=TRUE
+				AND file_upload_status_id=?
+				AND file_upload_type_id IN (?,?,?)
+				""", Image.class,
+				imageId,
+				institutionId,
+				FileUploadStatusId.UPLOADED,
+				FileUploadTypeId.IMAGE_4X3,
+				FileUploadTypeId.IMAGE_16X9,
+				FileUploadTypeId.IMAGE_1X1);
+	}
+
+	@Nonnull
 	public Optional<MediaImageDetails> findMediaImageDetails(@Nonnull Account account,
 																													@Nonnull UUID imageId) {
 		requireNonNull(account);
@@ -341,6 +364,43 @@ public class MediaService {
 						)
 						""".formatted(groupSessionAssociatedImagePredicateSql));
 
+			if (requestedMediaImageScopeIds.contains(MediaImageScopeId.PAGE))
+				scopeFilterSqlComponents.add("""
+						(
+						  EXISTS (
+						    SELECT 1
+						    FROM page p
+						    WHERE p.institution_id=?
+						    AND p.deleted_flag=FALSE
+						    AND p.image_id=crop.image_id
+						  )
+						  OR EXISTS (
+						    SELECT 1
+						    FROM page_row_column prc
+						    JOIN page_row pr USING (page_row_id)
+						    JOIN page_section ps USING (page_section_id)
+						    JOIN page p USING (page_id)
+						    WHERE p.institution_id=?
+						    AND p.deleted_flag=FALSE
+						    AND ps.deleted_flag=FALSE
+						    AND pr.deleted_flag=FALSE
+						    AND prc.image_id=crop.image_id
+						  )
+						  OR EXISTS (
+						    SELECT 1
+						    FROM page_row_call_to_action prcta
+						    JOIN page_row pr USING (page_row_id)
+						    JOIN page_section ps USING (page_section_id)
+						    JOIN page p USING (page_id)
+						    WHERE p.institution_id=?
+						    AND p.deleted_flag=FALSE
+						    AND ps.deleted_flag=FALSE
+						    AND pr.deleted_flag=FALSE
+						    AND prcta.image_id=crop.image_id
+						  )
+						)
+						""");
+
 			scopeFilterSql = format("""
 					AND (
 					  %s
@@ -371,6 +431,12 @@ public class MediaService {
 
 		if (requestedMediaImageScopeIds.contains(MediaImageScopeId.GROUP_SESSION))
 			parameters.add(account.getInstitutionId());
+
+		if (requestedMediaImageScopeIds.contains(MediaImageScopeId.PAGE)) {
+			parameters.add(account.getInstitutionId());
+			parameters.add(account.getInstitutionId());
+			parameters.add(account.getInstitutionId());
+		}
 
 		if (searchQuery != null)
 			for (int i = 0; i < 6; ++i)

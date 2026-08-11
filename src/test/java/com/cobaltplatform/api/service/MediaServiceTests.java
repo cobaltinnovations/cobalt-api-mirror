@@ -498,6 +498,39 @@ public class MediaServiceTests {
 	}
 
 	@Test
+	public void pageBuilderImageLookupAcceptsOnlyActiveUploadedInstitutionCrops() {
+		IntegrationTestExecutor.runTransactionallyAndForceRollback((app) -> {
+			MediaService mediaService = app.getInjector().getInstance(MediaService.class);
+			Database database = app.getInjector().getInstance(DatabaseProvider.class).getWritableMasterDatabase();
+			Account account = findExistingAccount(database);
+
+			MediaImageFamily fourByThreeFamily = createUploadedMediaImageFamily(database, account, "page-validation", "4x3", FileUploadTypeId.IMAGE_4X3);
+			MediaImageFamily sixteenByNineFamily = createUploadedMediaImageFamily(database, account, "page-validation", "16x9", FileUploadTypeId.IMAGE_16X9);
+			MediaImageFamily squareFamily = createUploadedMediaImageFamily(database, account, "page-validation", "1x1", FileUploadTypeId.IMAGE_1X1);
+
+			Assert.assertTrue(mediaService.findActiveUploadedMediaCropImageById(account.getInstitutionId(), fourByThreeFamily.getCropImageId()).isPresent());
+			Assert.assertTrue(mediaService.findActiveUploadedMediaCropImageById(account.getInstitutionId(), sixteenByNineFamily.getCropImageId()).isPresent());
+			Assert.assertTrue(mediaService.findActiveUploadedMediaCropImageById(account.getInstitutionId(), squareFamily.getCropImageId()).isPresent());
+			Assert.assertFalse("Raw images are not valid page-builder selections",
+					mediaService.findActiveUploadedMediaCropImageById(account.getInstitutionId(), fourByThreeFamily.getRawImageId()).isPresent());
+			Assert.assertFalse("Thumbnails are not valid page-builder selections",
+					mediaService.findActiveUploadedMediaCropImageById(account.getInstitutionId(), fourByThreeFamily.getThumbnailImageId()).isPresent());
+			Assert.assertFalse("Crops from another institution are invalid",
+					mediaService.findActiveUploadedMediaCropImageById(InstitutionId.COBALT_IC, squareFamily.getCropImageId()).isPresent());
+
+			database.execute("UPDATE image SET active=FALSE WHERE image_id=?", fourByThreeFamily.getCropImageId());
+			database.execute("""
+					UPDATE file_upload SET file_upload_status_id=?
+					WHERE file_upload_id=(SELECT file_upload_id FROM image WHERE image_id=?)
+					""", FileUploadStatusId.CREATED, sixteenByNineFamily.getCropImageId());
+			Assert.assertFalse("Inactive crops are invalid",
+					mediaService.findActiveUploadedMediaCropImageById(account.getInstitutionId(), fourByThreeFamily.getCropImageId()).isPresent());
+			Assert.assertFalse("Pending crops are invalid",
+					mediaService.findActiveUploadedMediaCropImageById(account.getInstitutionId(), sixteenByNineFamily.getCropImageId()).isPresent());
+		});
+	}
+
+	@Test
 	public void mediaImageGalleryResourceScopeReturnsLiveResourceContentAssociations() {
 		IntegrationTestExecutor.runTransactionallyAndForceRollback((app) -> {
 			MediaService mediaService = app.getInjector().getInstance(MediaService.class);
@@ -552,6 +585,41 @@ public class MediaServiceTests {
 	}
 
 	@Test
+	public void mediaImageGalleryPageScopeIncludesDraftHeroColumnAndCallToActionAssociations() {
+		IntegrationTestExecutor.runTransactionallyAndForceRollback((app) -> {
+			MediaService mediaService = app.getInjector().getInstance(MediaService.class);
+			Database database = app.getInjector().getInstance(DatabaseProvider.class).getWritableMasterDatabase();
+			assumePageBuilderImageIdColumnsExist(database);
+			Account account = findExistingAdministratorAccount(database);
+			String searchToken = format("page-scope-%s", UUID.randomUUID());
+
+			MediaImageFamily heroFamily = createUploadedMediaImageFamily(database, account, searchToken, "draft-page-hero", FileUploadTypeId.IMAGE_4X3);
+			MediaImageFamily columnFamily = createUploadedMediaImageFamily(database, account, searchToken, "draft-page-column", FileUploadTypeId.IMAGE_1X1);
+			MediaImageFamily callToActionFamily = createUploadedMediaImageFamily(database, account, searchToken, "draft-page-cta", FileUploadTypeId.IMAGE_16X9);
+			MediaImageFamily deletedRowFamily = createUploadedMediaImageFamily(database, account, searchToken, "deleted-page-row", FileUploadTypeId.IMAGE_16X9);
+			MediaImageFamily deletedPageFamily = createUploadedMediaImageFamily(database, account, searchToken, "deleted-page", FileUploadTypeId.IMAGE_16X9);
+			MediaImageFamily unassociatedFamily = createUploadedMediaImageFamily(database, account, searchToken, "unassociated-page", FileUploadTypeId.IMAGE_16X9);
+
+			createPageBuilderImageAssociations(database, account, heroFamily.getCropImageId(), columnFamily.getCropImageId(),
+					callToActionFamily.getCropImageId(), deletedRowFamily.getCropImageId(), deletedPageFamily.getCropImageId());
+
+			FindResult<MediaImageGalleryItem> results = mediaService.findMediaImageGalleryItems(account, 0, 10, searchToken,
+					null, MediaImageScopeId.PAGE);
+			Assert.assertEquals("Page scope should include hero, column, and CTA associations on active draft pages",
+					Set.of(heroFamily.getRawImageId(), columnFamily.getRawImageId(), callToActionFamily.getRawImageId()),
+					Set.copyOf(sourceImageIds(results)));
+			Assert.assertFalse(sourceImageIds(results).contains(deletedRowFamily.getRawImageId()));
+			Assert.assertFalse(sourceImageIds(results).contains(deletedPageFamily.getRawImageId()));
+			Assert.assertFalse(sourceImageIds(results).contains(unassociatedFamily.getRawImageId()));
+
+			FindResult<MediaImageGalleryItem> squareResults = mediaService.findMediaImageGalleryItems(account, 0, 10,
+					searchToken, FileUploadTypeId.IMAGE_1X1, MediaImageScopeId.PAGE);
+			Assert.assertEquals("Page scope should compose with crop filters", List.of(columnFamily.getRawImageId()),
+					sourceImageIds(squareResults));
+		});
+	}
+
+	@Test
 	public void mediaImageGalleryFiltersByMultipleMediaImageScopeIds() {
 		IntegrationTestExecutor.runTransactionallyAndForceRollback((app) -> {
 			MediaService mediaService = app.getInjector().getInstance(MediaService.class);
@@ -560,11 +628,13 @@ public class MediaServiceTests {
 			Database database = app.getInjector().getInstance(DatabaseProvider.class).getWritableMasterDatabase();
 			assumeContentImageIdColumnExists(database);
 			assumeGroupSessionImageIdColumnExists(database);
+			assumePageBuilderImageIdColumnsExist(database);
 			Account account = findExistingAdministratorAccount(database);
 			String searchToken = format("multi-scope-%s", UUID.randomUUID());
 
 			MediaImageFamily resourceFamily = createUploadedMediaImageFamily(database, account, searchToken, "multi-resource", FileUploadTypeId.IMAGE_16X9);
 			MediaImageFamily groupSessionFamily = createUploadedMediaImageFamily(database, account, searchToken, "multi-group-session", FileUploadTypeId.IMAGE_16X9);
+			MediaImageFamily pageFamily = createUploadedMediaImageFamily(database, account, searchToken, "multi-page", FileUploadTypeId.IMAGE_4X3);
 			MediaImageFamily deletedGroupSessionFamily = createUploadedMediaImageFamily(database, account, searchToken, "multi-deleted-group-session", FileUploadTypeId.IMAGE_16X9);
 			MediaImageFamily unassociatedFamily = createUploadedMediaImageFamily(database, account, searchToken, "multi-unassociated", FileUploadTypeId.IMAGE_16X9);
 
@@ -572,13 +642,16 @@ public class MediaServiceTests {
 			createGroupSessionWithImage(groupSessionService, account, groupSessionFamily.getCropImageId(), "multi-scope-active");
 			UUID deletedGroupSessionId = createGroupSessionWithImage(groupSessionService, account, deletedGroupSessionFamily.getCropImageId(), "multi-scope-deleted");
 			database.execute("UPDATE group_session SET group_session_status_id=? WHERE group_session_id=?", GroupSessionStatusId.DELETED, deletedGroupSessionId);
+			createPageBuilderImageAssociations(database, account, pageFamily.getCropImageId(), pageFamily.getCropImageId(),
+					pageFamily.getCropImageId(), pageFamily.getCropImageId(), pageFamily.getCropImageId());
 
 			FindResult<MediaImageGalleryItem> results = mediaService.findMediaImageGalleryItems(account, 0, 10, searchToken,
-					null, List.of(MediaImageScopeId.RESOURCE, MediaImageScopeId.GROUP_SESSION));
+					null, List.of(MediaImageScopeId.RESOURCE, MediaImageScopeId.GROUP_SESSION, MediaImageScopeId.PAGE));
 
-			Assert.assertEquals("Multiple scopes should include matching resource and group-session associations", Integer.valueOf(2), results.getTotalCount());
+			Assert.assertEquals("Multiple scopes should include matching resource, group-session, and page associations", Integer.valueOf(3), results.getTotalCount());
 			Assert.assertEquals("Multiple scopes should return families associated to either requested scope",
-					Set.of(resourceFamily.getRawImageId(), groupSessionFamily.getRawImageId()), Set.copyOf(sourceImageIds(results)));
+					Set.of(resourceFamily.getRawImageId(), groupSessionFamily.getRawImageId(), pageFamily.getRawImageId()),
+					Set.copyOf(sourceImageIds(results)));
 			Assert.assertFalse("Deleted group sessions should not count for multi-scope filtering", sourceImageIds(results).contains(deletedGroupSessionFamily.getRawImageId()));
 			Assert.assertFalse("Unassociated images should not be returned", sourceImageIds(results).contains(unassociatedFamily.getRawImageId()));
 		});
@@ -836,6 +909,74 @@ public class MediaServiceTests {
 				""", Boolean.class).get();
 
 		Assume.assumeTrue("Branch schema must include group_session.image_id", groupSessionImageIdColumnExists);
+	}
+
+	protected void assumePageBuilderImageIdColumnsExist(@Nonnull Database database) {
+		requireNonNull(database);
+
+		Long imageIdColumnCount = database.queryForObject("""
+				SELECT COUNT(*)
+				FROM information_schema.columns
+				WHERE table_schema='cobalt'
+				AND table_name IN ('page','page_row_column','page_row_call_to_action')
+				AND column_name='image_id'
+				""", Long.class).get();
+
+		Assume.assumeTrue("Branch schema must include page-builder image_id columns", imageIdColumnCount == 3L);
+	}
+
+	protected void createPageBuilderImageAssociations(@Nonnull Database database,
+																								 @Nonnull Account account,
+																								 @Nonnull UUID heroImageId,
+																								 @Nonnull UUID columnImageId,
+																								 @Nonnull UUID callToActionImageId,
+																								 @Nonnull UUID deletedRowImageId,
+																								 @Nonnull UUID deletedPageImageId) {
+		UUID pageId = UUID.randomUUID();
+		UUID pageSectionId = UUID.randomUUID();
+		UUID customRowId = UUID.randomUUID();
+		UUID callToActionRowId = UUID.randomUUID();
+		UUID deletedRowId = UUID.randomUUID();
+		UUID deletedPageId = UUID.randomUUID();
+
+		database.execute("INSERT INTO page_group (page_group_id) VALUES (?),(?)", pageId, deletedPageId);
+		database.execute("""
+				INSERT INTO page (page_id,name,url_name,page_status_id,image_id,image_file_upload_id,institution_id,
+				  created_by_account_id,page_group_id)
+				SELECT ?,?,?, 'DRAFT', i.image_id, i.file_upload_id, ?, ?, ? FROM image i WHERE i.image_id=?
+				""", pageId, "Page scope draft", format("page-scope-%s", pageId), account.getInstitutionId(),
+				account.getAccountId(), pageId, heroImageId);
+		database.execute("""
+				INSERT INTO page_section (page_section_id,page_id,name,background_color_id,display_order,created_by_account_id)
+				VALUES (?,?,'Page Scope','WHITE',0,?)
+				""", pageSectionId, pageId, account.getAccountId());
+		database.execute("""
+				INSERT INTO page_row (page_row_id,page_section_id,row_type_id,display_order,created_by_account_id)
+				VALUES (?,?,'CUSTOM_ROW',0,?),(?,?,'CALL_TO_ACTION_BLOCK',1,?),(?,?,'CUSTOM_ROW',2,?)
+				""", customRowId, pageSectionId, account.getAccountId(), callToActionRowId, pageSectionId,
+				account.getAccountId(), deletedRowId, pageSectionId, account.getAccountId());
+		database.execute("""
+				INSERT INTO page_row_column (page_row_id,image_id,image_file_upload_id,column_display_order)
+				SELECT ?,i.image_id,i.file_upload_id,0 FROM image i WHERE i.image_id=?
+				""", customRowId, columnImageId);
+		database.execute("""
+				INSERT INTO page_row_call_to_action
+				  (page_row_id,headline,description,button_text,button_url,image_id,image_file_upload_id)
+				SELECT ?,'Headline','Description','Button','https://example.com',i.image_id,i.file_upload_id
+				FROM image i WHERE i.image_id=?
+				""", callToActionRowId, callToActionImageId);
+		database.execute("""
+				INSERT INTO page_row_column (page_row_id,image_id,image_file_upload_id,column_display_order)
+				SELECT ?,i.image_id,i.file_upload_id,0 FROM image i WHERE i.image_id=?
+				""", deletedRowId, deletedRowImageId);
+		database.execute("UPDATE page_row SET deleted_flag=TRUE WHERE page_row_id=?", deletedRowId);
+
+		database.execute("""
+				INSERT INTO page (page_id,name,url_name,page_status_id,image_id,image_file_upload_id,deleted_flag,institution_id,
+				  created_by_account_id,page_group_id)
+				SELECT ?,?,?, 'DRAFT', i.image_id, i.file_upload_id, TRUE, ?, ?, ? FROM image i WHERE i.image_id=?
+				""", deletedPageId, "Deleted page scope", format("deleted-page-scope-%s", deletedPageId),
+				account.getInstitutionId(), account.getAccountId(), deletedPageId, deletedPageImageId);
 	}
 
 	@Nonnull
