@@ -69,10 +69,32 @@ public class CommunityHighlightsEmailTemplateTests {
 				2, countOccurrences(renderedEmail, SECTION_DIVIDER_STYLE));
 	}
 
+	@Test
+	public void sharedV2LayoutUsesEscapedInstitutionFooterAndPrivacyLink() {
+		Map<String, Object> context = baseContext();
+		context.put("emailFooterText", "<Organization & footer>");
+		context.put("privacyPolicyUrl", "https://example.com/privacy");
+
+		String renderedEmail = render(context);
+
+		Assert.assertTrue("Expected institution footer text to be HTML-escaped",
+				renderedEmail.contains("&lt;Organization &amp; footer&gt;"));
+		Assert.assertFalse("Did not expect raw institution footer HTML",
+				renderedEmail.contains("<Organization & footer>"));
+		Assert.assertFalse("Expected institution footer to replace the correspondence fallback",
+				renderedEmail.contains("because you subscribed to a page"));
+		Assert.assertTrue("Expected the shared privacy link",
+				renderedEmail.contains("href=\"https://example.com/privacy\""));
+	}
+
 	@Nonnull
 	protected Map<String, Object> baseContext() {
 		Map<String, Object> context = new HashMap<>();
-		context.put("colors", Map.of("n50", "#F7F7F7"));
+		context.put("colors", Map.of(
+				"n50", "#F7F7F7",
+				"n900", "#292827",
+				"p500", "#30578E"
+		));
 		context.put("pageTitle", "Example Community");
 		return context;
 	}

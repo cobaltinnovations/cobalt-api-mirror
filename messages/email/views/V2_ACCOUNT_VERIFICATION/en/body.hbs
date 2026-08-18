@@ -1,0 +1,58 @@
+{{#partial "preheader"}}
+	Confirm your email address to finish setting up your {{platformName}} account.
+{{/partial}}
+
+{{#partial "content"}}
+	<table width="100%" border="0" cellspacing="0" cellpadding="0" role="presentation">
+		<tr>
+			<td align="left" style="font-family:'SF Pro Display', 'SF Pro Text', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif; font-size:28px; line-height:36px; font-weight:700; color:{{colors.n900}};">
+				Please confirm your email address
+			</td>
+		</tr>
+		<tr>
+			<td height="24" style="height:24px; line-height:24px; font-size:1px;">&nbsp;</td>
+		</tr>
+		<tr>
+			<td align="left" style="font-family:'SF Pro Text', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif; font-size:16px; line-height:24px; color:{{colors.n900}};">
+				Thank you for joining {{platformName}}!<br />
+				Please confirm your email address to finish setting up your account.
+			</td>
+		</tr>
+		<tr>
+			<td height="24" style="height:24px; line-height:24px; font-size:1px;">&nbsp;</td>
+		</tr>
+		<tr>
+			<td align="left">
+				<table border="0" cellspacing="0" cellpadding="0" role="presentation">
+					<tr>
+						<td align="center" bgcolor="{{colors.p500}}" style="background-color:{{colors.p500}}; border-radius:999px;">
+							<a href="{{{verificationUrl}}}" target="_blank" style="display:inline-block; font-family:'SF Pro Text', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif; font-size:14px; line-height:20px; font-weight:600; color:#FFFFFF; text-decoration:none; padding:11px 21px; border-radius:999px;">
+								Confirm email address
+							</a>
+						</td>
+					</tr>
+				</table>
+			</td>
+		</tr>
+		{{#if supportEmailAddress}}
+			<tr>
+				<td height="24" style="height:24px; line-height:24px; font-size:1px;">&nbsp;</td>
+			</tr>
+			<tr>
+				<td align="left" style="font-family:'SF Pro Text', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif; font-size:16px; line-height:24px; color:{{colors.n900}};">
+					If you have problems with your account, contact support at
+					<a href="mailto:{{supportEmailAddress}}" style="color:{{colors.p500}}; text-decoration:underline;">{{supportEmailAddress}}</a>.
+				</td>
+			</tr>
+		{{/if}}
+		<tr>
+			<td height="16" style="height:16px; line-height:16px; font-size:1px;">&nbsp;</td>
+		</tr>
+	</table>
+{{/partial}}
+
+{{#partial "footer"}}
+	You are receiving this email because you signed up to {{platformName}}.
+{{/partial}}
+
+{{> layouts/en/v2}}

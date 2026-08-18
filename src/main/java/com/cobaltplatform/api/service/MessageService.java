@@ -336,6 +336,8 @@ public class MessageService implements AutoCloseable {
 			);
 
 			messageContext.put("supportEmailAddress", supportEmailAddress);
+			messageContext.put("privacyPolicyUrl", trimToNull(institution.getPrivacyPolicyUrl()));
+			messageContext.put("emailFooterText", trimToNull(institution.getEmailFooterText()));
 
 			// Platform email image URL (optionally overridable).
 			String platformEmailImageUrl = ObjectUtils.firstNonNull(
