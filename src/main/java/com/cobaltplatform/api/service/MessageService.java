@@ -48,6 +48,7 @@ import com.cobaltplatform.api.model.db.MessageStatus.MessageStatusId;
 import com.cobaltplatform.api.model.db.MessageType.MessageTypeId;
 import com.cobaltplatform.api.model.db.MessageVendor.MessageVendorId;
 import com.cobaltplatform.api.model.db.ScheduledMessage;
+import com.cobaltplatform.api.model.db.ScheduledMessageSource.ScheduledMessageSourceId;
 import com.cobaltplatform.api.model.db.ScheduledMessageStatus.ScheduledMessageStatusId;
 import com.cobaltplatform.api.util.Formatter;
 import com.cobaltplatform.api.util.JsonMapper;
@@ -289,72 +290,7 @@ public class MessageService implements AutoCloseable {
 		MessageVendorId messageVendorId;
 
 		if (message.getMessageTypeId() == MessageTypeId.EMAIL) {
-			EmailMessage customizedEmailMessage = (EmailMessage) message;
-
-			// Customize the message
-			InstitutionId institutionId = message.getInstitutionId();
-			Institution institution = getInstitutionService().findInstitutionById(institutionId).get();
-			List<InstitutionColorValue> institutionColorValues = getInstitutionService().findInstitutionColorValuesByInstitutionId(institutionId);
-
-			// Add some common global fields to the email before it goes out
-			Map<String, Object> messageContext = new HashMap<>(customizedEmailMessage.getMessageContext()); // Mutable copy
-
-			// e.g. https://cobaltplatform.s3.us-east-2.amazonaws.com/local/emails/button-start-appointment@2x.jpg
-			String staticFileUrlPrefix = format("https://%s.s3.%s.amazonaws.com/%s/emails",
-					getConfiguration().getAmazonS3BucketName(), getConfiguration().getAmazonS3Region().id(), getConfiguration().getEnvironment());
-
-			messageContext.put("staticFileUrlPrefix", staticFileUrlPrefix);
-			messageContext.put("copyrightYear", LocalDateTime.now(institution.getTimeZone()).getYear());
-			messageContext.put("institutionId", institutionId.name());
-
-			// e.g. "p900" -> "#FEA123"
-			Map<String, String> cssColorRepresentationsByName = institutionColorValues.stream()
-					.collect(Collectors.toMap(
-									institutionColorValue -> institutionColorValue.getName(),
-									institutionColorValue -> institutionColorValue.getCssRepresentation()
-							)
-					);
-
-			messageContext.put("colors", cssColorRepresentationsByName);
-
-			// Platform name (optionally overridable)
-			String platformName = ObjectUtils.firstNonNull(
-					trimToNull((String) messageContext.get(EmailMessageContextKey.OVERRIDE_PLATFORM_NAME.name())),
-					institution.getPlatformName()
-			);
-
-			// Should not happen; failsafe
-			if (platformName == null)
-				platformName = getStrings().get("Cobalt");
-
-			messageContext.put("platformName", platformName);
-
-			// Support email address (optionally overridable)
-			String supportEmailAddress = ObjectUtils.firstNonNull(
-					trimToNull((String) messageContext.get(EmailMessageContextKey.OVERRIDE_PLATFORM_SUPPORT_EMAIL_ADDRESS.name())),
-					institution.getSupportEmailAddress()
-			);
-
-			messageContext.put("supportEmailAddress", supportEmailAddress);
-
-			// Platform email image URL (optionally overridable).
-			String platformEmailImageUrl = ObjectUtils.firstNonNull(
-					trimToNull((String) messageContext.get(EmailMessageContextKey.OVERRIDE_PLATFORM_EMAIL_IMAGE_URL.name())),
-					format("%s/logo@2x.jpg", staticFileUrlPrefix)
-			);
-
-			messageContext.put("platformEmailImageUrl", platformEmailImageUrl);
-
-			// Create a new email message using the updated email message context
-			customizedEmailMessage = customizedEmailMessage.toBuilder()
-					.messageContext(messageContext)
-					.build();
-
-			// Hook for institutions to further customize outgoing emails
-			EnterprisePlugin enterprisePlugin = getEnterprisePluginProvider().enterprisePluginForInstitutionId(message.getInstitutionId());
-			customizedEmailMessage = enterprisePlugin.customizeEmailMessage(customizedEmailMessage);
-
-			message = (T) customizedEmailMessage;
+			message = (T) prepareEmailMessage((EmailMessage) message);
 
 			serializedMessage = getEmailMessageSerializer().serializeMessage((EmailMessage) message);
 			messageVendorId = getEmailMessageSender().getMessageVendorId();
@@ -378,6 +314,44 @@ public class MessageService implements AutoCloseable {
 
 		getDatabase().execute("INSERT INTO message_log (message_id, institution_id, message_type_id, message_status_id, message_vendor_id, serialized_message, enqueued) VALUES (?,?,?,?,?,CAST(? AS JSONB),NOW())",
 				message.getMessageId(), message.getInstitutionId(), message.getMessageTypeId(), MessageStatusId.ENQUEUED, messageVendorId, serializedMessage);
+	}
+
+	/** Applies the same global and institution mappings used immediately before email delivery. */
+	@Nonnull
+	public EmailMessage prepareEmailMessage(@Nonnull EmailMessage emailMessage) {
+		requireNonNull(emailMessage);
+
+		InstitutionId institutionId = emailMessage.getInstitutionId();
+		Institution institution = getInstitutionService().findInstitutionById(institutionId).get();
+		List<InstitutionColorValue> institutionColorValues = getInstitutionService()
+				.findInstitutionColorValuesByInstitutionId(institutionId);
+		Map<String, Object> messageContext = new HashMap<>(emailMessage.getMessageContext());
+		String staticFileUrlPrefix = format("https://%s.s3.%s.amazonaws.com/%s/emails",
+				getConfiguration().getAmazonS3BucketName(), getConfiguration().getAmazonS3Region().id(),
+				getConfiguration().getEnvironment());
+
+		messageContext.put("staticFileUrlPrefix", staticFileUrlPrefix);
+		messageContext.put("copyrightYear", LocalDateTime.now(institution.getTimeZone()).getYear());
+		messageContext.put("institutionId", institutionId.name());
+		messageContext.put("colors", institutionColorValues.stream().collect(Collectors.toMap(
+				InstitutionColorValue::getName, InstitutionColorValue::getCssRepresentation)));
+
+		String platformName = ObjectUtils.firstNonNull(
+				trimToNull((String) messageContext.get(EmailMessageContextKey.OVERRIDE_PLATFORM_NAME.name())),
+				institution.getPlatformName());
+		if (platformName == null)
+			platformName = getStrings().get("Cobalt");
+		messageContext.put("platformName", platformName);
+		messageContext.put("supportEmailAddress", ObjectUtils.firstNonNull(
+				trimToNull((String) messageContext.get(EmailMessageContextKey.OVERRIDE_PLATFORM_SUPPORT_EMAIL_ADDRESS.name())),
+				institution.getSupportEmailAddress()));
+		messageContext.put("platformEmailImageUrl", ObjectUtils.firstNonNull(
+				trimToNull((String) messageContext.get(EmailMessageContextKey.OVERRIDE_PLATFORM_EMAIL_IMAGE_URL.name())),
+				format("%s/logo@2x.jpg", staticFileUrlPrefix)));
+
+		EmailMessage preparedEmailMessage = emailMessage.toBuilder().messageContext(messageContext).build();
+		return getEnterprisePluginProvider().enterprisePluginForInstitutionId(institutionId)
+				.customizeEmailMessage(preparedEmailMessage);
 	}
 
 	/**
@@ -428,11 +402,48 @@ public class MessageService implements AutoCloseable {
 		getLogger().info("Creating scheduled message of type {}, scheduled for {} {}.\nMetadata:\n{}\nSerialized form:\n{}",
 				message.getMessageTypeId().name(), scheduledAt, timeZone.getId(), metadata == null ? "[none]" : metadataAsJson, serializedMessage);
 
+		ScheduledMessageSourceId scheduledMessageSourceId = request.getScheduledMessageSourceId() == null
+				? ScheduledMessageSourceId.SYSTEM : request.getScheduledMessageSourceId();
 		getDatabase().execute("INSERT INTO scheduled_message (scheduled_message_id, institution_id, message_id, message_type_id, " +
-						"serialized_message, scheduled_at, time_zone, metadata) VALUES (?,?,?,?,CAST(? AS JSONB),?,?,CAST(? AS JSONB))",
-				scheduledMessageId, message.getInstitutionId(), message.getMessageId(), message.getMessageTypeId(), serializedMessage, scheduledAt, timeZone, metadataAsJson);
+						"serialized_message, scheduled_at, time_zone, metadata, scheduled_message_source_id, scheduled_by_account_id) " +
+						"VALUES (?,?,?,?,CAST(? AS JSONB),?,?,CAST(? AS JSONB),?,?)",
+				scheduledMessageId, message.getInstitutionId(), message.getMessageId(), message.getMessageTypeId(), serializedMessage,
+				scheduledAt, timeZone, metadataAsJson, scheduledMessageSourceId, request.getScheduledByAccountId());
 
 		return scheduledMessageId;
+	}
+
+	/** Replaces a still-pending scheduled message without changing its audit identity. */
+	public boolean updateScheduledMessage(@Nullable UUID scheduledMessageId,
+															 @Nonnull Message message,
+															 @Nonnull LocalDateTime scheduledAt,
+															 @Nonnull ZoneId timeZone,
+															 @Nullable Map<String, Object> metadata) {
+		requireNonNull(message);
+		requireNonNull(scheduledAt);
+		requireNonNull(timeZone);
+		if (scheduledMessageId == null)
+			return false;
+
+		String serializedMessage;
+		if (message.getMessageTypeId() == MessageTypeId.EMAIL)
+			serializedMessage = getEmailMessageSerializer().serializeMessage((EmailMessage) message);
+		else if (message.getMessageTypeId() == MessageTypeId.SMS)
+			serializedMessage = getSmsMessageSerializer().serializeMessage((SmsMessage) message);
+		else if (message.getMessageTypeId() == MessageTypeId.CALL)
+			serializedMessage = getCallMessageSerializer().serializeMessage((CallMessage) message);
+		else if (message.getMessageTypeId() == MessageTypeId.PUSH)
+			serializedMessage = getPushMessageSerializer().serializeMessage((PushMessage) message);
+		else
+			throw new IllegalStateException(format("Sorry, %s.%s is not yet supported.",
+					MessageTypeId.class.getSimpleName(), message.getMessageTypeId().name()));
+
+		String metadataAsJson = metadata == null ? null : getJsonMapper().toJson(metadata);
+		return getDatabase().execute("UPDATE scheduled_message SET institution_id=?, message_id=?, message_type_id=?, " +
+						"serialized_message=CAST(? AS JSONB), scheduled_at=?, time_zone=?, metadata=CAST(? AS JSONB) " +
+						"WHERE scheduled_message_id=? AND scheduled_message_status_id=?",
+				message.getInstitutionId(), message.getMessageId(), message.getMessageTypeId(), serializedMessage,
+				scheduledAt, timeZone, metadataAsJson, scheduledMessageId, ScheduledMessageStatusId.PENDING) > 0;
 	}
 
 	/**

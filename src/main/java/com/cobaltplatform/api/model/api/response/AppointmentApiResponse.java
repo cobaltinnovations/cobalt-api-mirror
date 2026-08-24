@@ -151,6 +151,8 @@ public class AppointmentApiResponse {
 	@Nullable
 	private final UUID canceledByAccountId;
 	@Nullable
+	private final String canceledByAccountDisplayName;
+	@Nullable
 	private final String cancellationReason;
 	@Nullable
 	private final String phoneNumber;
@@ -288,6 +290,10 @@ public class AppointmentApiResponse {
 		this.canceledAt = appointment.getCanceledAt();
 		this.canceledAtDescription = appointment.getCanceledAt() == null ? null : formatter.formatTimestamp(appointment.getCanceledAt());
 		this.canceledByAccountId = showPrivateDetails ? appointment.getCanceledByAccountId() : null;
+		this.canceledByAccountDisplayName = this.canceledByAccountId == null ? null
+				: accountService.findAccountById(this.canceledByAccountId)
+						.map(accountService::determineDisplayName)
+						.orElse(null);
 		this.cancellationReason = showPrivateDetails ? appointment.getCancellationReason() : null;
 
 		if (supplements.contains(AppointmentApiResponseSupplement.ALL) || supplements.contains(AppointmentApiResponseSupplement.PROVIDER) && appointment.getProviderId() != null)
@@ -538,6 +544,11 @@ public class AppointmentApiResponse {
 	@Nullable
 	public UUID getCanceledByAccountId() {
 		return this.canceledByAccountId;
+	}
+
+	@Nullable
+	public String getCanceledByAccountDisplayName() {
+		return this.canceledByAccountDisplayName;
 	}
 
 	@Nullable

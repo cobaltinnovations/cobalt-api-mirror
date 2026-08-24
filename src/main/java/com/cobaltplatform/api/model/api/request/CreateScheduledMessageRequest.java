@@ -20,12 +20,14 @@
 package com.cobaltplatform.api.model.api.request;
 
 import com.cobaltplatform.api.messaging.Message;
+import com.cobaltplatform.api.model.db.ScheduledMessageSource.ScheduledMessageSourceId;
 
 import javax.annotation.Nullable;
 import javax.annotation.concurrent.NotThreadSafe;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * @author Transmogrify, LLC.
@@ -40,6 +42,10 @@ public class CreateScheduledMessageRequest<T extends Message> {
 	private ZoneId timeZone;
 	@Nullable
 	private Map<String, Object> metadata;
+	@Nullable
+	private ScheduledMessageSourceId scheduledMessageSourceId;
+	@Nullable
+	private UUID scheduledByAccountId;
 
 	@Nullable
 	public T getMessage() {
@@ -75,5 +81,23 @@ public class CreateScheduledMessageRequest<T extends Message> {
 
 	public void setMetadata(@Nullable Map<String, Object> metadata) {
 		this.metadata = metadata;
+	}
+
+	@Nullable
+	public ScheduledMessageSourceId getScheduledMessageSourceId() {
+		return this.scheduledMessageSourceId;
+	}
+
+	public void setScheduledMessageSourceId(@Nullable ScheduledMessageSourceId scheduledMessageSourceId) {
+		this.scheduledMessageSourceId = scheduledMessageSourceId;
+	}
+
+	@Nullable
+	public UUID getScheduledByAccountId() {
+		return this.scheduledByAccountId;
+	}
+
+	public void setScheduledByAccountId(@Nullable UUID scheduledByAccountId) {
+		this.scheduledByAccountId = scheduledByAccountId;
 	}
 }

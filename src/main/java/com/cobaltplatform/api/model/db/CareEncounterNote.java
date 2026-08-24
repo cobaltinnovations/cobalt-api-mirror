@@ -40,6 +40,12 @@ public class CareEncounterNote {
 	private Instant created;
 	@Nullable
 	private Instant lastUpdated;
+	@Nullable
+	private Boolean deleted;
+	@Nullable
+	private Instant deletedAt;
+	@Nullable
+	private UUID deletedByAccountId;
 
 	@Nullable
 	public UUID getCareEncounterNoteId() {
@@ -121,4 +127,11 @@ public class CareEncounterNote {
 	public void setLastUpdated(@Nullable Instant lastUpdated) {
 		this.lastUpdated = lastUpdated;
 	}
+
+	@Nullable public Boolean getDeleted() { return this.deleted; }
+	public void setDeleted(@Nullable Boolean deleted) { this.deleted = deleted; }
+	@Nullable public Instant getDeletedAt() { return this.deletedAt; }
+	public void setDeletedAt(@Nullable Instant deletedAt) { this.deletedAt = deletedAt; }
+	@Nullable public UUID getDeletedByAccountId() { return this.deletedByAccountId; }
+	public void setDeletedByAccountId(@Nullable UUID deletedByAccountId) { this.deletedByAccountId = deletedByAccountId; }
 }

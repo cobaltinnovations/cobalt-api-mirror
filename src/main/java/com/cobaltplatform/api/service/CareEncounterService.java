@@ -22,11 +22,17 @@ import com.cobaltplatform.api.model.api.request.CancelCareEncounterRequest;
 import com.cobaltplatform.api.model.api.request.ChangeAppointmentAttendanceStatusRequest;
 import com.cobaltplatform.api.model.api.request.CreateCareEncounterNoteRequest;
 import com.cobaltplatform.api.model.api.request.CreateCareEncounterRequest;
+import com.cobaltplatform.api.model.api.request.CreateCareEncounterScheduledMessageRequest;
+import com.cobaltplatform.api.model.api.request.CreateScheduledMessageRequest;
 import com.cobaltplatform.api.model.api.request.FindCareEncountersRequest;
 import com.cobaltplatform.api.model.api.request.FindCareEncountersRequest.CareEncounterAssignmentScopeId;
 import com.cobaltplatform.api.model.api.request.FindCareEncountersRequest.CareEncounterSortColumnId;
 import com.cobaltplatform.api.model.api.request.UpdateCareEncounterRequest;
 import com.cobaltplatform.api.model.api.request.UpdateCareEncounterNoteRequest;
+import com.cobaltplatform.api.model.api.request.PreviewCareEncounterScheduledMessageRequest;
+import com.cobaltplatform.api.messaging.email.EmailMessage;
+import com.cobaltplatform.api.messaging.email.EmailMessageTemplate;
+import com.cobaltplatform.api.model.db.Account;
 import com.cobaltplatform.api.model.db.Appointment;
 import com.cobaltplatform.api.model.db.AttendanceStatus;
 import com.cobaltplatform.api.model.db.AttendanceStatus.AttendanceStatusId;
@@ -34,27 +40,46 @@ import com.cobaltplatform.api.model.db.CareEncounter;
 import com.cobaltplatform.api.model.db.CareEncounterCancellationReason;
 import com.cobaltplatform.api.model.db.CareEncounterCancellationReason.CareEncounterCancellationReasonId;
 import com.cobaltplatform.api.model.db.CareEncounterNote;
+import com.cobaltplatform.api.model.db.CareEncounterScheduledMessage;
+import com.cobaltplatform.api.model.db.CareEncounterScheduledMessageType;
+import com.cobaltplatform.api.model.db.CareEncounterScheduledMessageType.CareEncounterScheduledMessageTypeId;
 import com.cobaltplatform.api.model.db.CareEncounterStatus.CareEncounterStatusId;
+import com.cobaltplatform.api.model.db.Institution;
 import com.cobaltplatform.api.model.db.Institution.InstitutionId;
+import com.cobaltplatform.api.model.db.ScheduledMessageSource.ScheduledMessageSourceId;
+import com.cobaltplatform.api.model.db.ScheduledMessageStatus.ScheduledMessageStatusId;
+import com.cobaltplatform.api.model.db.UserExperienceType.UserExperienceTypeId;
 import com.cobaltplatform.api.model.service.FindResult;
+import com.cobaltplatform.api.model.service.RenderedEmailMessage;
 import com.cobaltplatform.api.model.service.SortDirectionId;
 import com.cobaltplatform.api.util.Normalizer;
+import com.cobaltplatform.api.util.Formatter;
+import com.cobaltplatform.api.util.HandlebarsTemplater;
 import com.cobaltplatform.api.util.ValidationException;
 import com.cobaltplatform.api.util.ValidationException.FieldError;
 import com.cobaltplatform.api.util.db.DatabaseProvider;
 import com.lokalized.Strings;
 import com.pyranid.Database;
+import org.owasp.html.HtmlPolicyBuilder;
+import org.owasp.html.PolicyFactory;
 
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import javax.annotation.concurrent.ThreadSafe;
 import javax.inject.Inject;
+import javax.inject.Provider;
 import javax.inject.Singleton;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.FormatStyle;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -74,6 +99,7 @@ public class CareEncounterService {
 	protected static final int DEFAULT_PAGE_SIZE = 25;
 	protected static final int MAXIMUM_PAGE_SIZE = 100;
 	protected static final int MAXIMUM_NOTE_LENGTH = 20_000;
+	protected static final int MAXIMUM_CUSTOM_EMAIL_TEXT_LENGTH = 20_000;
 	protected static final int MAXIMUM_CANCELLATION_REASON_OTHER_TEXT_LENGTH = 2_000;
 	protected static final int MAXIMUM_APPOINTMENT_CANCELLATION_REASON_LENGTH = 2_000;
 
@@ -85,21 +111,54 @@ public class CareEncounterService {
 	private final Normalizer normalizer;
 	@Nonnull
 	private final Strings strings;
+	@Nonnull
+	private final MessageService messageService;
+	@Nonnull
+	private final Provider<InstitutionService> institutionServiceProvider;
+	@Nonnull
+	private final Provider<AccountService> accountServiceProvider;
+	@Nonnull
+	private final Formatter formatter;
+	@Nonnull
+	private final HandlebarsTemplater emailHandlebarsTemplater;
+	@Nonnull
+	private final PolicyFactory customEmailTextSanitizingPolicy;
 
 	@Inject
 	public CareEncounterService(@Nonnull DatabaseProvider databaseProvider,
-											 @Nonnull AppointmentService appointmentService,
-											 @Nonnull Normalizer normalizer,
-											 @Nonnull Strings strings) {
+								 @Nonnull AppointmentService appointmentService,
+								 @Nonnull Normalizer normalizer,
+								 @Nonnull Strings strings,
+								 @Nonnull MessageService messageService,
+								 @Nonnull Provider<InstitutionService> institutionServiceProvider,
+								 @Nonnull Provider<AccountService> accountServiceProvider,
+								 @Nonnull Formatter formatter,
+								 @Nonnull HandlebarsTemplater emailHandlebarsTemplater) {
 		requireNonNull(databaseProvider);
 		requireNonNull(appointmentService);
 		requireNonNull(normalizer);
 		requireNonNull(strings);
+		requireNonNull(messageService);
+		requireNonNull(institutionServiceProvider);
+		requireNonNull(accountServiceProvider);
+		requireNonNull(formatter);
+		requireNonNull(emailHandlebarsTemplater);
 
 		this.databaseProvider = databaseProvider;
 		this.appointmentService = appointmentService;
 		this.normalizer = normalizer;
 		this.strings = strings;
+		this.messageService = messageService;
+		this.institutionServiceProvider = institutionServiceProvider;
+		this.accountServiceProvider = accountServiceProvider;
+		this.formatter = formatter;
+		this.emailHandlebarsTemplater = emailHandlebarsTemplater;
+		this.customEmailTextSanitizingPolicy = new HtmlPolicyBuilder()
+				.allowElements("p", "strong", "b", "br", "em", "i", "u", "ol", "li", "ul", "a")
+				.allowUrlProtocols("https")
+				.allowAttributes("href", "rel", "target").onElements("a")
+				.requireRelNofollowOnLinks()
+				.toFactory();
 	}
 
 	@Nonnull
@@ -196,6 +255,7 @@ public class CareEncounterService {
 							SELECT 1
 							FROM care_encounter_note
 							WHERE care_encounter_note.care_encounter_id=care_encounter.care_encounter_id
+							AND care_encounter_note.deleted=FALSE
 							AND care_encounter_note.note ILIKE ?
 						)
 					)
@@ -279,10 +339,9 @@ public class CareEncounterService {
 	}
 
 	@Nonnull
-	public List<CareEncounter> findOtherCareEncountersByAccountId(@Nullable UUID accountId,
-																	 @Nullable UUID excludedCareEncounterId,
-																	 @Nullable InstitutionId institutionId) {
-		if (accountId == null || excludedCareEncounterId == null || institutionId == null)
+	public List<CareEncounter> findCareEncountersByAccountId(@Nullable UUID accountId,
+																 @Nullable InstitutionId institutionId) {
+		if (accountId == null || institutionId == null)
 			return List.of();
 
 		return getDatabase().queryForList("""
@@ -297,11 +356,10 @@ public class CareEncounterService {
 				) appointment ON TRUE
 				JOIN provider ON provider.provider_id=appointment.provider_id
 				WHERE care_encounter.account_id=?
-				AND care_encounter.care_encounter_id<>?
 				AND care_encounter.deleted=FALSE
 				AND provider.institution_id=?
 				ORDER BY appointment.start_time DESC, care_encounter.care_encounter_id ASC
-				""", CareEncounter.class, accountId, excludedCareEncounterId, institutionId);
+				""", CareEncounter.class, accountId, institutionId);
 	}
 
 	@Nonnull
@@ -323,6 +381,7 @@ public class CareEncounterService {
 				JOIN account last_updated_by_account
 					ON last_updated_by_account.account_id=care_encounter_note.last_updated_by_account_id
 				WHERE care_encounter_note.care_encounter_id=?
+				AND care_encounter_note.deleted=FALSE
 				ORDER BY care_encounter_note.created DESC, care_encounter_note.care_encounter_note_id DESC
 				""", CareEncounterNote.class, careEncounterId);
 	}
@@ -349,6 +408,7 @@ public class CareEncounterService {
 					ON last_updated_by_account.account_id=care_encounter_note.last_updated_by_account_id
 				WHERE care_encounter_note.care_encounter_note_id=?
 				AND care_encounter_note.care_encounter_id=?
+				AND care_encounter_note.deleted=FALSE
 				""", CareEncounterNote.class, careEncounterNoteId, careEncounterId);
 	}
 
@@ -383,6 +443,239 @@ public class CareEncounterService {
 		return findCareEncounterNoteByIdAndCareEncounterId(careEncounterNoteId, careEncounterId).get();
 	}
 
+	public boolean deleteCareEncounterNote(@Nullable UUID careEncounterId,
+															@Nullable UUID careEncounterNoteId,
+															@Nullable InstitutionId institutionId,
+															@Nullable UUID accountId) {
+		ValidationException validationException = new ValidationException();
+		validateCareEncounterForNote(careEncounterId, institutionId, accountId, validationException);
+
+		if (careEncounterNoteId == null) {
+			validationException.add(new FieldError("careEncounterNoteId",
+					getStrings().get("Care Encounter Note ID is required.")));
+		} else if (careEncounterId != null
+				&& findCareEncounterNoteByIdAndCareEncounterId(careEncounterNoteId, careEncounterId).isEmpty()) {
+			validationException.add(new FieldError("careEncounterNoteId",
+					getStrings().get("Care Encounter Note ID is invalid.")));
+		}
+
+		if (validationException.hasErrors())
+			throw validationException;
+
+		boolean deleted = getDatabase().execute("""
+				UPDATE care_encounter_note
+				SET deleted=TRUE, deleted_at=NOW(), deleted_by_account_id=?, last_updated_by_account_id=?
+				WHERE care_encounter_note_id=? AND care_encounter_id=? AND deleted=FALSE
+				""", accountId, accountId, careEncounterNoteId, careEncounterId) > 0;
+		if (deleted)
+			touchCareEncounter(careEncounterId, accountId);
+		return deleted;
+	}
+
+	@Nonnull
+	public List<CareEncounterScheduledMessageType> findCareEncounterScheduledMessageTypes() {
+		return getDatabase().queryForList("""
+				SELECT *
+				FROM care_encounter_scheduled_message_type
+				ORDER BY display_order, description
+				""", CareEncounterScheduledMessageType.class);
+	}
+
+	@Nonnull
+	public List<CareEncounterScheduledMessage> findCareEncounterScheduledMessagesByCareEncounterId(
+			@Nullable UUID careEncounterId) {
+		if (careEncounterId == null)
+			return List.of();
+
+		return getDatabase().queryForList(careEncounterScheduledMessageSelectSql() + """
+				WHERE cesm.care_encounter_id=?
+				ORDER BY cesm.created DESC, cesm.care_encounter_scheduled_message_id DESC
+				""", CareEncounterScheduledMessage.class, careEncounterId);
+	}
+
+	@Nonnull
+	public Optional<CareEncounterScheduledMessage> findCareEncounterScheduledMessageById(
+			@Nullable UUID careEncounterId,
+			@Nullable UUID careEncounterScheduledMessageId) {
+		if (careEncounterId == null || careEncounterScheduledMessageId == null)
+			return Optional.empty();
+
+		return getDatabase().queryForObject(careEncounterScheduledMessageSelectSql() + """
+				WHERE cesm.care_encounter_id=?
+				AND cesm.care_encounter_scheduled_message_id=?
+				""", CareEncounterScheduledMessage.class, careEncounterId, careEncounterScheduledMessageId);
+	}
+
+	@Nonnull
+	public RenderedEmailMessage previewCareEncounterScheduledMessage(@Nullable UUID careEncounterId,
+																					 @Nullable InstitutionId institutionId,
+																					 @Nonnull PreviewCareEncounterScheduledMessageRequest request) {
+		requireNonNull(request);
+		ValidationException validationException = new ValidationException();
+		CareEncounter careEncounter = validateOpenCareEncounter(careEncounterId, institutionId, null,
+				validationException, false);
+		String customEmailText = validateAndSanitizeCustomEmailText(request.getCustomEmailText(), validationException);
+		validateScheduledMessageType(request.getCareEncounterScheduledMessageTypeId(), validationException);
+		validateRecipientEmailAddress(careEncounter, validationException);
+		if (validationException.hasErrors())
+			throw validationException;
+
+		return renderCareEncounterFollowUp(careEncounter, institutionId, customEmailText, UUID.randomUUID()).renderedEmailMessage;
+	}
+
+	@Nonnull
+	public CareEncounterScheduledMessage createCareEncounterScheduledMessage(@Nullable UUID careEncounterId,
+																						 @Nullable InstitutionId institutionId,
+																						 @Nullable UUID accountId,
+																						 @Nonnull CreateCareEncounterScheduledMessageRequest request) {
+		requireNonNull(request);
+		ValidationException validationException = new ValidationException();
+		CareEncounter careEncounter = validateOpenCareEncounter(careEncounterId, institutionId, accountId,
+				validationException, true);
+		String customEmailText = validateAndSanitizeCustomEmailText(request.getCustomEmailText(), validationException);
+		validateScheduledMessageType(request.getCareEncounterScheduledMessageTypeId(), validationException);
+		LocalDateTime scheduledAt = validateScheduledAt(request, institutionId, validationException);
+		validateRecipientEmailAddress(careEncounter, validationException);
+		if (careEncounter != null && hasPendingScheduledMessage(careEncounter.getCareEncounterId(),
+				request.getCareEncounterScheduledMessageTypeId()))
+			validationException.add(new FieldError("careEncounterScheduledMessageTypeId",
+					getStrings().get("This Care Encounter already has a pending follow-up message.")));
+		if (validationException.hasErrors())
+			throw validationException;
+
+		UUID messageId = UUID.randomUUID();
+		FollowUpEmailSnapshot snapshot = renderCareEncounterFollowUp(careEncounter, institutionId,
+				customEmailText, messageId);
+		Map<String, Object> metadata = scheduledMessageMetadata(careEncounterId,
+				request.getCareEncounterScheduledMessageTypeId());
+		CreateScheduledMessageRequest<EmailMessage> scheduledMessageRequest = new CreateScheduledMessageRequest<>();
+		scheduledMessageRequest.setMessage(snapshot.freeformEmailMessage);
+		scheduledMessageRequest.setScheduledAt(scheduledAt);
+		scheduledMessageRequest.setTimeZone(snapshot.timeZone);
+		scheduledMessageRequest.setMetadata(metadata);
+		scheduledMessageRequest.setScheduledMessageSourceId(ScheduledMessageSourceId.MANUAL);
+		scheduledMessageRequest.setScheduledByAccountId(accountId);
+		UUID scheduledMessageId = getMessageService().createScheduledMessage(scheduledMessageRequest);
+		UUID careEncounterScheduledMessageId = UUID.randomUUID();
+
+		getDatabase().execute("""
+				INSERT INTO care_encounter_scheduled_message (
+					care_encounter_scheduled_message_id, care_encounter_id,
+					care_encounter_scheduled_message_type_id, scheduled_message_id,
+					recipient_email_address, custom_email_text, email_subject, email_body,
+					created_by_account_id, last_updated_by_account_id
+				) VALUES (?,?,?,?,?,?,?,?,?,?)
+				""", careEncounterScheduledMessageId, careEncounterId,
+				request.getCareEncounterScheduledMessageTypeId(), scheduledMessageId,
+				careEncounter.getEmailAddress(), customEmailText,
+				snapshot.renderedEmailMessage.getEmailSubject(), snapshot.renderedEmailMessage.getEmailBody(),
+				accountId, accountId);
+		touchCareEncounter(careEncounterId, accountId);
+		return findCareEncounterScheduledMessageById(careEncounterId, careEncounterScheduledMessageId).get();
+	}
+
+	@Nonnull
+	public CareEncounterScheduledMessage updateCareEncounterScheduledMessage(@Nullable UUID careEncounterId,
+																						 @Nullable UUID careEncounterScheduledMessageId,
+																						 @Nullable InstitutionId institutionId,
+																						 @Nullable UUID accountId,
+																						 @Nonnull CreateCareEncounterScheduledMessageRequest request) {
+		requireNonNull(request);
+		ValidationException validationException = new ValidationException();
+		CareEncounter careEncounter = validateOpenCareEncounter(careEncounterId, institutionId, accountId,
+				validationException, true);
+		CareEncounterScheduledMessage existing = findCareEncounterScheduledMessageById(
+				careEncounterId, careEncounterScheduledMessageId).orElse(null);
+		if (existing == null)
+			validationException.add(new FieldError("careEncounterScheduledMessageId",
+					getStrings().get("Care Encounter Scheduled Message ID is invalid.")));
+		else if (Boolean.TRUE.equals(existing.getDeleted())
+				|| existing.getScheduledMessageStatusId() != ScheduledMessageStatusId.PENDING)
+			validationException.add(new FieldError("careEncounterScheduledMessageId",
+					getStrings().get("Only pending scheduled messages can be edited.")));
+		String customEmailText = validateAndSanitizeCustomEmailText(request.getCustomEmailText(), validationException);
+		validateScheduledMessageType(request.getCareEncounterScheduledMessageTypeId(), validationException);
+		LocalDateTime scheduledAt = validateScheduledAt(request, institutionId, validationException);
+		validateRecipientEmailAddress(careEncounter, validationException);
+		if (validationException.hasErrors())
+			throw validationException;
+
+		FollowUpEmailSnapshot snapshot = renderCareEncounterFollowUp(careEncounter, institutionId,
+				customEmailText, existing.getMessageId());
+		boolean updated = getMessageService().updateScheduledMessage(existing.getScheduledMessageId(),
+				snapshot.freeformEmailMessage, scheduledAt, snapshot.timeZone,
+				scheduledMessageMetadata(careEncounterId, request.getCareEncounterScheduledMessageTypeId()));
+		if (!updated)
+			throw pendingScheduledMessageValidationException("Only pending scheduled messages can be edited.");
+
+		getDatabase().execute("""
+				UPDATE care_encounter_scheduled_message
+				SET care_encounter_scheduled_message_type_id=?, recipient_email_address=?,
+					custom_email_text=?, email_subject=?, email_body=?, last_updated_by_account_id=?
+				WHERE care_encounter_scheduled_message_id=? AND care_encounter_id=? AND deleted=FALSE
+				""", request.getCareEncounterScheduledMessageTypeId(), careEncounter.getEmailAddress(), customEmailText,
+				snapshot.renderedEmailMessage.getEmailSubject(), snapshot.renderedEmailMessage.getEmailBody(), accountId,
+				careEncounterScheduledMessageId, careEncounterId);
+		touchCareEncounter(careEncounterId, accountId);
+		return findCareEncounterScheduledMessageById(careEncounterId, careEncounterScheduledMessageId).get();
+	}
+
+	@Nonnull
+	public CareEncounterScheduledMessage deleteCareEncounterScheduledMessage(@Nullable UUID careEncounterId,
+																						 @Nullable UUID careEncounterScheduledMessageId,
+																						 @Nullable InstitutionId institutionId,
+																						 @Nullable UUID accountId) {
+		ValidationException validationException = new ValidationException();
+		validateOpenCareEncounter(careEncounterId, institutionId, accountId, validationException, true);
+		CareEncounterScheduledMessage existing = findCareEncounterScheduledMessageById(
+				careEncounterId, careEncounterScheduledMessageId).orElse(null);
+		if (existing == null)
+			validationException.add(new FieldError("careEncounterScheduledMessageId",
+					getStrings().get("Care Encounter Scheduled Message ID is invalid.")));
+		else if (Boolean.TRUE.equals(existing.getDeleted())
+				|| existing.getScheduledMessageStatusId() != ScheduledMessageStatusId.PENDING)
+			validationException.add(new FieldError("careEncounterScheduledMessageId",
+					getStrings().get("Only pending scheduled messages can be canceled.")));
+		if (validationException.hasErrors())
+			throw validationException;
+
+		if (!getMessageService().cancelScheduledMessage(existing.getScheduledMessageId()))
+			throw pendingScheduledMessageValidationException("Only pending scheduled messages can be canceled.");
+		getDatabase().execute("""
+				UPDATE care_encounter_scheduled_message
+				SET deleted=TRUE, deleted_at=NOW(), deleted_by_account_id=?, last_updated_by_account_id=?
+				WHERE care_encounter_scheduled_message_id=? AND care_encounter_id=? AND deleted=FALSE
+				""", accountId, accountId, careEncounterScheduledMessageId, careEncounterId);
+		touchCareEncounter(careEncounterId, accountId);
+		return findCareEncounterScheduledMessageById(careEncounterId, careEncounterScheduledMessageId).get();
+	}
+
+	protected boolean hasPendingScheduledMessage(@Nullable UUID careEncounterId,
+																		 @Nullable CareEncounterScheduledMessageTypeId typeId) {
+		if (careEncounterId == null)
+			return false;
+		if (typeId == null)
+			return getDatabase().queryForObject("""
+					SELECT EXISTS (
+						SELECT 1
+						FROM care_encounter_scheduled_message cesm
+						JOIN scheduled_message sm ON sm.scheduled_message_id=cesm.scheduled_message_id
+						WHERE cesm.care_encounter_id=?
+						AND sm.scheduled_message_status_id='PENDING'
+					)
+					""", Boolean.class, careEncounterId).orElse(false);
+		return getDatabase().queryForObject("""
+				SELECT EXISTS (
+					SELECT 1
+					FROM care_encounter_scheduled_message cesm
+					JOIN scheduled_message sm ON sm.scheduled_message_id=cesm.scheduled_message_id
+					WHERE cesm.care_encounter_id=?
+					AND cesm.care_encounter_scheduled_message_type_id=?
+					AND sm.scheduled_message_status_id='PENDING'
+				)
+				""", Boolean.class, careEncounterId, typeId).orElse(false);
+	}
+
 	@Nonnull
 	public CareEncounterNote updateCareEncounterNote(@Nullable UUID careEncounterId,
 																		@Nullable UUID careEncounterNoteId,
@@ -415,6 +708,7 @@ public class CareEncounterService {
 				SET note=?, last_updated_by_account_id=?
 				WHERE care_encounter_note_id=?
 				AND care_encounter_id=?
+				AND deleted=FALSE
 				""", note, accountId, careEncounterNoteId, careEncounterId);
 
 		touchCareEncounter(careEncounterId, accountId);
@@ -534,6 +828,9 @@ public class CareEncounterService {
 			else if (findActiveAppointmentByCareEncounterIdForInstitutionId(careEncounterId, institutionId).isPresent())
 				validationException.add(new FieldError("appointmentId", getStrings().get(
 						"The active appointment must be completed or canceled before the Care Encounter can be closed.")));
+			else if (hasPendingScheduledMessage(careEncounterId, null))
+				validationException.add(new FieldError("careEncounterScheduledMessageId", getStrings().get(
+						"Pending follow-up messages must be sent or canceled before the Care Encounter can be closed.")));
 		}
 
 		if (validationException.hasErrors())
@@ -660,6 +957,9 @@ public class CareEncounterService {
 			else if (careEncounter.getCareEncounterStatusId() == CareEncounterStatusId.OPEN)
 				validationException.add(new FieldError("careEncounterStatusId", getStrings().get(
 						"Open Care Encounters must be closed or canceled before they can be deleted.")));
+			else if (hasPendingScheduledMessage(careEncounterId, null))
+				validationException.add(new FieldError("careEncounterScheduledMessageId", getStrings().get(
+						"Pending follow-up messages must be sent or canceled before the Care Encounter can be deleted.")));
 		}
 
 		if (validationException.hasErrors())
@@ -902,6 +1202,9 @@ public class CareEncounterService {
 				else if (findActiveAppointmentByCareEncounterIdForInstitutionId(careEncounterId, institutionId).isPresent())
 					validationException.add(new FieldError("appointmentId", getStrings().get(
 							"The active appointment must be completed or canceled before the Care Encounter can be canceled.")));
+				else if (hasPendingScheduledMessage(careEncounterId, null))
+					validationException.add(new FieldError("careEncounterScheduledMessageId", getStrings().get(
+							"Pending follow-up messages must be sent or canceled before the Care Encounter can be canceled.")));
 			}
 		}
 
@@ -1057,6 +1360,206 @@ public class CareEncounterService {
 				""", Appointment.class, appointmentId, careEncounterId, institutionId);
 	}
 
+	@Nullable
+	protected CareEncounter validateOpenCareEncounter(@Nullable UUID careEncounterId,
+																			@Nullable InstitutionId institutionId,
+																			@Nullable UUID accountId,
+																			@Nonnull ValidationException validationException,
+																			boolean lockForUpdate) {
+		if (institutionId == null)
+			validationException.add(new FieldError("institutionId", getStrings().get("Institution ID is required.")));
+		if (lockForUpdate && accountId == null)
+			validationException.add(new FieldError("accountId", getStrings().get("Account ID is required.")));
+		if (careEncounterId == null) {
+			validationException.add(new FieldError("careEncounterId", getStrings().get("Care Encounter ID is required.")));
+			return null;
+		}
+		if (institutionId == null)
+			return null;
+
+		CareEncounter careEncounter = (lockForUpdate
+				? findCareEncounterByIdForInstitutionIdForUpdate(careEncounterId, institutionId)
+				: findCareEncounterByIdForInstitutionId(careEncounterId, institutionId)).orElse(null);
+		if (careEncounter == null)
+			validationException.add(new FieldError("careEncounterId", getStrings().get("Care Encounter ID is invalid.")));
+		else if (careEncounter.getCareEncounterStatusId() != CareEncounterStatusId.OPEN)
+			validationException.add(new FieldError("careEncounterStatusId",
+					getStrings().get("Scheduled messages can only be changed for open Care Encounters.")));
+		return careEncounter;
+	}
+
+	protected void validateScheduledMessageType(@Nullable CareEncounterScheduledMessageTypeId typeId,
+																			@Nonnull ValidationException validationException) {
+		if (typeId == null)
+			validationException.add(new FieldError("careEncounterScheduledMessageTypeId",
+					getStrings().get("Message type is required.")));
+	}
+
+	@Nullable
+	protected String validateAndSanitizeCustomEmailText(@Nullable String customEmailText,
+																						@Nonnull ValidationException validationException) {
+		String original = trimToNull(customEmailText);
+		if (original != null && original.length() > MAXIMUM_CUSTOM_EMAIL_TEXT_LENGTH)
+			validationException.add(new FieldError("customEmailText", getStrings().get("Custom email text is too long.")));
+		String sanitized = original == null ? null : trimToNull(this.customEmailTextSanitizingPolicy.sanitize(original));
+		if (sanitized == null)
+			validationException.add(new FieldError("customEmailText", getStrings().get("Custom email text is required.")));
+		return sanitized;
+	}
+
+	protected void validateRecipientEmailAddress(@Nullable CareEncounter careEncounter,
+																				 @Nonnull ValidationException validationException) {
+		String emailAddress = careEncounter == null ? null : trimToNull(careEncounter.getEmailAddress());
+		if (emailAddress == null)
+			validationException.add(new FieldError("emailAddress",
+					getStrings().get("The Care Encounter must have an email address before a follow-up can be scheduled.")));
+		else if (!isValidEmailAddress(emailAddress))
+			validationException.add(new FieldError("emailAddress", getStrings().get("Email address is invalid.")));
+	}
+
+	@Nullable
+	protected LocalDateTime validateScheduledAt(@Nonnull CreateCareEncounterScheduledMessageRequest request,
+																					 @Nullable InstitutionId institutionId,
+																					 @Nonnull ValidationException validationException) {
+		if (request.getScheduledAtDate() == null)
+			validationException.add(new FieldError("scheduledAtDate", getStrings().get("Scheduled date is required.")));
+		if (request.getScheduledAtTime() == null)
+			validationException.add(new FieldError("scheduledAtTime", getStrings().get("Scheduled time is required.")));
+		if (request.getScheduledAtDate() == null || request.getScheduledAtTime() == null || institutionId == null)
+			return null;
+
+		LocalDateTime scheduledAt = LocalDateTime.of(request.getScheduledAtDate(), request.getScheduledAtTime());
+		Institution institution = getInstitutionService().findInstitutionById(institutionId).orElse(null);
+		if (institution != null && scheduledAt.isBefore(LocalDateTime.now(institution.getTimeZone()).withSecond(0).withNano(0)))
+			validationException.add(new FieldError("scheduledAtDate", getStrings().get("Scheduled time cannot be in the past.")));
+		return scheduledAt;
+	}
+
+	@Nonnull
+	protected FollowUpEmailSnapshot renderCareEncounterFollowUp(@Nonnull CareEncounter careEncounter,
+																						@Nonnull InstitutionId institutionId,
+																						@Nonnull String customEmailText,
+																						@Nonnull UUID messageId) {
+		Institution institution = getInstitutionService().findInstitutionById(institutionId).get();
+		Appointment appointment = findLatestAppointmentByCareEncounterIdForInstitutionId(
+				careEncounter.getCareEncounterId(), institutionId).orElseThrow();
+		Account patient = getAccountService().findAccountById(careEncounter.getAccountId()).orElse(null);
+		Account careNavigator = getAccountService().findAccountById(careEncounter.getCareNavigatorAccountId()).orElse(null);
+		Locale locale = Locale.forLanguageTag("en-US");
+		Map<String, Object> context = new HashMap<>();
+		context.put("customEmailText", customEmailText);
+		context.put("patientFirstName", patient == null ? appointment.getFirstName() : patient.getFirstName());
+		context.put("patientFullName", patient == null
+				? String.format("%s %s", appointment.getFirstName(), appointment.getLastName()).trim()
+				: getAccountService().determineDisplayName(patient));
+		context.put("appointmentDate", appointment.getStartTime().toLocalDate());
+		context.put("appointmentDateDescription", getFormatter().formatDate(
+				appointment.getStartTime().toLocalDate(), FormatStyle.MEDIUM, locale));
+		context.put("careNavigatorDisplayName", careNavigator == null ? null
+				: getAccountService().determineDisplayName(careNavigator));
+		String patientWebappBaseUrl = getInstitutionService()
+				.findWebappBaseUrlByInstitutionIdAndUserExperienceTypeId(institutionId, UserExperienceTypeId.PATIENT)
+				.orElse(null);
+		context.put("careNavigatorBookingUrl", patientWebappBaseUrl == null ? null
+				: patientWebappBaseUrl.replaceAll("/+$", "") + "/providers?featureId=RESOURCE_NAVIGATOR");
+		context.put("supportEmailAddress", institution.getSupportEmailAddress());
+		context.put("integratedCarePhoneNumber", institution.getIntegratedCarePhoneNumber());
+		context.put("integratedCarePhoneNumberFormatted", getFormatter().formatPhoneNumber(
+				institution.getIntegratedCarePhoneNumber(), locale));
+		context.put("integratedCareAvailabilityDescription", institution.getIntegratedCareAvailabilityDescription());
+		context.put("clinicalSupportPhoneNumber", institution.getClinicalSupportPhoneNumber());
+		context.put("clinicalSupportPhoneNumberFormatted", getFormatter().formatPhoneNumber(
+				institution.getClinicalSupportPhoneNumber(), locale));
+
+		EmailMessage templateEmailMessage = new EmailMessage.Builder(messageId, institutionId,
+				EmailMessageTemplate.CARE_ENCOUNTER_FOLLOW_UP, locale)
+				.messageContext(context)
+				.toAddresses(List.of(careEncounter.getEmailAddress()))
+				.build();
+		EmailMessage preparedEmailMessage = getMessageService().prepareEmailMessage(templateEmailMessage);
+		String emailSubject = getEmailHandlebarsTemplater().mergeTemplate(
+				EmailMessageTemplate.CARE_ENCOUNTER_FOLLOW_UP.name(), "subject", locale,
+				preparedEmailMessage.getMessageContext()).map(String::trim).orElseThrow();
+		String emailBody = getEmailHandlebarsTemplater().mergeTemplate(
+				EmailMessageTemplate.CARE_ENCOUNTER_FOLLOW_UP.name(), "body", locale,
+				preparedEmailMessage.getMessageContext()).map(String::trim).orElseThrow();
+		RenderedEmailMessage renderedEmailMessage = new RenderedEmailMessage(emailSubject, emailBody);
+		EmailMessage freeformEmailMessage = new EmailMessage.Builder(messageId, institutionId,
+				EmailMessageTemplate.FREEFORM, locale)
+				.messageContext(Map.of("subject", emailSubject, "body", emailBody))
+				.fromAddress(institution.getDefaultFromEmailAddress())
+				.toAddresses(List.of(careEncounter.getEmailAddress()))
+				.build();
+		return new FollowUpEmailSnapshot(renderedEmailMessage, freeformEmailMessage, institution.getTimeZone());
+	}
+
+	@Nonnull
+	protected Map<String, Object> scheduledMessageMetadata(@Nonnull UUID careEncounterId,
+																					 @Nonnull CareEncounterScheduledMessageTypeId typeId) {
+		return Map.of("careEncounterId", careEncounterId.toString(),
+				"careEncounterScheduledMessageTypeId", typeId.name());
+	}
+
+	@Nonnull
+	protected ValidationException pendingScheduledMessageValidationException(@Nonnull String message) {
+		ValidationException validationException = new ValidationException();
+		validationException.add(new FieldError("careEncounterScheduledMessageId", getStrings().get(message)));
+		return validationException;
+	}
+
+	@Nonnull
+	protected String careEncounterScheduledMessageSelectSql() {
+		return """
+				SELECT cesm.*, ce.care_encounter_status_id,
+					cesmt.description AS care_encounter_scheduled_message_type_description,
+					sm.scheduled_message_status_id, sms.description AS scheduled_message_status_description,
+					sm.scheduled_message_source_id, sm.scheduled_by_account_id, sm.message_id,
+					sm.scheduled_at, sm.time_zone, sm.processed_at, sm.canceled_at, sm.errored_at,
+					ml.message_status_id, ms.description AS message_status_description,
+					ml.processed AS sent_at, ml.delivered AS delivered_at,
+					ml.delivery_failed AS delivery_failed_at, ml.delivery_failed_reason,
+					ml.complaint_registered AS complaint_registered_at,
+					COALESCE(NULLIF(BTRIM(scheduled_by.display_name), ''),
+						NULLIF(BTRIM(CONCAT_WS(' ', scheduled_by.first_name, scheduled_by.last_name)), ''))
+						AS scheduled_by_account_display_name,
+					COALESCE(NULLIF(BTRIM(created_by.display_name), ''),
+						NULLIF(BTRIM(CONCAT_WS(' ', created_by.first_name, created_by.last_name)), ''))
+						AS created_by_account_display_name,
+					COALESCE(NULLIF(BTRIM(updated_by.display_name), ''),
+						NULLIF(BTRIM(CONCAT_WS(' ', updated_by.first_name, updated_by.last_name)), ''))
+						AS last_updated_by_account_display_name,
+					COALESCE(NULLIF(BTRIM(deleted_by.display_name), ''),
+						NULLIF(BTRIM(CONCAT_WS(' ', deleted_by.first_name, deleted_by.last_name)), ''))
+						AS deleted_by_account_display_name
+				FROM care_encounter_scheduled_message cesm
+				JOIN care_encounter ce ON ce.care_encounter_id=cesm.care_encounter_id
+				JOIN care_encounter_scheduled_message_type cesmt
+					ON cesmt.care_encounter_scheduled_message_type_id=cesm.care_encounter_scheduled_message_type_id
+				JOIN scheduled_message sm ON sm.scheduled_message_id=cesm.scheduled_message_id
+				JOIN scheduled_message_status sms
+					ON sms.scheduled_message_status_id=sm.scheduled_message_status_id
+				LEFT JOIN message_log ml ON ml.message_id=sm.message_id
+				LEFT JOIN message_status ms ON ms.message_status_id=ml.message_status_id
+				LEFT JOIN account scheduled_by ON scheduled_by.account_id=sm.scheduled_by_account_id
+				JOIN account created_by ON created_by.account_id=cesm.created_by_account_id
+				JOIN account updated_by ON updated_by.account_id=cesm.last_updated_by_account_id
+				LEFT JOIN account deleted_by ON deleted_by.account_id=cesm.deleted_by_account_id
+				""";
+	}
+
+	protected static class FollowUpEmailSnapshot {
+		@Nonnull final RenderedEmailMessage renderedEmailMessage;
+		@Nonnull final EmailMessage freeformEmailMessage;
+		@Nonnull final ZoneId timeZone;
+		FollowUpEmailSnapshot(@Nonnull RenderedEmailMessage renderedEmailMessage,
+												@Nonnull EmailMessage freeformEmailMessage,
+												@Nonnull ZoneId timeZone) {
+			this.renderedEmailMessage = requireNonNull(renderedEmailMessage);
+			this.freeformEmailMessage = requireNonNull(freeformEmailMessage);
+			this.timeZone = requireNonNull(timeZone);
+		}
+	}
+
 	protected void validateCareEncounterForNote(@Nullable UUID careEncounterId,
 																				@Nullable InstitutionId institutionId,
 																				@Nullable UUID accountId,
@@ -1071,9 +1574,13 @@ public class CareEncounterService {
 
 		if (careEncounterId == null) {
 			validationException.add(new FieldError("careEncounterId", getStrings().get("Care Encounter ID is required.")));
-		} else if (institutionId != null
-				&& findCareEncounterByIdForInstitutionId(careEncounterId, institutionId).isEmpty()) {
-			validationException.add(new FieldError("careEncounterId", getStrings().get("Care Encounter ID is invalid.")));
+		} else if (institutionId != null) {
+			CareEncounter careEncounter = findCareEncounterByIdForInstitutionId(careEncounterId, institutionId).orElse(null);
+			if (careEncounter == null)
+				validationException.add(new FieldError("careEncounterId", getStrings().get("Care Encounter ID is invalid.")));
+			else if (careEncounter.getCareEncounterStatusId() != CareEncounterStatusId.OPEN)
+				validationException.add(new FieldError("careEncounterStatusId",
+						getStrings().get("Notes cannot be changed after a Care Encounter is closed or canceled.")));
 		}
 	}
 
@@ -1123,5 +1630,20 @@ public class CareEncounterService {
 	protected Strings getStrings() {
 		return this.strings;
 	}
+
+	@Nonnull
+	protected MessageService getMessageService() { return this.messageService; }
+
+	@Nonnull
+	protected InstitutionService getInstitutionService() { return this.institutionServiceProvider.get(); }
+
+	@Nonnull
+	protected AccountService getAccountService() { return this.accountServiceProvider.get(); }
+
+	@Nonnull
+	protected Formatter getFormatter() { return this.formatter; }
+
+	@Nonnull
+	protected HandlebarsTemplater getEmailHandlebarsTemplater() { return this.emailHandlebarsTemplater; }
 
 }

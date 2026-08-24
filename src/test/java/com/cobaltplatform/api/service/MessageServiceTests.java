@@ -75,7 +75,8 @@ public class MessageServiceTests {
 
 			Map<String, Object> metadataFromJson = new Gson().fromJson(scheduledMessage.getMetadata(), Map.class);
 
-			Assert.assertEquals(metadataFromJson.get("exampleId").toString(), metadata.get("exampleId").toString(), "Metadatas differ");
+			Assert.assertEquals("Metadatas differ", metadata.get("exampleId").toString(),
+					metadataFromJson.get("exampleId").toString());
 
 			boolean canceled = messageService.cancelScheduledMessage(scheduledMessageId);
 
@@ -122,7 +123,8 @@ public class MessageServiceTests {
 			ScheduledMessage scheduledMessage = scheduledMessages.get(0);
 			Map<String, Object> metadataFromJson = new Gson().fromJson(scheduledMessage.getMetadata(), Map.class);
 
-			Assert.assertEquals(metadataFromJson.get("exampleId").toString(), metadata1.get("exampleId").toString(), "Metadatas differ");
+			Assert.assertEquals("Metadatas differ", metadata1.get("exampleId").toString(),
+					metadataFromJson.get("exampleId").toString());
 		});
 	}
 
@@ -145,8 +147,8 @@ public class MessageServiceTests {
 			// Force a commit here so the scheduled message sender task will be able to see it
 			database.execute("COMMIT");
 
-			// Wait for the scheduled message sender to notice the message and send it
-			Thread.sleep(3000L);
+			// Run the scheduler directly so the test does not depend on its background polling interval.
+			messageService.getScheduledMessageTaskProvider().get().run();
 
 			ScheduledMessage scheduledMessage = messageService.findScheduledMessageById(scheduledMessageId).get();
 
@@ -174,8 +176,8 @@ public class MessageServiceTests {
 			// Force a commit here so the scheduled message sender task will be able to see it
 			database.execute("COMMIT");
 
-			// Wait for the scheduled message sender to notice the message and send it
-			Thread.sleep(3000L);
+			// Run the scheduler directly so the test does not depend on its background polling interval.
+			messageService.getScheduledMessageTaskProvider().get().run();
 
 			ScheduledMessage scheduledMessage = messageService.findScheduledMessageById(scheduledMessageId).get();
 
@@ -206,8 +208,8 @@ public class MessageServiceTests {
 			// Force a commit here so the scheduled message sender task will be able to see it
 			database.execute("COMMIT");
 
-			// Wait for the scheduled message sender to notice the message and send it
-			Thread.sleep(3000L);
+			// Run the scheduler directly so the test does not depend on its background polling interval.
+			messageService.getScheduledMessageTaskProvider().get().run();
 
 			ScheduledMessage scheduledMessage = messageService.findScheduledMessageById(scheduledMessageId).get();
 

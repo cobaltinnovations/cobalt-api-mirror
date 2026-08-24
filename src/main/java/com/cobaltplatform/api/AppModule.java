@@ -699,15 +699,24 @@ public class AppModule extends AbstractModule {
 	@Provides
 	@Singleton
 	@Nonnull
-	public MessageSender<EmailMessage> provideEmailMessageSender(@Nonnull Provider<InstitutionService> institutionServiceProvider,
-																															 @Nonnull Configuration configuration) {
-		requireNonNull(institutionServiceProvider);
+	public HandlebarsTemplater provideEmailHandlebarsTemplater(@Nonnull Configuration configuration) {
 		requireNonNull(configuration);
 
-		HandlebarsTemplater handlebarsTemplater = new HandlebarsTemplater.Builder(Paths.get("messages/email"))
+		return new HandlebarsTemplater.Builder(Paths.get("messages/email"))
 				.viewsDirectoryName("views")
 				.shouldCacheTemplates(configuration.getShouldCacheHandlebarsTemplates())
 				.build();
+	}
+
+	@Provides
+	@Singleton
+	@Nonnull
+	public MessageSender<EmailMessage> provideEmailMessageSender(@Nonnull Provider<InstitutionService> institutionServiceProvider,
+																											 @Nonnull HandlebarsTemplater handlebarsTemplater,
+																											 @Nonnull Configuration configuration) {
+		requireNonNull(institutionServiceProvider);
+		requireNonNull(handlebarsTemplater);
+		requireNonNull(configuration);
 
 		if (getConfiguration().getShouldSendRealEmailMessages())
 			return new AmazonSesEmailMessageSender(institutionServiceProvider, handlebarsTemplater, configuration);

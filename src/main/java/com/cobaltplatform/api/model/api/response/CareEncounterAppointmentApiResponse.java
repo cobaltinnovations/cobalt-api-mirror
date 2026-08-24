@@ -14,6 +14,7 @@ import com.cobaltplatform.api.model.db.Appointment;
 import com.cobaltplatform.api.model.db.Appointment.AppointmentTimeStatusId;
 import com.cobaltplatform.api.model.db.AttendanceStatus.AttendanceStatusId;
 import com.cobaltplatform.api.util.Formatter;
+import com.cobaltplatform.api.service.AccountService;
 
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -55,10 +56,22 @@ public class CareEncounterAppointmentApiResponse {
 	private final Boolean canceledForReschedule;
 	@Nullable
 	private final Boolean canceled;
+	@Nullable
+	private final Instant canceledAt;
+	@Nullable
+	private final String canceledAtDescription;
+	@Nullable
+	private final UUID canceledByAccountId;
+	@Nullable
+	private final String canceledByAccountDisplayName;
+	@Nullable
+	private final String cancellationReason;
 
 	public CareEncounterAppointmentApiResponse(@Nonnull Formatter formatter,
-																			 @Nonnull Appointment appointment) {
+																 @Nonnull AccountService accountService,
+															 @Nonnull Appointment appointment) {
 		requireNonNull(formatter);
+		requireNonNull(accountService);
 		requireNonNull(appointment);
 
 		this.appointmentId = appointment.getAppointmentId();
@@ -76,6 +89,14 @@ public class CareEncounterAppointmentApiResponse {
 				? false
 				: appointment.getCanceledForReschedule();
 		this.canceled = appointment.getCanceled();
+		this.canceledAt = appointment.getCanceledAt();
+		this.canceledAtDescription = this.canceledAt == null ? null : formatter.formatTimestamp(this.canceledAt);
+		this.canceledByAccountId = appointment.getCanceledByAccountId();
+		this.canceledByAccountDisplayName = this.canceledByAccountId == null ? null
+				: accountService.findAccountById(this.canceledByAccountId)
+						.map(accountService::determineDisplayName)
+						.orElse(null);
+		this.cancellationReason = appointment.getCancellationReason();
 	}
 
 	@Nonnull public UUID getAppointmentId() { return this.appointmentId; }
@@ -91,4 +112,9 @@ public class CareEncounterAppointmentApiResponse {
 	@Nonnull public ZoneId getTimeZone() { return this.timeZone; }
 	@Nonnull public Boolean getCanceledForReschedule() { return this.canceledForReschedule; }
 	@Nullable public Boolean getCanceled() { return this.canceled; }
+	@Nullable public Instant getCanceledAt() { return this.canceledAt; }
+	@Nullable public String getCanceledAtDescription() { return this.canceledAtDescription; }
+	@Nullable public UUID getCanceledByAccountId() { return this.canceledByAccountId; }
+	@Nullable public String getCanceledByAccountDisplayName() { return this.canceledByAccountDisplayName; }
+	@Nullable public String getCancellationReason() { return this.cancellationReason; }
 }

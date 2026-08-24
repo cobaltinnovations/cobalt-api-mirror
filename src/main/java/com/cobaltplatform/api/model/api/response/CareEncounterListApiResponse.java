@@ -136,7 +136,7 @@ public class CareEncounterListApiResponse {
 		this.createdDateDescription = formatter.formatDate(this.createdDate, FormatStyle.MEDIUM);
 		this.lastUpdated = careEncounter.getLastUpdated();
 		this.lastUpdatedDescription = formatter.formatTimestamp(careEncounter.getLastUpdated());
-		this.appointment = new CareEncounterAppointmentApiResponse(formatter, appointmentModel);
+		this.appointment = new CareEncounterAppointmentApiResponse(formatter, accountService, appointmentModel);
 	}
 
 	@Nonnull public UUID getCareEncounterId() { return this.careEncounterId; }

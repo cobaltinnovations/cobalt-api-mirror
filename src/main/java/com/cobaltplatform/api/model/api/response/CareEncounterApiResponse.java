@@ -18,6 +18,7 @@ import com.cobaltplatform.api.model.db.Account;
 import com.cobaltplatform.api.model.db.Appointment;
 import com.cobaltplatform.api.model.db.AttendanceStatus.AttendanceStatusId;
 import com.cobaltplatform.api.model.db.CareEncounter;
+import com.cobaltplatform.api.model.db.CareEncounterScheduledMessage;
 import com.cobaltplatform.api.model.db.CareEncounterCancellationReason.CareEncounterCancellationReasonId;
 import com.cobaltplatform.api.model.db.CareEncounterStatus.CareEncounterStatusId;
 import com.cobaltplatform.api.model.db.Institution.InstitutionId;
@@ -67,6 +68,10 @@ public class CareEncounterApiResponse {
 	private final String emailAddress;
 	@Nonnull
 	private final List<CareEncounterNoteApiResponse> careEncounterNotes;
+	@Nonnull
+	private final Boolean notesEditable;
+	@Nonnull
+	private final List<CareEncounterScheduledMessageApiResponse> careEncounterScheduledMessages;
 	@Nullable
 	private final Instant closedAt;
 	@Nullable
@@ -154,6 +159,11 @@ public class CareEncounterApiResponse {
 				careEncounter.getCareEncounterId()).stream()
 				.map(careEncounterNoteApiResponseFactory::create)
 				.collect(Collectors.toUnmodifiableList());
+		this.notesEditable = careEncounter.getCareEncounterStatusId() == CareEncounterStatusId.OPEN;
+		this.careEncounterScheduledMessages = careEncounterService
+				.findCareEncounterScheduledMessagesByCareEncounterId(careEncounter.getCareEncounterId()).stream()
+				.map(message -> new CareEncounterScheduledMessageApiResponse(formatter, message))
+				.collect(Collectors.toUnmodifiableList());
 		this.closedAt = careEncounter.getClosedAt();
 		this.closedAtDescription = careEncounter.getClosedAt() == null ? null : formatter.formatTimestamp(careEncounter.getClosedAt());
 		this.closedByAccountId = careEncounter.getClosedByAccountId();
@@ -213,6 +223,8 @@ public class CareEncounterApiResponse {
 	@Nonnull public String getAppointmentDateDescription() { return this.appointmentDateDescription; }
 	@Nullable public String getEmailAddress() { return this.emailAddress; }
 	@Nonnull public List<CareEncounterNoteApiResponse> getCareEncounterNotes() { return this.careEncounterNotes; }
+	@Nonnull public Boolean getNotesEditable() { return this.notesEditable; }
+	@Nonnull public List<CareEncounterScheduledMessageApiResponse> getCareEncounterScheduledMessages() { return this.careEncounterScheduledMessages; }
 	@Nullable public Instant getClosedAt() { return this.closedAt; }
 	@Nullable public String getClosedAtDescription() { return this.closedAtDescription; }
 	@Nullable public UUID getClosedByAccountId() { return this.closedByAccountId; }

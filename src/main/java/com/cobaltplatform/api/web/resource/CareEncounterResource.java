@@ -17,6 +17,8 @@ import com.cobaltplatform.api.model.api.request.CancelCareEncounterRequest;
 import com.cobaltplatform.api.model.api.request.ChangeAppointmentAttendanceStatusRequest;
 import com.cobaltplatform.api.model.api.request.CreateCareEncounterNoteRequest;
 import com.cobaltplatform.api.model.api.request.CreateCareEncounterRequest;
+import com.cobaltplatform.api.model.api.request.CreateCareEncounterScheduledMessageRequest;
+import com.cobaltplatform.api.model.api.request.PreviewCareEncounterScheduledMessageRequest;
 import com.cobaltplatform.api.model.api.request.FindCareEncountersRequest;
 import com.cobaltplatform.api.model.api.request.FindCareEncountersRequest.CareEncounterAssignmentScopeId;
 import com.cobaltplatform.api.model.api.request.FindCareEncountersRequest.CareEncounterSortColumnId;
@@ -25,6 +27,7 @@ import com.cobaltplatform.api.model.api.request.UpdateCareEncounterNoteRequest;
 import com.cobaltplatform.api.model.api.response.CareEncounterApiResponse.CareEncounterApiResponseFactory;
 import com.cobaltplatform.api.model.api.response.CareEncounterListApiResponse.CareEncounterListApiResponseFactory;
 import com.cobaltplatform.api.model.api.response.CareEncounterNoteApiResponse.CareEncounterNoteApiResponseFactory;
+import com.cobaltplatform.api.model.api.response.CareEncounterScheduledMessageApiResponse;
 import com.cobaltplatform.api.model.db.Account;
 import com.cobaltplatform.api.model.db.AuditLog;
 import com.cobaltplatform.api.model.db.AuditLogEvent.AuditLogEventId;
@@ -32,11 +35,15 @@ import com.cobaltplatform.api.model.db.AttendanceStatus;
 import com.cobaltplatform.api.model.db.CareEncounter;
 import com.cobaltplatform.api.model.db.CareEncounterCancellationReason;
 import com.cobaltplatform.api.model.db.CareEncounterNote;
+import com.cobaltplatform.api.model.db.CareEncounterScheduledMessage;
+import com.cobaltplatform.api.model.db.CareEncounterScheduledMessageType;
 import com.cobaltplatform.api.model.db.CareEncounterStatus.CareEncounterStatusId;
+import com.cobaltplatform.api.model.db.MessageType.MessageTypeId;
 import com.cobaltplatform.api.model.db.FootprintEventGroupType.FootprintEventGroupTypeId;
 import com.cobaltplatform.api.model.security.AuthenticationRequired;
 import com.cobaltplatform.api.model.service.FindResult;
 import com.cobaltplatform.api.model.service.SortDirectionId;
+import com.cobaltplatform.api.model.service.RenderedEmailMessage;
 import com.cobaltplatform.api.service.AuthorizationService;
 import com.cobaltplatform.api.service.AuditLogService;
 import com.cobaltplatform.api.service.CareEncounterService;
@@ -183,17 +190,16 @@ public class CareEncounterResource {
 		CareEncounter careEncounter = getCareEncounterService()
 				.findCareEncounterByIdForInstitutionId(careEncounterId, account.getInstitutionId())
 				.orElseThrow(NotFoundException::new);
-		List<CareEncounter> otherCareEncounters = getCareEncounterService()
-				.findOtherCareEncountersByAccountId(careEncounter.getAccountId(), careEncounter.getCareEncounterId(),
-						account.getInstitutionId());
+		List<CareEncounter> careEncounterHistory = getCareEncounterService()
+				.findCareEncountersByAccountId(careEncounter.getAccountId(), account.getInstitutionId());
 
 		return new ApiResponse(new LinkedHashMap<String, Object>() {{
 			put("careEncounter", getCareEncounterApiResponseFactory().create(careEncounter));
-			put("otherCareEncounters", otherCareEncounters.stream()
+			put("careEncounterHistory", careEncounterHistory.stream()
 					.map(getCareEncounterListApiResponseFactory()::create)
 					.collect(Collectors.toList()));
-			put("otherCareEncountersTotalCount", otherCareEncounters.size());
-			put("otherCareEncountersTotalCountDescription", getFormatter().formatNumber(otherCareEncounters.size()));
+			put("careEncounterHistoryTotalCount", careEncounterHistory.size());
+			put("careEncounterHistoryTotalCountDescription", getFormatter().formatNumber(careEncounterHistory.size()));
 		}});
 	}
 
@@ -238,14 +244,17 @@ public class CareEncounterResource {
 		requireNonNull(careEncounterId);
 
 		Account account = requireCareNavigatorAccount();
-		getCareEncounterService().findCareEncounterByIdForInstitutionId(careEncounterId, account.getInstitutionId())
+		CareEncounter careEncounter = getCareEncounterService()
+				.findCareEncounterByIdForInstitutionId(careEncounterId, account.getInstitutionId())
 				.orElseThrow(NotFoundException::new);
 		List<CareEncounterNote> careEncounterNotes = getCareEncounterService()
 				.findCareEncounterNotesByCareEncounterId(careEncounterId);
 
-		return new ApiResponse(Map.of("careEncounterNotes", careEncounterNotes.stream()
-				.map(getCareEncounterNoteApiResponseFactory()::create)
-				.collect(Collectors.toList())));
+		return new ApiResponse(Map.of(
+				"careEncounterNotes", careEncounterNotes.stream()
+						.map(getCareEncounterNoteApiResponseFactory()::create)
+						.collect(Collectors.toList()),
+				"notesEditable", careEncounter.getCareEncounterStatusId() == CareEncounterStatusId.OPEN));
 	}
 
 	@Nonnull
@@ -284,6 +293,101 @@ public class CareEncounterResource {
 
 		return new ApiResponse(Map.of("careEncounterNote",
 				getCareEncounterNoteApiResponseFactory().create(careEncounterNote)));
+	}
+
+	@Nonnull
+	@DELETE("/admin/care-encounters/{careEncounterId}/notes/{careEncounterNoteId}")
+	@AuthenticationRequired
+	public ApiResponse deleteCareEncounterNote(@Nonnull @PathParameter UUID careEncounterId,
+																 @Nonnull @PathParameter UUID careEncounterNoteId) {
+		requireNonNull(careEncounterId);
+		requireNonNull(careEncounterNoteId);
+
+		Account account = requireCareNavigatorAccount();
+		getCareEncounterService().deleteCareEncounterNote(careEncounterId, careEncounterNoteId,
+				account.getInstitutionId(), account.getAccountId());
+		return new ApiResponse();
+	}
+
+	@Nonnull
+	@GET("/admin/care-encounter-scheduled-message-types")
+	@AuthenticationRequired
+	@ReadReplica
+	public ApiResponse careEncounterScheduledMessageTypes() {
+		requireCareNavigatorAccount();
+		List<CareEncounterScheduledMessageType> types = getCareEncounterService()
+				.findCareEncounterScheduledMessageTypes();
+		return new ApiResponse(Map.of("careEncounterScheduledMessageTypes", types.stream()
+				.map(type -> Map.of(
+						"careEncounterScheduledMessageTypeId", type.getCareEncounterScheduledMessageTypeId(),
+						"description", type.getDescription(),
+						"displayOrder", type.getDisplayOrder(),
+						"supportedMessageTypeIds", List.of(MessageTypeId.EMAIL)))
+				.collect(Collectors.toList())));
+	}
+
+	@Nonnull
+	@POST("/admin/care-encounters/{careEncounterId}/scheduled-messages/preview")
+	@AuthenticationRequired
+	public ApiResponse previewCareEncounterScheduledMessage(@Nonnull @PathParameter UUID careEncounterId,
+																							 @Nonnull @RequestBody String requestBody) {
+		requireNonNull(careEncounterId);
+		requireNonNull(requestBody);
+		Account account = requireCareNavigatorAccount();
+		PreviewCareEncounterScheduledMessageRequest request = getRequestBodyParser().parse(
+				requestBody, PreviewCareEncounterScheduledMessageRequest.class);
+		RenderedEmailMessage preview = getCareEncounterService().previewCareEncounterScheduledMessage(
+				careEncounterId, account.getInstitutionId(), request);
+		return new ApiResponse(Map.of("careEncounterScheduledMessagePreview", preview));
+	}
+
+	@Nonnull
+	@POST("/admin/care-encounters/{careEncounterId}/scheduled-messages")
+	@AuthenticationRequired
+	public ApiResponse createCareEncounterScheduledMessage(@Nonnull @PathParameter UUID careEncounterId,
+																							@Nonnull @RequestBody String requestBody) {
+		requireNonNull(careEncounterId);
+		requireNonNull(requestBody);
+		Account account = requireCareNavigatorAccount();
+		CreateCareEncounterScheduledMessageRequest request = getRequestBodyParser().parse(
+				requestBody, CreateCareEncounterScheduledMessageRequest.class);
+		CareEncounterScheduledMessage message = getCareEncounterService().createCareEncounterScheduledMessage(
+				careEncounterId, account.getInstitutionId(), account.getAccountId(), request);
+		return new ApiResponse(Map.of("careEncounterScheduledMessage",
+				new CareEncounterScheduledMessageApiResponse(getFormatter(), message)));
+	}
+
+	@Nonnull
+	@PUT("/admin/care-encounters/{careEncounterId}/scheduled-messages/{careEncounterScheduledMessageId}")
+	@AuthenticationRequired
+	public ApiResponse updateCareEncounterScheduledMessage(@Nonnull @PathParameter UUID careEncounterId,
+																							@Nonnull @PathParameter UUID careEncounterScheduledMessageId,
+																							@Nonnull @RequestBody String requestBody) {
+		requireNonNull(careEncounterId);
+		requireNonNull(careEncounterScheduledMessageId);
+		requireNonNull(requestBody);
+		Account account = requireCareNavigatorAccount();
+		CreateCareEncounterScheduledMessageRequest request = getRequestBodyParser().parse(
+				requestBody, CreateCareEncounterScheduledMessageRequest.class);
+		CareEncounterScheduledMessage message = getCareEncounterService().updateCareEncounterScheduledMessage(
+				careEncounterId, careEncounterScheduledMessageId, account.getInstitutionId(),
+				account.getAccountId(), request);
+		return new ApiResponse(Map.of("careEncounterScheduledMessage",
+				new CareEncounterScheduledMessageApiResponse(getFormatter(), message)));
+	}
+
+	@Nonnull
+	@DELETE("/admin/care-encounters/{careEncounterId}/scheduled-messages/{careEncounterScheduledMessageId}")
+	@AuthenticationRequired
+	public ApiResponse deleteCareEncounterScheduledMessage(@Nonnull @PathParameter UUID careEncounterId,
+																							@Nonnull @PathParameter UUID careEncounterScheduledMessageId) {
+		requireNonNull(careEncounterId);
+		requireNonNull(careEncounterScheduledMessageId);
+		Account account = requireCareNavigatorAccount();
+		CareEncounterScheduledMessage message = getCareEncounterService().deleteCareEncounterScheduledMessage(
+				careEncounterId, careEncounterScheduledMessageId, account.getInstitutionId(), account.getAccountId());
+		return new ApiResponse(Map.of("careEncounterScheduledMessage",
+				new CareEncounterScheduledMessageApiResponse(getFormatter(), message)));
 	}
 
 	@Nonnull

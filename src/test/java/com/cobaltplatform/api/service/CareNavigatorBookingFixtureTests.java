@@ -23,6 +23,8 @@ import com.cobaltplatform.api.model.api.request.CreateAppointmentRequest;
 import com.cobaltplatform.api.model.api.request.CreateAppointmentRequest.BookingExperienceId;
 import com.cobaltplatform.api.model.api.request.CancelCareEncounterAppointmentRequest;
 import com.cobaltplatform.api.model.api.request.CreateCareEncounterNoteRequest;
+import com.cobaltplatform.api.model.api.request.CreateCareEncounterScheduledMessageRequest;
+import com.cobaltplatform.api.model.api.request.PreviewCareEncounterScheduledMessageRequest;
 import com.cobaltplatform.api.model.api.request.CreateScreeningAnswersRequest;
 import com.cobaltplatform.api.model.api.request.CreateScreeningAnswersRequest.CreateAnswerRequest;
 import com.cobaltplatform.api.model.api.request.CancelCareEncounterRequest;
@@ -46,9 +48,13 @@ import com.cobaltplatform.api.model.db.AttendanceStatus.AttendanceStatusId;
 import com.cobaltplatform.api.model.db.CareEncounter;
 import com.cobaltplatform.api.model.db.CareEncounterCancellationReason.CareEncounterCancellationReasonId;
 import com.cobaltplatform.api.model.db.CareEncounterNote;
+import com.cobaltplatform.api.model.db.CareEncounterScheduledMessage;
+import com.cobaltplatform.api.model.db.CareEncounterScheduledMessageType.CareEncounterScheduledMessageTypeId;
 import com.cobaltplatform.api.model.db.CareEncounterStatus.CareEncounterStatusId;
 import com.cobaltplatform.api.model.db.Feature.FeatureId;
 import com.cobaltplatform.api.model.db.Institution.InstitutionId;
+import com.cobaltplatform.api.model.db.ScheduledMessageSource.ScheduledMessageSourceId;
+import com.cobaltplatform.api.model.db.ScheduledMessageStatus.ScheduledMessageStatusId;
 import com.cobaltplatform.api.model.db.VideoconferencePlatform.VideoconferencePlatformId;
 import com.cobaltplatform.api.model.service.AppointmentBookingRequirements;
 import com.cobaltplatform.api.model.service.AppointmentBookingRequirements.AppointmentBookingRequirementsDestinationId;
@@ -60,6 +66,7 @@ import com.cobaltplatform.api.model.service.ScreeningSessionDestination;
 import com.cobaltplatform.api.model.service.ScreeningSessionDestination.ScreeningSessionDestinationId;
 import com.cobaltplatform.api.model.service.ScreeningSessionDestinationResultId;
 import com.cobaltplatform.api.model.service.ScreeningSessionResult;
+import com.cobaltplatform.api.model.service.RenderedEmailMessage;
 import com.cobaltplatform.api.util.JsonMapper;
 import com.cobaltplatform.api.util.ValidationException;
 import com.cobaltplatform.api.util.db.DatabaseProvider;
@@ -510,6 +517,10 @@ public class CareNavigatorBookingFixtureTests {
 						response.getAppointmentHistory().get(0).getAttendanceStatusId());
 				assertEquals("Patient requested a different appointment time.",
 						response.getAppointmentHistory().get(0).getCancellationReason());
+				assertEquals(CARE_NAVIGATOR_ACCOUNT_ID,
+						response.getAppointmentHistory().get(0).getCanceledByAccountId());
+				assertEquals(accountService.determineDisplayName(navigator),
+						response.getAppointmentHistory().get(0).getCanceledByAccountDisplayName());
 			});
 		});
 	}
@@ -609,6 +620,11 @@ public class CareNavigatorBookingFixtureTests {
 					CARE_NAVIGATOR_ATTENDED_APPOINTMENT_ID).get());
 			assertTrue(careEncounterService.deleteCareEncounter(attendedCareEncounterId, InstitutionId.COBALT,
 					CARE_NAVIGATOR_ACCOUNT_ID));
+			assertEquals(Integer.valueOf(1), database.queryForObject(
+					"SELECT COUNT(*) FROM care_encounter WHERE care_encounter_id=?",
+					Integer.class, attendedCareEncounterId).get());
+			assertTrue(database.queryForObject("SELECT deleted FROM care_encounter WHERE care_encounter_id=?",
+					Boolean.class, attendedCareEncounterId).get());
 		});
 	}
 
@@ -712,6 +728,114 @@ public class CareNavigatorBookingFixtureTests {
 			blankRequest.setNote("   ");
 			assertThrows(ValidationException.class, () -> careEncounterService.createCareEncounterNote(
 					careEncounterId, InstitutionId.COBALT, CARE_NAVIGATOR_ACCOUNT_ID, blankRequest));
+
+			assertTrue(careEncounterService.deleteCareEncounterNote(careEncounterId,
+					firstNote.getCareEncounterNoteId(), InstitutionId.COBALT, CARE_NAVIGATOR_ACCOUNT_ID));
+			assertTrue(careEncounterService.findCareEncounterNoteByIdAndCareEncounterId(
+					firstNote.getCareEncounterNoteId(), careEncounterId).isEmpty());
+			assertEquals(originalNoteCount + 1,
+					careEncounterService.findCareEncounterNotesByCareEncounterId(careEncounterId).size());
+			assertTrue(database.queryForObject("""
+					SELECT deleted FROM care_encounter_note WHERE care_encounter_note_id=?
+					""", Boolean.class, firstNote.getCareEncounterNoteId()).get());
+			assertEquals(CARE_NAVIGATOR_ACCOUNT_ID, database.queryForObject("""
+					SELECT deleted_by_account_id FROM care_encounter_note WHERE care_encounter_note_id=?
+					""", UUID.class, firstNote.getCareEncounterNoteId()).get());
+		});
+	}
+
+	@Test
+	public void encounterFollowUpCanBePreviewedEditedAndSoftDeletedBeforeClosure() {
+		IntegrationTestExecutor.runTransactionallyAndForceRollback((app) -> {
+			Database database = app.getInjector().getInstance(DatabaseProvider.class).getWritableMasterDatabase();
+			CareEncounterService service = app.getInjector().getInstance(CareEncounterService.class);
+			CareEncounterResource resource = app.getInjector().getInstance(CareEncounterResource.class);
+			AccountService accountService = app.getInjector().getInstance(AccountService.class);
+			CurrentContextExecutor currentContextExecutor = app.getInjector().getInstance(CurrentContextExecutor.class);
+			Account navigator = accountService.findAccountById(CARE_NAVIGATOR_ACCOUNT_ID).get();
+			UUID encounterId = careEncounterIdForAppointment(database, CARE_NAVIGATOR_ATTENDED_APPOINTMENT_ID);
+			ZoneId timeZone = ZoneId.of("America/New_York");
+
+			PreviewCareEncounterScheduledMessageRequest previewRequest = new PreviewCareEncounterScheduledMessageRequest();
+			previewRequest.setCareEncounterScheduledMessageTypeId(CareEncounterScheduledMessageTypeId.FOLLOW_UP);
+			previewRequest.setCustomEmailText("<p>Here is your <strong>follow-up</strong>.</p><script>bad()</script>");
+			RenderedEmailMessage preview = service.previewCareEncounterScheduledMessage(
+					encounterId, InstitutionId.COBALT, previewRequest);
+			assertTrue(preview.getEmailSubject().contains("Follow-up"));
+			assertTrue(preview.getEmailBody().contains("<strong>follow-up</strong>"));
+			assertFalse(preview.getEmailBody().contains("<script>"));
+
+			CreateCareEncounterScheduledMessageRequest createRequest = scheduledFollowUpRequest(
+					LocalDate.now(timeZone).plusDays(1), LocalTime.of(9, 30), "<p>Original resources.</p>");
+			CareEncounterScheduledMessage created = service.createCareEncounterScheduledMessage(encounterId,
+					InstitutionId.COBALT, CARE_NAVIGATOR_ACCOUNT_ID, createRequest);
+			assertEquals(ScheduledMessageStatusId.PENDING, created.getScheduledMessageStatusId());
+			assertEquals(ScheduledMessageSourceId.MANUAL, created.getScheduledMessageSourceId());
+			assertEquals(CARE_NAVIGATOR_ACCOUNT_ID, created.getScheduledByAccountId());
+			assertFalse(created.getDeleted());
+			assertThrows(ValidationException.class, () -> service.createCareEncounterScheduledMessage(
+					encounterId, InstitutionId.COBALT, CARE_NAVIGATOR_ACCOUNT_ID, createRequest));
+
+			CreateCareEncounterScheduledMessageRequest updateRequest = scheduledFollowUpRequest(
+					LocalDate.now(timeZone).plusDays(2), LocalTime.of(10, 15), "<p>Updated resources.</p>");
+			CareEncounterScheduledMessage updated = service.updateCareEncounterScheduledMessage(encounterId,
+					created.getCareEncounterScheduledMessageId(), InstitutionId.COBALT,
+					CARE_NAVIGATOR_ACCOUNT_ID, updateRequest);
+			assertEquals(created.getScheduledMessageId(), updated.getScheduledMessageId());
+			assertEquals(created.getMessageId(), updated.getMessageId());
+			assertEquals("<p>Updated resources.</p>", updated.getCustomEmailText());
+			assertEquals(LocalDate.now(timeZone).plusDays(2), updated.getScheduledAt().toLocalDate());
+
+			ValidationException closeWhilePending = assertThrows(ValidationException.class,
+					() -> service.closeCareEncounter(encounterId, InstitutionId.COBALT, CARE_NAVIGATOR_ACCOUNT_ID));
+			assertTrue(closeWhilePending.getFieldErrors().stream()
+					.anyMatch(error -> error.getField().equals("careEncounterScheduledMessageId")));
+
+			CareEncounterScheduledMessage deleted = service.deleteCareEncounterScheduledMessage(encounterId,
+					created.getCareEncounterScheduledMessageId(), InstitutionId.COBALT, CARE_NAVIGATOR_ACCOUNT_ID);
+			assertTrue(deleted.getDeleted());
+			assertNotNull(deleted.getDeletedAt());
+			assertEquals(CARE_NAVIGATOR_ACCOUNT_ID, deleted.getDeletedByAccountId());
+			assertEquals(ScheduledMessageStatusId.CANCELED, deleted.getScheduledMessageStatusId());
+			assertEquals(1, service.findCareEncounterScheduledMessagesByCareEncounterId(encounterId).size());
+			currentContextExecutor.execute(new CurrentContext.Builder(navigator, Locale.US, timeZone).build(), () -> {
+				Map<String, Object> detailModel = (Map<String, Object>) resource.careEncounter(encounterId).model().get();
+				CareEncounterApiResponse detail = (CareEncounterApiResponse) detailModel.get("careEncounter");
+				assertEquals(1, detail.getCareEncounterScheduledMessages().size());
+				assertTrue(detail.getCareEncounterScheduledMessages().get(0).getDeleted());
+				assertEquals(ScheduledMessageStatusId.CANCELED,
+						detail.getCareEncounterScheduledMessages().get(0).getScheduledMessageStatusId());
+			});
+
+			CareEncounter closed = service.closeCareEncounter(encounterId, InstitutionId.COBALT,
+					CARE_NAVIGATOR_ACCOUNT_ID);
+			assertEquals(CareEncounterStatusId.CLOSED, closed.getCareEncounterStatusId());
+			assertThrows(ValidationException.class, () -> service.updateCareEncounterScheduledMessage(encounterId,
+					created.getCareEncounterScheduledMessageId(), InstitutionId.COBALT,
+					CARE_NAVIGATOR_ACCOUNT_ID, updateRequest));
+		});
+	}
+
+	@Test
+	public void encounterNotesBecomeReadOnlyWhenEncounterCloses() {
+		IntegrationTestExecutor.runTransactionallyAndForceRollback((app) -> {
+			Database database = app.getInjector().getInstance(DatabaseProvider.class).getWritableMasterDatabase();
+			CareEncounterService service = app.getInjector().getInstance(CareEncounterService.class);
+			UUID encounterId = careEncounterIdForAppointment(database, CARE_NAVIGATOR_ATTENDED_APPOINTMENT_ID);
+			CreateCareEncounterNoteRequest createRequest = new CreateCareEncounterNoteRequest();
+			createRequest.setNote("Final open note.");
+			CareEncounterNote note = service.createCareEncounterNote(encounterId, InstitutionId.COBALT,
+					CARE_NAVIGATOR_ACCOUNT_ID, createRequest);
+			service.closeCareEncounter(encounterId, InstitutionId.COBALT, CARE_NAVIGATOR_ACCOUNT_ID);
+
+			UpdateCareEncounterNoteRequest updateRequest = new UpdateCareEncounterNoteRequest();
+			updateRequest.setNote("Too late.");
+			assertThrows(ValidationException.class, () -> service.updateCareEncounterNote(encounterId,
+					note.getCareEncounterNoteId(), InstitutionId.COBALT, CARE_NAVIGATOR_ACCOUNT_ID, updateRequest));
+			assertThrows(ValidationException.class, () -> service.deleteCareEncounterNote(encounterId,
+					note.getCareEncounterNoteId(), InstitutionId.COBALT, CARE_NAVIGATOR_ACCOUNT_ID));
+			assertThrows(ValidationException.class, () -> service.createCareEncounterNote(encounterId,
+					InstitutionId.COBALT, CARE_NAVIGATOR_ACCOUNT_ID, createRequest));
 		});
 	}
 
@@ -722,6 +846,7 @@ public class CareNavigatorBookingFixtureTests {
 			CareEncounterService careEncounterService = app.getInjector().getInstance(CareEncounterService.class);
 			AccountService accountService = app.getInjector().getInstance(AccountService.class);
 			CurrentContextExecutor currentContextExecutor = app.getInjector().getInstance(CurrentContextExecutor.class);
+			CareEncounterResource careEncounterResource = app.getInjector().getInstance(CareEncounterResource.class);
 			CareEncounterApiResponseFactory responseFactory = app.getInjector().getInstance(CareEncounterApiResponseFactory.class);
 			CareEncounterListApiResponseFactory listResponseFactory = app.getInjector()
 					.getInstance(CareEncounterListApiResponseFactory.class);
@@ -783,6 +908,15 @@ public class CareNavigatorBookingFixtureTests {
 				assertFalse(serializedListAppointment.containsKey("appointmentReason"));
 				assertFalse(serializedListAppointment.containsKey("emailAddress"));
 				assertFalse(serializedListAppointment.containsKey("screeningSessionResult"));
+
+				Map<String, Object> detailModel = (Map<String, Object>) careEncounterResource
+						.careEncounter(activeCareEncounterId).model().get();
+				List<CareEncounterListApiResponse> encounterHistory =
+						(List<CareEncounterListApiResponse>) detailModel.get("careEncounterHistory");
+				assertTrue(encounterHistory.stream()
+						.anyMatch(item -> item.getCareEncounterId().equals(activeCareEncounterId)));
+				assertEquals(encounterHistory.size(), detailModel.get("careEncounterHistoryTotalCount"));
+				assertFalse(detailModel.containsKey("otherCareEncounters"));
 			});
 
 			UUID attendedCareEncounterId = careEncounterIdForAppointment(database, CARE_NAVIGATOR_ATTENDED_APPOINTMENT_ID);
@@ -1032,6 +1166,17 @@ public class CareNavigatorBookingFixtureTests {
 				FROM appointment
 				WHERE appointment_id=?
 				""", appointmentId, careEncounterId, daysAfterSource, daysAfterSource, sourceAppointmentId));
+	}
+
+	protected CreateCareEncounterScheduledMessageRequest scheduledFollowUpRequest(LocalDate date,
+																												 LocalTime time,
+																												 String customEmailText) {
+		CreateCareEncounterScheduledMessageRequest request = new CreateCareEncounterScheduledMessageRequest();
+		request.setCareEncounterScheduledMessageTypeId(CareEncounterScheduledMessageTypeId.FOLLOW_UP);
+		request.setScheduledAtDate(date);
+		request.setScheduledAtTime(time);
+		request.setCustomEmailText(customEmailText);
+		return request;
 	}
 
 	protected void cancelAppointment(Database database,
