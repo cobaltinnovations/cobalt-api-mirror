@@ -30,7 +30,6 @@ import com.cobaltplatform.api.model.api.request.FindAppointmentBookingRequiremen
 import com.cobaltplatform.api.model.api.request.FindCareEncountersRequest;
 import com.cobaltplatform.api.model.api.request.FindCareEncountersRequest.CareEncounterAssignmentScopeId;
 import com.cobaltplatform.api.model.api.request.UpdateAppointmentRequest;
-import com.cobaltplatform.api.model.api.request.UpdateCareEncounterRequest;
 import com.cobaltplatform.api.model.api.request.UpdateCareEncounterNoteRequest;
 import com.cobaltplatform.api.model.api.response.LocationApiResponse;
 import com.cobaltplatform.api.model.api.response.InstitutionApiResponse;
@@ -53,6 +52,7 @@ import com.cobaltplatform.api.model.db.Institution.InstitutionId;
 import com.cobaltplatform.api.model.db.VideoconferencePlatform.VideoconferencePlatformId;
 import com.cobaltplatform.api.model.service.AppointmentBookingRequirements;
 import com.cobaltplatform.api.model.service.AppointmentBookingRequirements.AppointmentBookingRequirementsDestinationId;
+import com.cobaltplatform.api.model.service.AppointmentBookingScreeningKey;
 import com.cobaltplatform.api.model.service.FeatureForInstitution;
 import com.cobaltplatform.api.model.service.FindResult;
 import com.cobaltplatform.api.model.service.ScreeningQuestionContext;
@@ -64,6 +64,7 @@ import com.cobaltplatform.api.util.JsonMapper;
 import com.cobaltplatform.api.util.ValidationException;
 import com.cobaltplatform.api.util.db.DatabaseProvider;
 import com.cobaltplatform.api.web.resource.AccountResource;
+import com.cobaltplatform.api.web.resource.CareEncounterResource;
 import com.cobaltplatform.api.web.resource.ProviderResource;
 import com.pyranid.Database;
 import com.soklet.web.response.ApiResponse;
@@ -78,6 +79,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.junit.Assert.assertEquals;
@@ -218,10 +220,12 @@ public class CareNavigatorBookingFixtureTests {
 			assertNotNull(initialRequirements.getScreeningSession());
 
 			UUID screeningSessionId = initialRequirements.getScreeningSession().getScreeningSessionId();
+			String screeningContactEmailAddress = "care-navigator-screening-contact@example.com";
 			List<String> expectedQuestionTexts = List.of(
 					"What would you like help navigating?",
 					"What type of support would be most useful right now?",
 					"How would you prefer your Care Navigator to follow up?",
+					"What email address should your Care Navigator use to contact you?",
 					"Is there anything else you would like your Care Navigator to know?"
 			);
 			int questionIndex = 0;
@@ -249,6 +253,8 @@ public class CareNavigatorBookingFixtureTests {
 							currentQuestionContext.getScreeningAnswerOptions().get(0).getScreeningAnswerOptionId());
 
 					if (questionIndex == 3)
+						answer.setText(screeningContactEmailAddress);
+					else if (questionIndex == 4)
 						answer.setText(NAVIGATOR_CONTEXT_FIXTURE_TEXT);
 
 					answers = List.of(answer);
@@ -316,6 +322,14 @@ public class CareNavigatorBookingFixtureTests {
 
 			CareEncounter careEncounter = careEncounterService.findCareEncounterByIdForInstitutionId(
 					appointment.getCareEncounterId(), InstitutionId.COBALT).get();
+			assertEquals(screeningContactEmailAddress, careEncounter.getEmailAddress());
+			assertNotEquals(bookingEmailAddress, careEncounter.getEmailAddress());
+			AppointmentBookingScreeningKey consumedScreeningKey = new AppointmentBookingScreeningKey(
+					CARE_NAVIGATOR_PROVIDER_ID, CARE_NAVIGATOR_APPOINTMENT_TYPE_ID,
+					CARE_NAVIGATOR_SCREENING_FLOW_ID);
+			assertFalse(appointmentService.findCompletedAppointmentBookingScreeningKeys(account.getAccountId(),
+					Set.of(consumedScreeningKey))
+					.contains(consumedScreeningKey));
 			CareEncounterApiResponse encounterResponse = responseFactory.create(careEncounter);
 			assertEquals(appointmentId, encounterResponse.getAppointment().getAppointmentId());
 			assertEquals(screeningSessionId, encounterResponse.getAppointment().getScreeningSessionId());
@@ -334,8 +348,10 @@ public class CareNavigatorBookingFixtureTests {
 					questionResults.get(1).getScreeningAnswerResults().stream()
 							.map(ScreeningSessionResult.ScreeningAnswerResult::getAnswerOptionText).toList());
 			assertEquals("Email", questionResults.get(2).getScreeningAnswerResults().get(0).getAnswerOptionText());
-			assertEquals(NAVIGATOR_CONTEXT_FIXTURE_TEXT,
+			assertEquals(screeningContactEmailAddress,
 					questionResults.get(3).getScreeningAnswerResults().get(0).getText());
+			assertEquals(NAVIGATOR_CONTEXT_FIXTURE_TEXT,
+					questionResults.get(4).getScreeningAnswerResults().get(0).getText());
 			Map<String, Object> serializedEncounter = new JsonMapper().toMap(encounterResponse);
 			Map<?, ?> serializedAppointment = (Map<?, ?>) serializedEncounter.get("appointment");
 			assertTrue(serializedAppointment.containsKey("screeningSessionId"));
@@ -369,6 +385,14 @@ public class CareNavigatorBookingFixtureTests {
 			assertEquals(screeningSessionId,
 					appointmentScopedResponse.getAppointmentHistory().get(0).getScreeningSessionId());
 			assertNotNull(appointmentScopedResponse.getAppointmentHistory().get(0).getScreeningSessionResult());
+
+			AppointmentBookingRequirements nextBookingRequirements =
+					appointmentService.findAppointmentBookingRequirements(requirementsRequest, account);
+			assertEquals(AppointmentBookingRequirementsDestinationId.SCREENING_SESSION,
+					nextBookingRequirements.getAppointmentBookingRequirementsDestinationId());
+			assertNotNull(nextBookingRequirements.getScreeningSession());
+			assertNotEquals(screeningSessionId,
+					nextBookingRequirements.getScreeningSession().getScreeningSessionId());
 		});
 	}
 
@@ -589,10 +613,16 @@ public class CareNavigatorBookingFixtureTests {
 	}
 
 	@Test
-	public void navigatorCanUpdateEncounterEmailWithoutChangingAppointmentEmail() {
+	public void navigatorContactEmailEndpointUpdatesOpenEncounterOnly() {
 		IntegrationTestExecutor.runTransactionallyAndForceRollback((app) -> {
 			Database database = app.getInjector().getInstance(DatabaseProvider.class).getWritableMasterDatabase();
 			CareEncounterService careEncounterService = app.getInjector().getInstance(CareEncounterService.class);
+			CareEncounterResource careEncounterResource = app.getInjector().getInstance(CareEncounterResource.class);
+			AccountService accountService = app.getInjector().getInstance(AccountService.class);
+			CurrentContextExecutor currentContextExecutor = app.getInjector().getInstance(CurrentContextExecutor.class);
+			Account navigator = accountService.findAccountById(CARE_NAVIGATOR_ACCOUNT_ID).get();
+			CurrentContext currentContext = new CurrentContext.Builder(navigator, Locale.US,
+					ZoneId.of("America/New_York")).build();
 			UUID careEncounterId = careEncounterIdForAppointment(database, CARE_NAVIGATOR_ACTIVE_APPOINTMENT_ID);
 			String appointmentEmailAddress = database.queryForObject("""
 					SELECT email_address
@@ -602,29 +632,44 @@ public class CareNavigatorBookingFixtureTests {
 
 			CareEncounter originalCareEncounter = careEncounterService.findCareEncounterByIdForInstitutionId(
 					careEncounterId, InstitutionId.COBALT).get();
-			assertEquals(appointmentEmailAddress, originalCareEncounter.getEmailAddress());
+			assertEquals("care-encounter.screening.jordan@example.com", originalCareEncounter.getEmailAddress());
+			assertNotEquals(appointmentEmailAddress, originalCareEncounter.getEmailAddress());
 
-			UpdateCareEncounterRequest request = new UpdateCareEncounterRequest();
-			request.setCareEncounterId(careEncounterId);
-			request.setInstitutionId(InstitutionId.COBALT);
-			request.setAccountId(CARE_NAVIGATOR_ACCOUNT_ID);
-			request.setEmailAddress("  Navigator.Contact@Example.com  ");
-
-			CareEncounter updatedCareEncounter = careEncounterService.updateCareEncounter(request);
-			assertEquals("navigator.contact@example.com", updatedCareEncounter.getEmailAddress());
+			currentContextExecutor.execute(currentContext, () -> {
+				ApiResponse response = careEncounterResource.updateCareEncounter(careEncounterId,
+						"{\"emailAddress\":\"  Navigator.Contact@Example.com  \"}");
+				Map<String, Object> model = (Map<String, Object>) response.model().get();
+				CareEncounterApiResponse updatedCareEncounter = (CareEncounterApiResponse) model.get("careEncounter");
+				assertEquals("navigator.contact@example.com", updatedCareEncounter.getEmailAddress());
+			});
 			assertEquals(appointmentEmailAddress, database.queryForObject("""
 					SELECT email_address
 					FROM appointment
 					WHERE appointment_id=?
 					""", String.class, CARE_NAVIGATOR_ACTIVE_APPOINTMENT_ID).get());
 
-			request.setEmailAddress("invalid-email-address");
-			assertThrows(ValidationException.class, () -> careEncounterService.updateCareEncounter(request));
+			assertThrows(ValidationException.class, () -> currentContextExecutor.execute(currentContext,
+					() -> careEncounterResource.updateCareEncounter(careEncounterId,
+							"{\"emailAddress\":\"invalid-email-address\"}")));
 			assertEquals("navigator.contact@example.com", database.queryForObject("""
 					SELECT email_address
 					FROM care_encounter
 					WHERE care_encounter_id=?
 					""", String.class, careEncounterId).get());
+
+			UUID closedCareEncounterId = careEncounterIdForAppointment(database,
+					CARE_NAVIGATOR_ATTENDED_APPOINTMENT_ID);
+			CareEncounter closedCareEncounter = careEncounterService.closeCareEncounter(closedCareEncounterId,
+					InstitutionId.COBALT, CARE_NAVIGATOR_ACCOUNT_ID);
+			String closedEncounterEmailAddress = closedCareEncounter.getEmailAddress();
+			ValidationException closedEncounterException = assertThrows(ValidationException.class,
+					() -> currentContextExecutor.execute(currentContext,
+							() -> careEncounterResource.updateCareEncounter(closedCareEncounterId,
+									"{\"emailAddress\":\"closed.encounter@example.com\"}")));
+			assertTrue(closedEncounterException.getFieldErrors().stream()
+					.anyMatch(fieldError -> fieldError.getField().equals("careEncounterStatusId")));
+			assertEquals(closedEncounterEmailAddress, careEncounterService.findCareEncounterByIdForInstitutionId(
+					closedCareEncounterId, InstitutionId.COBALT).get().getEmailAddress());
 		});
 	}
 
@@ -767,9 +812,11 @@ public class CareNavigatorBookingFixtureTests {
 				List<ScreeningSessionResult.ScreeningQuestionResult> questionResults = response.getAppointment()
 						.getScreeningSessionResult().getScreeningSessionScreeningResults().get(0)
 						.getScreeningQuestionResults();
-				assertEquals(4, questionResults.size());
-				assertEquals(NAVIGATOR_CONTEXT_FIXTURE_TEXT,
+				assertEquals(5, questionResults.size());
+				assertEquals("care-encounter.screening.jordan@example.com",
 						questionResults.get(3).getScreeningAnswerResults().get(0).getText());
+				assertEquals(NAVIGATOR_CONTEXT_FIXTURE_TEXT,
+						questionResults.get(4).getScreeningAnswerResults().get(0).getText());
 
 				CareEncounterListApiResponse listResponse = listResponseFactory.create(upcomingCareEncounter);
 				Map<String, Object> serializedListItem = new JsonMapper().toMap(listResponse);

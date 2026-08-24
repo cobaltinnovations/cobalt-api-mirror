@@ -870,6 +870,11 @@ public class AppointmentService {
 		Set<String> providerIds = appointmentBookingScreeningKeys.stream()
 				.map(appointmentBookingScreeningKey -> appointmentBookingScreeningKey.getProviderId().toString())
 				.collect(Collectors.toSet());
+		Set<UUID> careNavigatorProviderIds = appointmentBookingScreeningKeys.stream()
+				.map(AppointmentBookingScreeningKey::getProviderId)
+				.distinct()
+				.filter(this::isCareNavigatorProvider)
+				.collect(Collectors.toSet());
 		Set<UUID> screeningFlowIds = appointmentBookingScreeningKeys.stream()
 				.map(AppointmentBookingScreeningKey::getScreeningFlowId)
 				.collect(Collectors.toSet());
@@ -886,7 +891,16 @@ public class AppointmentService {
 					SELECT
 					  ss.screening_session_id,
 					  NULLIF(ss.metadata->'appointmentBooking'->>'providerId', '') AS provider_id,
-					  sfv.screening_flow_id
+					  sfv.screening_flow_id,
+					  EXISTS (
+					    SELECT 1
+					    FROM appointment
+					    JOIN provider_support_role
+					      ON provider_support_role.provider_id=appointment.provider_id
+					     AND provider_support_role.support_role_id='CARE_NAVIGATOR'
+					    WHERE appointment.account_id=ss.target_account_id
+					    AND appointment.created >= ss.completed_at
+					  ) AS consumed
 					FROM screening_session ss
 					JOIN screening_flow_version sfv
 					  ON ss.screening_flow_version_id=sfv.screening_flow_version_id
@@ -924,6 +938,8 @@ public class AppointmentService {
 					.filter(screeningKey -> Objects.equals(screeningKey.getScreeningFlowId(), completedScreening.getScreeningFlowId()))
 					.filter(screeningKey -> completedScreeningProviderId == null
 							|| Objects.equals(screeningKey.getProviderId(), completedScreeningProviderId))
+					.filter(screeningKey -> !Boolean.TRUE.equals(completedScreening.getConsumed())
+							|| !careNavigatorProviderIds.contains(screeningKey.getProviderId()))
 					.collect(Collectors.toSet());
 
 			if (matchingUnresolvedKeys.isEmpty())
@@ -968,9 +984,22 @@ public class AppointmentService {
 				  OR ss.completed_at >= NOW() - sfv.recommendation_expiration_minutes * INTERVAL '1 minute'
 				)
 				AND COALESCE(NULLIF(ss.metadata->'appointmentBooking'->>'providerId', ''), ?)=?
+				AND (
+				  ?=FALSE
+				  OR NOT EXISTS (
+				    SELECT 1
+				    FROM appointment
+				    JOIN provider_support_role
+				      ON provider_support_role.provider_id=appointment.provider_id
+				     AND provider_support_role.support_role_id='CARE_NAVIGATOR'
+				    WHERE appointment.account_id=ss.target_account_id
+				    AND appointment.created >= ss.completed_at
+				  )
+				)
 				ORDER BY ss.completed_at DESC, ss.last_updated DESC, ss.screening_session_id DESC
 				LIMIT 1
-				""", ScreeningSession.class, screeningFlowId, accountId, providerId.toString(), providerId.toString()).orElse(null);
+				""", ScreeningSession.class, screeningFlowId, accountId, providerId.toString(), providerId.toString(),
+				isCareNavigatorProvider(providerId)).orElse(null);
 
 		if (mostRecentCompletedScreeningSession == null
 				|| !appointmentBookingScreeningSucceeded(mostRecentCompletedScreeningSession.getScreeningSessionId()))
@@ -1030,6 +1059,8 @@ public class AppointmentService {
 		private String providerId;
 		@Nullable
 		private UUID screeningFlowId;
+		@Nullable
+		private Boolean consumed;
 
 		@Nullable
 		public UUID getScreeningSessionId() {
@@ -1056,6 +1087,15 @@ public class AppointmentService {
 
 		public void setScreeningFlowId(@Nullable UUID screeningFlowId) {
 			this.screeningFlowId = screeningFlowId;
+		}
+
+		@Nullable
+		public Boolean getConsumed() {
+			return this.consumed;
+		}
+
+		public void setConsumed(@Nullable Boolean consumed) {
+			this.consumed = consumed;
 		}
 	}
 

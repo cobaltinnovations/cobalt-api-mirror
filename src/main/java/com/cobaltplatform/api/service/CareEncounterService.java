@@ -484,10 +484,13 @@ public class CareEncounterService {
 		if (careEncounterId == null) {
 			validationException.add(new FieldError("careEncounterId", getStrings().get("Care Encounter ID is required.")));
 		} else if (institutionId != null) {
-			careEncounter = findCareEncounterByIdForInstitutionId(careEncounterId, institutionId).orElse(null);
+			careEncounter = findCareEncounterByIdForInstitutionIdForUpdate(careEncounterId, institutionId).orElse(null);
 
 			if (careEncounter == null)
 				validationException.add(new FieldError("careEncounterId", getStrings().get("Care Encounter ID is invalid.")));
+			else if (careEncounter.getCareEncounterStatusId() != CareEncounterStatusId.OPEN)
+				validationException.add(new FieldError("careEncounterStatusId",
+						getStrings().get("Only open Care Encounters can be updated.")));
 		}
 
 		if (emailAddress != null && !isValidEmailAddress(emailAddress))
@@ -500,6 +503,7 @@ public class CareEncounterService {
 				UPDATE care_encounter
 				SET email_address=?, last_updated_by_account_id=?
 				WHERE care_encounter_id=?
+				AND care_encounter_status_id='OPEN'
 				""", emailAddress, accountId, careEncounterId);
 
 		return findCareEncounterByIdForInstitutionId(careEncounterId, institutionId).get();
