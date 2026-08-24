@@ -1045,65 +1045,62 @@ public class MessageService implements AutoCloseable {
 			CurrentContext currentContext = new CurrentContext.Builder(InstitutionId.COBALT,
 					getConfiguration().getDefaultLocale(), getConfiguration().getDefaultTimeZone()).build();
 
-			getCurrentContextExecutor().execute(currentContext, () -> {
-				getDatabase().transaction(() -> {
-					Instant now = Instant.now();
+			getCurrentContextExecutor().execute(currentContext,
+					() -> getDatabase().transaction(this::processPendingScheduledMessages));
+		}
 
-					// Anything scheduled for before this instant and in PENDING status can be sent
-					List<ScheduledMessage> sendableScheduledMessages = getDatabase().queryForList("SELECT * FROM scheduled_message " +
-							"WHERE scheduled_message_status_id=? AND TIMEZONE(time_zone, scheduled_at) <= ? " +
-							"FOR UPDATE", ScheduledMessage.class, ScheduledMessageStatusId.PENDING, now);
+		/** Processes due messages inside the caller's transaction. */
+		protected void processPendingScheduledMessages() {
+			Instant now = Instant.now();
+			List<ScheduledMessage> sendableScheduledMessages = getDatabase().queryForList("SELECT * FROM scheduled_message " +
+					"WHERE scheduled_message_status_id=? AND TIMEZONE(time_zone, scheduled_at) <= ? " +
+					"FOR UPDATE", ScheduledMessage.class, ScheduledMessageStatusId.PENDING, now);
 
-					if (sendableScheduledMessages.size() == 0) {
-						getLogger().trace("No scheduled messages need to be sent.");
-						return;
+			if (sendableScheduledMessages.size() == 0) {
+				getLogger().trace("No scheduled messages need to be sent.");
+				return;
+			}
+
+			getLogger().info("Detected {} scheduled message[s] that are ready to send, enqueuing for send now...", sendableScheduledMessages.size());
+			int i = 0;
+			getSystemService().applyFootprintEventGroupToCurrentTransaction(FootprintEventGroupTypeId.SCHEDULED_MESSAGE_SEND);
+
+			for (ScheduledMessage scheduledMessage : sendableScheduledMessages) {
+				getLogger().info("Enqueuing scheduled message {} of {}...", i + 1, sendableScheduledMessages.size());
+
+				try {
+					if (scheduledMessage.getMessageTypeId() == MessageTypeId.EMAIL) {
+						EmailMessage emailMessage = getEmailMessageSerializer().deserializeMessage(scheduledMessage.getSerializedMessage());
+						getMessageService().enqueueMessage(emailMessage);
+					} else if (scheduledMessage.getMessageTypeId() == MessageTypeId.SMS) {
+						SmsMessage smsMessage = getSmsMessageSerializer().deserializeMessage(scheduledMessage.getSerializedMessage());
+						getMessageService().enqueueMessage(smsMessage);
+					} else if (scheduledMessage.getMessageTypeId() == MessageTypeId.CALL) {
+						CallMessage callMessage = getCallMessageSerializer().deserializeMessage(scheduledMessage.getSerializedMessage());
+						getMessageService().enqueueMessage(callMessage);
+					} else if (scheduledMessage.getMessageTypeId() == MessageTypeId.PUSH) {
+						PushMessage pushMessage = getPushMessageSerializer().deserializeMessage(scheduledMessage.getSerializedMessage());
+						getMessageService().enqueueMessage(pushMessage);
+					} else {
+						throw new IllegalStateException(format("Sorry, %s.%s is not yet supported.",
+								MessageTypeId.class.getSimpleName(), scheduledMessage.getMessageTypeId().name()));
 					}
 
-					getLogger().info("Detected {} scheduled message[s] that are ready to send, enqueuing for send now...", sendableScheduledMessages.size());
-					int i = 0;
-
-					getSystemService().applyFootprintEventGroupToCurrentTransaction(FootprintEventGroupTypeId.SCHEDULED_MESSAGE_SEND);
-
-					for (ScheduledMessage scheduledMessage : sendableScheduledMessages) {
-						getLogger().info("Enqueuing scheduled message {} of {}...", i + 1, sendableScheduledMessages.size());
-
-						try {
-							if (scheduledMessage.getMessageTypeId() == MessageTypeId.EMAIL) {
-								EmailMessage emailMessage = getEmailMessageSerializer().deserializeMessage(scheduledMessage.getSerializedMessage());
-								getMessageService().enqueueMessage(emailMessage);
-							} else if (scheduledMessage.getMessageTypeId() == MessageTypeId.SMS) {
-								SmsMessage smsMessage = getSmsMessageSerializer().deserializeMessage(scheduledMessage.getSerializedMessage());
-								getMessageService().enqueueMessage(smsMessage);
-							} else if (scheduledMessage.getMessageTypeId() == MessageTypeId.CALL) {
-								CallMessage callMessage = getCallMessageSerializer().deserializeMessage(scheduledMessage.getSerializedMessage());
-								getMessageService().enqueueMessage(callMessage);
-							} else if (scheduledMessage.getMessageTypeId() == MessageTypeId.PUSH) {
-								PushMessage pushMessage = getPushMessageSerializer().deserializeMessage(scheduledMessage.getSerializedMessage());
-								getMessageService().enqueueMessage(pushMessage);
-							} else {
-								throw new IllegalStateException(format("Sorry, %s.%s is not yet supported.",
-										MessageTypeId.class.getSimpleName(), scheduledMessage.getMessageTypeId().name()));
-							}
-
-							getDatabase().execute("UPDATE scheduled_message SET scheduled_message_status_id=?, " +
-											"processed_at=NOW() WHERE scheduled_message_id=?", ScheduledMessageStatusId.PROCESSED,
-									scheduledMessage.getScheduledMessageId());
-
-							getLogger().info("Successfully enqueued scheduled message {} of {}.", i + 1, sendableScheduledMessages.size());
-						} catch (Exception e) {
-							getLogger().info(format("Unable to enqueue scheduled message %d of %d, sending error report...", i + 1, sendableScheduledMessages.size()), e);
-							getErrorReporter().report(e);
-
-							String stackTrace = getFormatter().formatStackTrace(e);
-							getDatabase().execute("UPDATE scheduled_message SET scheduled_message_status_id=?, stack_trace=?, " +
-											"errored_at=NOW() WHERE scheduled_message_id=?", ScheduledMessageStatusId.ERROR, stackTrace,
-									scheduledMessage.getScheduledMessageId());
-						} finally {
-							++i;
-						}
-					}
-				});
-			});
+					getDatabase().execute("UPDATE scheduled_message SET scheduled_message_status_id=?, " +
+							"processed_at=NOW() WHERE scheduled_message_id=?", ScheduledMessageStatusId.PROCESSED,
+							scheduledMessage.getScheduledMessageId());
+					getLogger().info("Successfully enqueued scheduled message {} of {}.", i + 1, sendableScheduledMessages.size());
+				} catch (Exception e) {
+					getLogger().info(format("Unable to enqueue scheduled message %d of %d, sending error report...", i + 1, sendableScheduledMessages.size()), e);
+					getErrorReporter().report(e);
+					String stackTrace = getFormatter().formatStackTrace(e);
+					getDatabase().execute("UPDATE scheduled_message SET scheduled_message_status_id=?, stack_trace=?, " +
+							"errored_at=NOW() WHERE scheduled_message_id=?", ScheduledMessageStatusId.ERROR, stackTrace,
+							scheduledMessage.getScheduledMessageId());
+				} finally {
+					++i;
+				}
+			}
 		}
 
 		@Nonnull
