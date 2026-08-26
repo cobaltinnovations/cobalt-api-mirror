@@ -536,6 +536,8 @@ public class CareEncounterService {
 		validateScheduledMessageType(request.getCareEncounterScheduledMessageTypeId(), validationException);
 		LocalDateTime scheduledAt = validateScheduledAt(request, institutionId, validationException);
 		validateRecipientEmailAddress(careEncounter, validationException);
+		validateAttendedAppointmentForFollowUp(careEncounter, institutionId,
+				request.getCareEncounterScheduledMessageTypeId(), validationException);
 		if (careEncounter != null && hasPendingScheduledMessage(careEncounter.getCareEncounterId(),
 				request.getCareEncounterScheduledMessageTypeId()))
 			validationException.add(new FieldError("careEncounterScheduledMessageTypeId",
@@ -597,6 +599,8 @@ public class CareEncounterService {
 		validateScheduledMessageType(request.getCareEncounterScheduledMessageTypeId(), validationException);
 		LocalDateTime scheduledAt = validateScheduledAt(request, institutionId, validationException);
 		validateRecipientEmailAddress(careEncounter, validationException);
+		validateAttendedAppointmentForFollowUp(careEncounter, institutionId,
+				request.getCareEncounterScheduledMessageTypeId(), validationException);
 		if (validationException.hasErrors())
 			throw validationException;
 
@@ -800,7 +804,57 @@ public class CareEncounterService {
 				AND care_encounter_status_id='OPEN'
 				""", emailAddress, accountId, careEncounterId);
 
-		return findCareEncounterByIdForInstitutionId(careEncounterId, institutionId).get();
+		CareEncounter updatedCareEncounter = findCareEncounterByIdForInstitutionId(careEncounterId, institutionId).get();
+		synchronizePendingScheduledMessagesForEmailChange(updatedCareEncounter, accountId);
+		return updatedCareEncounter;
+	}
+
+	protected void synchronizePendingScheduledMessagesForEmailChange(
+			@Nonnull CareEncounter careEncounter,
+			@Nonnull UUID accountId) {
+		List<CareEncounterScheduledMessage> pendingMessages = getDatabase().queryForList(
+				careEncounterScheduledMessageSelectSql() + """
+						WHERE cesm.care_encounter_id=?
+						AND cesm.deleted=FALSE
+						AND sm.scheduled_message_status_id='PENDING'
+						ORDER BY cesm.created, cesm.care_encounter_scheduled_message_id
+						FOR UPDATE OF cesm, sm
+						""", CareEncounterScheduledMessage.class, careEncounter.getCareEncounterId());
+
+		for (CareEncounterScheduledMessage pendingMessage : pendingMessages) {
+			if (trimToNull(careEncounter.getEmailAddress()) == null) {
+				if (!getMessageService().cancelScheduledMessage(pendingMessage.getScheduledMessageId()))
+					throw pendingScheduledMessageValidationException(
+							"The pending scheduled message could not be canceled after the email address was removed.");
+
+				getDatabase().execute("""
+						UPDATE care_encounter_scheduled_message
+						SET last_updated_by_account_id=?
+						WHERE care_encounter_scheduled_message_id=?
+						AND care_encounter_id=?
+						AND deleted=FALSE
+						""", accountId, pendingMessage.getCareEncounterScheduledMessageId(),
+						careEncounter.getCareEncounterId());
+				continue;
+			}
+
+			boolean updated = getMessageService().updatePendingScheduledEmailRecipient(
+					pendingMessage.getScheduledMessageId(), careEncounter.getEmailAddress());
+			if (!updated)
+				throw pendingScheduledMessageValidationException(
+						"The pending scheduled message could not be updated with the corrected email address.");
+
+			long updatedSnapshotCount = getDatabase().execute("""
+					UPDATE care_encounter_scheduled_message
+					SET recipient_email_address=?, last_updated_by_account_id=?
+					WHERE care_encounter_scheduled_message_id=?
+					AND care_encounter_id=?
+					AND deleted=FALSE
+					""", careEncounter.getEmailAddress(), accountId,
+					pendingMessage.getCareEncounterScheduledMessageId(), careEncounter.getCareEncounterId());
+			if (updatedSnapshotCount != 1)
+				throw new IllegalStateException("The pending Care Encounter email snapshot could not be updated.");
+		}
 	}
 
 	@Nonnull
@@ -1408,13 +1462,31 @@ public class CareEncounterService {
 	}
 
 	protected void validateRecipientEmailAddress(@Nullable CareEncounter careEncounter,
-																				 @Nonnull ValidationException validationException) {
+																			 @Nonnull ValidationException validationException) {
 		String emailAddress = careEncounter == null ? null : trimToNull(careEncounter.getEmailAddress());
 		if (emailAddress == null)
 			validationException.add(new FieldError("emailAddress",
 					getStrings().get("The Care Encounter must have an email address before a follow-up can be scheduled.")));
 		else if (!isValidEmailAddress(emailAddress))
 			validationException.add(new FieldError("emailAddress", getStrings().get("Email address is invalid.")));
+	}
+
+	protected void validateAttendedAppointmentForFollowUp(
+			@Nullable CareEncounter careEncounter,
+			@Nullable InstitutionId institutionId,
+			@Nullable CareEncounterScheduledMessageTypeId typeId,
+			@Nonnull ValidationException validationException) {
+		if (careEncounter == null || institutionId == null || typeId != CareEncounterScheduledMessageTypeId.FOLLOW_UP)
+			return;
+
+		Appointment appointment = findLatestAppointmentByCareEncounterIdForInstitutionId(
+				careEncounter.getCareEncounterId(), institutionId).orElse(null);
+		if (appointment == null
+				|| appointment.getAttendanceStatusId() != AttendanceStatusId.ATTENDED
+				|| Boolean.TRUE.equals(appointment.getCanceled())
+				|| Boolean.TRUE.equals(appointment.getCanceledForReschedule()))
+			validationException.add(new FieldError("attendanceStatusId", getStrings().get(
+					"A follow-up message can only be scheduled after the current appointment is marked Attended.")));
 	}
 
 	@Nullable

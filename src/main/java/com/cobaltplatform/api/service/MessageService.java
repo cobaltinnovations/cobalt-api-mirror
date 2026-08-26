@@ -415,7 +415,7 @@ public class MessageService implements AutoCloseable {
 
 	/** Replaces a still-pending scheduled message without changing its audit identity. */
 	public boolean updateScheduledMessage(@Nullable UUID scheduledMessageId,
-															 @Nonnull Message message,
+														 @Nonnull Message message,
 															 @Nonnull LocalDateTime scheduledAt,
 															 @Nonnull ZoneId timeZone,
 															 @Nullable Map<String, Object> metadata) {
@@ -444,6 +444,27 @@ public class MessageService implements AutoCloseable {
 						"WHERE scheduled_message_id=? AND scheduled_message_status_id=?",
 				message.getInstitutionId(), message.getMessageId(), message.getMessageTypeId(), serializedMessage,
 				scheduledAt, timeZone, metadataAsJson, scheduledMessageId, ScheduledMessageStatusId.PENDING) > 0;
+	}
+
+	/** Replaces only the recipient of a still-pending scheduled email. */
+	boolean updatePendingScheduledEmailRecipient(@Nullable UUID scheduledMessageId,
+																		@Nonnull String recipientEmailAddress) {
+		requireNonNull(recipientEmailAddress);
+		ScheduledMessage scheduledMessage = findScheduledMessageById(scheduledMessageId).orElse(null);
+		if (scheduledMessage == null
+				|| scheduledMessage.getScheduledMessageStatusId() != ScheduledMessageStatusId.PENDING
+				|| scheduledMessage.getMessageTypeId() != MessageTypeId.EMAIL)
+			return false;
+
+		EmailMessage emailMessage = getEmailMessageSerializer().deserializeMessage(
+				requireNonNull(scheduledMessage.getSerializedMessage()));
+		EmailMessage updatedEmailMessage = emailMessage.toBuilder()
+				.toAddresses(List.of(recipientEmailAddress))
+				.build();
+		String serializedMessage = getEmailMessageSerializer().serializeMessage(updatedEmailMessage);
+		return getDatabase().execute("UPDATE scheduled_message SET serialized_message=CAST(? AS JSONB) "
+					+ "WHERE scheduled_message_id=? AND scheduled_message_status_id=? AND message_type_id=?",
+				serializedMessage, scheduledMessageId, ScheduledMessageStatusId.PENDING, MessageTypeId.EMAIL) > 0;
 	}
 
 	/**

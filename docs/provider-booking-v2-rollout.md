@@ -10,10 +10,30 @@ Apply the production patches in this order:
 
 1. `sql/updates/259-provider-booking-database.sql`
 2. `sql/updates/259-cobalt-provider-booking-configuration.sql`
+3. `sql/updates/260-care-navigator.sql`
+4. `sql/updates/261-care-encounters.sql`
+5. `sql/updates/262-care-navigator-appointment-cancellation.sql`
+6. `sql/updates/263-care-encounter-notes.sql`
+7. `sql/updates/264-care-navigator-screening-contact.sql`
+8. `sql/updates/265-care-encounter-scheduled-messages.sql`
 
-Never apply `sql/local/259-provider-booking-seed.sql` to a production database.
-It lives outside the production update directory because it contains developer
-fixtures and deliberately enables V2 for the local COBALT institution.
+The Care Navigator patches form one dependency chain and must all be applied
+before deploying an application build that exposes Care Navigator APIs. They
+install the shared schema and baseline behavior; they do not fully provision a
+production tenant's provider, staff mappings, intake screening, appointment
+type, or availability.
+
+Never apply any of these local fixture patches to a production database:
+
+- `sql/local/259-provider-booking-seed.sql`
+- `sql/local/260-care-navigator-seed.sql`
+- `sql/local/261-care-encounter-seed.sql`
+- `sql/local/262-care-navigator-screening-contact-seed.sql`
+
+They live outside the production update directory because they contain test
+accounts, fixed fixture identifiers, placeholder content, synthetic clinical
+records, and local-only availability. The `259` fixture also deliberately
+enables V2 for the local COBALT institution.
 
 ## Preflight checks
 
@@ -111,11 +131,125 @@ AND NOT EXISTS (
 
 1. Restore a recent production snapshot into a non-production environment.
 2. Run the preflight checks above.
-3. Apply the two production patches in the documented order.
+3. Apply all eight production patches listed above in the documented order.
 4. Record migration duration and lock time for the `appointment` table.
 5. Verify that `booking_v2_enabled` remains `FALSE` for every institution.
 6. Run the API test suite and exercise V1 provider search before promoting the
    application build.
+
+## Care Navigator tenant provisioning
+
+After the shared patches are installed, create a reviewed, idempotent
+production configuration patch for each tenant that will offer Care Navigator.
+Make that patch depend on `265-care-encounter-scheduled-messages` and keep
+tenant-approved copy, staff identities, scheduling hours, contact information,
+and generated UUIDs in that patch. Do not copy or run the local fixture patches
+in production.
+
+Provision each tenant in this order so the database validation triggers can
+enforce every relationship:
+
+1. Create a dedicated, active native provider in the target institution with
+   the approved name, description, privacy/crisis copy, locale, time zone,
+   contact details, videoconference configuration, locations, and payment
+   types. Do not repurpose a patient-triage provider with appointment history:
+   assigning the Care Navigator role intentionally leaves its existing
+   appointments outside care encounters.
+2. Add `CARE_NAVIGATOR` to `provider_support_role` for the booking provider.
+   This also makes the provider virtual-only. Verify
+   `provider.virtual_appointments_only=TRUE` before publishing availability.
+3. For every staff account that will serve the provider, verify that it is
+   active, belongs to the same institution, and has role `ADMINISTRATOR` or
+   `PROVIDER`. Grant the `NAVIGATOR` account capability, then insert its
+   `care_navigator_provider_account` mapping and deliberate `display_order`.
+   At least one currently valid mapping is required before launch.
+4. Insert or update the tenant's `RESOURCE_NAVIGATOR` `institution_feature` and
+   set its `provider_id` to the Care Navigator booking provider. Configure the
+   approved navigation copy and visibility, but keep it hidden until the smoke
+   tests below pass.
+5. Create and activate the tenant-approved `PROVIDER_INTAKE` screening flow and
+   screening version. The active screening must contain exactly one required
+   contact-email question with `screening_answer_format_id='FREEFORM_TEXT'`,
+   `screening_answer_content_hint_id='EMAIL_ADDRESS'`, and minimum/maximum
+   answer counts of `1`. Include that question in the screening scoring and
+   completion logic. More than one answered email-hint question makes Care
+   Navigator contact extraction fail rather than choosing an ambiguous address.
+6. Create the native appointment type, associate it with the active intake flow
+   through `appointment_type.screening_flow_id`, and associate it with the
+   provider through `provider_appointment_type`. The completed eligible path
+   must produce `APPOINTMENT_BOOKING_CONFIRMATION` with a successful screening
+   result.
+7. Create approved `logical_availability` rows and associate each one with the
+   appointment type through `logical_availability_appointment_type`. Confirm
+   that the time zone, recurrence, start/end dates, duration, and
+   videoconference behavior match the tenant's operating plan.
+
+Use the database eligibility function installed by patch `261` to verify every
+staff mapping; the raw presence of a mapping row is not sufficient:
+
+```sql
+SELECT
+  COUNT(*) AS mapping_count,
+  BOOL_AND(care_navigator_account_can_serve_provider(
+    mapping.account_id,
+    mapping.provider_id
+  )) AS all_currently_authorized
+FROM care_navigator_provider_account mapping
+WHERE mapping.provider_id=:provider_id;
+```
+
+This must return a positive `mapping_count` and
+`all_currently_authorized=TRUE`. Also verify the tenant feature points to the
+same active, virtual-only Care Navigator provider:
+
+```sql
+SELECT
+  institution_feature.institution_id,
+  institution_feature.provider_id,
+  provider.active,
+  provider.virtual_appointments_only
+FROM institution_feature
+JOIN provider
+  ON provider.provider_id=institution_feature.provider_id
+WHERE institution_feature.institution_id=:institution_id
+AND institution_feature.feature_id='RESOURCE_NAVIGATOR'
+AND provider.institution_id=institution_feature.institution_id
+AND EXISTS (
+  SELECT 1
+  FROM provider_support_role
+  WHERE provider_support_role.provider_id=provider.provider_id
+  AND provider_support_role.support_role_id='CARE_NAVIGATOR'
+);
+```
+
+This must return exactly one row with both booleans `TRUE`. Verify the active
+intake screening has exactly one contact-email question:
+
+```sql
+SELECT COUNT(*) AS contact_email_question_count
+FROM appointment_type
+JOIN screening_flow
+  ON screening_flow.screening_flow_id=appointment_type.screening_flow_id
+JOIN screening_flow_version
+  ON screening_flow_version.screening_flow_version_id=
+    screening_flow.active_screening_flow_version_id
+JOIN screening
+  ON screening.screening_id=screening_flow_version.initial_screening_id
+JOIN screening_version
+  ON screening_version.screening_version_id=
+    screening.active_screening_version_id
+JOIN screening_question
+  ON screening_question.screening_version_id=
+    screening_version.screening_version_id
+WHERE appointment_type.appointment_type_id=:appointment_type_id
+AND screening_flow.institution_id=:institution_id
+AND screening_question.screening_answer_format_id='FREEFORM_TEXT'
+AND screening_question.screening_answer_content_hint_id='EMAIL_ADDRESS'
+AND screening_question.minimum_answer_count=1
+AND screening_question.maximum_answer_count=1;
+```
+
+This must return `1`.
 
 ## Tenant activation
 
@@ -130,15 +264,38 @@ Before enabling a tenant, verify all of the following:
 - Any alternate appointment email address has been verified for the account.
 - EPIC FHIR/MyChart and institution-location behavior has been validated for
   the tenant's configuration.
+- The Care Navigator feature resolves to its configured booking provider.
+- An eligible user can complete the intake, including the contact-email
+  question, and book an offered Care Navigator slot.
+- The new appointment receives a care encounter whose contact email matches
+  the normalized screening response.
+- Every mapped Navigator can view and cancel the appointment, while an
+  unmapped Navigator cannot.
+- Attendance, patient cancellation, encounter notes, and follow-up scheduling
+  have been exercised without sending a real production message.
 
 Enable one tenant at a time:
 
 ```sql
+BEGIN;
+
 UPDATE institution
 SET booking_v2_enabled=TRUE
 WHERE institution_id=:institution_id
 AND integrated_care_enabled=FALSE;
+
+UPDATE institution_feature
+SET nav_visible=:approved_nav_visible,
+  landing_page_visible=:approved_landing_page_visible
+WHERE institution_id=:institution_id
+AND feature_id='RESOURCE_NAVIGATOR'
+AND provider_id=:provider_id;
+
+COMMIT;
 ```
+
+Both updates must affect exactly one row. Roll back the transaction if either
+does not.
 
 ## Rollback
 
@@ -146,11 +303,22 @@ The experience can be returned to V1 without deleting migrated screening
 records:
 
 ```sql
+BEGIN;
+
 UPDATE institution
 SET booking_v2_enabled=FALSE
 WHERE institution_id=:institution_id;
+
+UPDATE institution_feature
+SET nav_visible=FALSE,
+  landing_page_visible=FALSE
+WHERE institution_id=:institution_id
+AND feature_id='RESOURCE_NAVIGATOR';
+
+COMMIT;
 ```
 
 After rollback, preserve appointment and screening data for investigation. Do
-not reverse the schema migration or delete generated screening flows during an
-incident response.
+not reverse the schema migration, delete Care Navigator mappings, providers,
+encounters, messages, or generated screening flows, or automatically cancel
+already-booked appointments during incident response.

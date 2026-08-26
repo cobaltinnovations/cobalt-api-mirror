@@ -333,8 +333,10 @@ CREATE TRIGGER close_care_encounter_for_patient_cancellation
 AFTER INSERT OR UPDATE OF canceled, canceled_by_account_id, canceled_for_reschedule ON appointment
 FOR EACH ROW EXECUTE PROCEDURE close_care_encounter_for_patient_cancellation();
 
--- Providers assigned the role later receive the same modality default. A
--- provider_id touch routes existing appointments through the attachment trigger.
+-- Providers assigned the role later receive the same modality default. Role
+-- assignment intentionally leaves existing patient-triage appointments outside
+-- care encounters. New appointments, and later explicit provider/account
+-- reassignments, continue through the normal appointment attachment trigger.
 CREATE OR REPLACE FUNCTION apply_care_navigator_provider_defaults()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -342,11 +344,6 @@ BEGIN
 		UPDATE provider
 		SET virtual_appointments_only=TRUE
 		WHERE provider_id=NEW.provider_id;
-
-		UPDATE appointment
-		SET provider_id=appointment.provider_id
-		WHERE appointment.provider_id=NEW.provider_id
-		AND appointment.care_encounter_id IS NULL;
 	END IF;
 
 	RETURN NEW;
@@ -357,15 +354,5 @@ DROP TRIGGER IF EXISTS apply_care_navigator_provider_defaults ON provider_suppor
 CREATE TRIGGER apply_care_navigator_provider_defaults
 AFTER INSERT OR UPDATE OF support_role_id ON provider_support_role
 FOR EACH ROW EXECUTE PROCEDURE apply_care_navigator_provider_defaults();
-
-UPDATE appointment
-SET provider_id=appointment.provider_id
-WHERE appointment.care_encounter_id IS NULL
-AND EXISTS (
-	SELECT 1
-	FROM provider_support_role
-	WHERE provider_support_role.provider_id=appointment.provider_id
-	AND provider_support_role.support_role_id='CARE_NAVIGATOR'
-);
 
 COMMIT;

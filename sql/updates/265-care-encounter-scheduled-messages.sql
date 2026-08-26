@@ -63,4 +63,58 @@ CREATE TRIGGER care_encounter_scheduled_message_footprint
 AFTER INSERT OR UPDATE OR DELETE ON care_encounter_scheduled_message
 FOR EACH ROW EXECUTE PROCEDURE perform_footprint();
 
+-- Follow-up content assumes that the current appointment was attended. If that
+-- fact is corrected later, or any path makes the encounter terminal (including
+-- the patient-cancellation trigger), pending delivery is no longer valid.
+-- Preserve the Care Encounter message record for audit while canceling the
+-- underlying scheduled message.
+CREATE OR REPLACE FUNCTION cancel_pending_care_encounter_scheduled_messages(p_care_encounter_id UUID)
+RETURNS VOID AS $$
+	UPDATE scheduled_message
+	SET scheduled_message_status_id='CANCELED',
+		canceled_at=COALESCE(canceled_at, NOW())
+	WHERE scheduled_message_status_id='PENDING'
+	AND EXISTS (
+		SELECT 1
+		FROM care_encounter_scheduled_message
+		WHERE care_encounter_scheduled_message.care_encounter_id=p_care_encounter_id
+		AND care_encounter_scheduled_message.scheduled_message_id=scheduled_message.scheduled_message_id
+	);
+$$ LANGUAGE SQL;
+
+CREATE OR REPLACE FUNCTION cancel_pending_messages_for_terminal_care_encounter()
+RETURNS TRIGGER AS $$
+BEGIN
+	IF (OLD.care_encounter_status_id='OPEN' AND NEW.care_encounter_status_id<>'OPEN')
+		OR (OLD.deleted=FALSE AND NEW.deleted=TRUE) THEN
+		PERFORM cancel_pending_care_encounter_scheduled_messages(NEW.care_encounter_id);
+	END IF;
+
+	RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER cancel_pending_messages_for_terminal_care_encounter
+AFTER UPDATE OF care_encounter_status_id, deleted ON care_encounter
+FOR EACH ROW EXECUTE PROCEDURE cancel_pending_messages_for_terminal_care_encounter();
+
+CREATE OR REPLACE FUNCTION cancel_pending_messages_for_invalidated_care_attendance()
+RETURNS TRIGGER AS $$
+BEGIN
+	IF OLD.care_encounter_id IS NOT NULL
+		AND OLD.attendance_status_id='ATTENDED'
+		AND (NEW.attendance_status_id<>'ATTENDED'
+			OR NEW.canceled=TRUE
+			OR NEW.canceled_for_reschedule=TRUE) THEN
+		PERFORM cancel_pending_care_encounter_scheduled_messages(OLD.care_encounter_id);
+	END IF;
+
+	RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER cancel_pending_messages_for_invalidated_care_attendance
+AFTER UPDATE OF attendance_status_id, canceled, canceled_for_reschedule ON appointment
+FOR EACH ROW EXECUTE PROCEDURE cancel_pending_messages_for_invalidated_care_attendance();
+
 COMMIT;

@@ -481,6 +481,17 @@ public class AuthorizationService {
 		requireNonNull(account);
 		requireNonNull(appointmentAccount);
 
+		// Care Encounter appointments retain their Care Navigator authorization boundary even if the
+		// appointment provider is later deactivated or loses its Care Navigator support role. In particular,
+		// a Navigator-capable administrator must not fall through to the administrator-wide cancel privilege.
+		boolean careNavigatorAccount = determineAccountCapabilityFlagsForAccount(account).isCareNavigator();
+		boolean appointmentOwner = appointmentAccount.getAccountId().equals(account.getAccountId());
+		boolean appointmentProvider = Objects.equals(account.getProviderId(), appointment.getProviderId());
+		if (appointment.getCareEncounterId() != null && careNavigatorAccount
+				&& !appointmentOwner && !appointmentProvider)
+			return canManageCareEncounters(account)
+					&& isCareNavigatorAccountMappedToProvider(account.getAccountId(), appointment.getProviderId());
+
 		// Some users can cancel appointments on behalf of other users
 		if (account.getRoleId() == RoleId.ADMINISTRATOR || account.getRoleId() == RoleId.MHIC) {
 			// "Normal" admins or MHICs can cancel anything within the same institution
@@ -488,7 +499,7 @@ public class AuthorizationService {
 				return true;
 		} else {
 			// If the canceling account is the provider for the appointment, canceling is OK
-			if (Objects.equals(account.getProviderId(), appointment.getProviderId()))
+			if (appointmentProvider)
 				return true;
 
 			if (canManageCareEncounters(account)
@@ -496,7 +507,7 @@ public class AuthorizationService {
 				return true;
 
 			// You can cancel your own appointments
-			if (appointmentAccount.getAccountId().equals(account.getAccountId()))
+			if (appointmentOwner)
 				return true;
 		}
 

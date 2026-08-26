@@ -90,6 +90,29 @@ public class AuthorizationServiceTests {
 		assertFalse(authorizationService(true, false).canCancelAppointment(appointment, navigator, patient));
 	}
 
+	@Test
+	public void administratorNavigatorRequiresMappingToCancelCareEncounterAppointment() {
+		UUID navigatorAccountId = UUID.randomUUID();
+		UUID patientAccountId = UUID.randomUUID();
+		Account navigator = account(RoleId.ADMINISTRATOR, "[\"NAVIGATOR\"]");
+		navigator.setAccountId(navigatorAccountId);
+		navigator.setProviderId(UUID.randomUUID());
+		Account patient = account(RoleId.PATIENT, null);
+		patient.setAccountId(patientAccountId);
+		Appointment appointment = new Appointment();
+		appointment.setAccountId(patientAccountId);
+		appointment.setProviderId(UUID.randomUUID());
+		appointment.setCareEncounterId(UUID.randomUUID());
+
+		assertTrue(authorizationService(true, true).canCancelAppointment(appointment, navigator, patient));
+		assertFalse(authorizationService(true, false).canCancelAppointment(appointment, navigator, patient));
+
+		Account administratorWithoutNavigatorCapability = account(RoleId.ADMINISTRATOR, null);
+		administratorWithoutNavigatorCapability.setAccountId(UUID.randomUUID());
+		assertTrue(authorizationService(true, false).canCancelAppointment(
+				appointment, administratorWithoutNavigatorCapability, patient));
+	}
+
 	protected Account account(RoleId roleId, String accountCapabilityTypeIdsAsString) {
 		Account account = new Account();
 		account.setRoleId(roleId);

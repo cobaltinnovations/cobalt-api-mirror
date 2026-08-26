@@ -2176,12 +2176,7 @@ public class AppointmentService {
 		requireNonNull(providerId);
 
 		return getDatabase().queryForObject("""
-				SELECT EXISTS (
-					SELECT 1
-					FROM care_navigator_provider_account
-					WHERE account_id=?
-					AND provider_id=?
-				)
+				SELECT care_navigator_account_can_serve_provider(?, ?)
 				""", Boolean.class, accountId, providerId).orElse(false);
 	}
 
