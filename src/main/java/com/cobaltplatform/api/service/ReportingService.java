@@ -104,6 +104,10 @@ import static java.util.Objects.requireNonNull;
 public class ReportingService {
 	@Nonnull
 	private static final Gson GSON;
+	@Nonnull
+	private static final String COURSE_FEEDBACK_QUESTION_TEXT = "Please let us know if there is anything you think we can do to improve this course. Please suggest any topics that are missing or ways we can improve our materials. All comments are welcome and appreciated.";
+	@Nonnull
+	private static final String LEGACY_COURSE_FEEDBACK_REPORTING_KEY = "bb_mcb_postcourse_qual";
 
 	static {
 		GSON = new Gson();
@@ -219,6 +223,9 @@ public class ReportingService {
 						return accountCapabilityFlags.isCanViewAnalytics();
 
 					if (reportType.getReportTypeId() == ReportTypeId.ACCOUNT_GEOLOCATION)
+						return accountCapabilityFlags.isCanViewAnalytics();
+
+					if (reportType.getReportTypeId() == ReportTypeId.COURSE_FEEDBACK)
 						return accountCapabilityFlags.isCanViewAnalytics();
 
 					if (reportType.getReportTypeId() == ReportTypeId.COURSE_MCB_DOWNLOAD)
@@ -2189,6 +2196,114 @@ public class ReportingService {
 		} catch (IOException e) {
 			throw new UncheckedIOException(e);
 		}
+	}
+
+	public void runCourseFeedbackReportCsv(@Nonnull InstitutionId institutionId,
+															 @Nonnull LocalDateTime startDateTime,
+															 @Nonnull LocalDateTime endDateTime,
+															 @Nonnull ZoneId reportTimeZone,
+															 @Nonnull Locale reportLocale,
+															 @Nonnull Writer writer) {
+		requireNonNull(institutionId);
+		requireNonNull(startDateTime);
+		requireNonNull(endDateTime);
+		requireNonNull(reportTimeZone);
+		requireNonNull(reportLocale);
+		requireNonNull(writer);
+
+		Institution institution = getInstitutionService().findInstitutionById(institutionId).get();
+		ZoneId institutionTimeZone = institution.getTimeZone() != null ? institution.getTimeZone() : reportTimeZone;
+
+		Instant startInstant = startDateTime.atZone(institutionTimeZone).toInstant();
+		Instant endInstant = endDateTime.atZone(institutionTimeZone).toInstant();
+
+		List<CourseFeedbackReportRecord> records = getDatabase().queryForList("""
+						SELECT
+							sa.screening_answer_id AS feedback_id,
+							cs.account_id,
+							c.course_id,
+							c.title AS course_title,
+							cs.course_session_id,
+							sq.question_text AS feedback_question,
+							sa.text AS feedback,
+							sa.created AS feedback_submitted_at
+						FROM v_screening_answer sa
+						JOIN v_screening_session_answered_screening_question ssasq
+							ON ssasq.screening_session_answered_screening_question_id = sa.screening_session_answered_screening_question_id
+						JOIN screening_question sq
+							ON sq.screening_question_id = ssasq.screening_question_id
+						JOIN v_screening_session_screening sss
+							ON sss.screening_session_screening_id = ssasq.screening_session_screening_id
+						JOIN screening_session ss
+							ON ss.screening_session_id = sss.screening_session_id
+						JOIN course_session cs
+							ON cs.course_session_id = ss.course_session_id
+						JOIN course c
+							ON c.course_id = cs.course_id
+						JOIN account a
+							ON a.account_id = cs.account_id
+						WHERE a.institution_id = ?
+							AND ss.target_account_id = cs.account_id
+							AND a.test_account = FALSE
+							AND sq.screening_answer_format_id = 'FREEFORM_TEXT'
+							AND sa.created >= ?
+							AND sa.created <= ?
+							AND NULLIF(BTRIM(sa.text), '') IS NOT NULL
+							AND (
+								LOWER(COALESCE(sq.metadata->'reporting'->>'courseFeedback', '')) = 'true'
+								OR LOWER(NULLIF(REGEXP_REPLACE(sq.metadata->'reporting'->>'key', '\\s+', '', 'g'), '')) = ?
+								OR LOWER(REGEXP_REPLACE(BTRIM(REGEXP_REPLACE(sq.question_text, '<[^>]+>', ' ', 'g')), '\\s+', ' ', 'g')) = ?
+							)
+						ORDER BY sa.created, sa.screening_answer_id
+						""", CourseFeedbackReportRecord.class, institutionId, startInstant, endInstant,
+				LEGACY_COURSE_FEEDBACK_REPORTING_KEY, COURSE_FEEDBACK_QUESTION_TEXT.toLowerCase(Locale.ROOT));
+
+		DateTimeFormatter dateTimeFormatter = DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM, FormatStyle.SHORT)
+				.withZone(institutionTimeZone)
+				.withLocale(reportLocale);
+
+		List<String> headerColumns = List.of(
+				getStrings().get("Account ID"),
+				getStrings().get("Course ID"),
+				getStrings().get("Course Title"),
+				getStrings().get("Course Session ID"),
+				getStrings().get("Feedback ID"),
+				getStrings().get("Feedback Question"),
+				getStrings().get("Feedback"),
+				getStrings().get("Feedback Submitted At ({{timeZone}})", Map.of("timeZone", institutionTimeZone.getId()))
+		);
+
+		try (CSVPrinter csvPrinter = new CSVPrinter(writer, CSVFormat.DEFAULT.withHeader(headerColumns.toArray(new String[0])))) {
+			for (CourseFeedbackReportRecord record : records) {
+				List<String> recordElements = new ArrayList<>(8);
+
+				recordElements.add(record.getAccountId() == null ? "" : record.getAccountId().toString());
+				recordElements.add(record.getCourseId() == null ? "" : record.getCourseId().toString());
+				recordElements.add(neutralizeSpreadsheetFormula(record.getCourseTitle()));
+				recordElements.add(record.getCourseSessionId() == null ? "" : record.getCourseSessionId().toString());
+				recordElements.add(record.getFeedbackId() == null ? "" : record.getFeedbackId().toString());
+				recordElements.add(neutralizeSpreadsheetFormula(record.getFeedbackQuestion()));
+				recordElements.add(neutralizeSpreadsheetFormula(record.getFeedback()));
+				recordElements.add(record.getFeedbackSubmittedAt() == null ? "" : dateTimeFormatter.format(record.getFeedbackSubmittedAt()));
+
+				csvPrinter.printRecord(recordElements.toArray(new Object[0]));
+			}
+
+			csvPrinter.flush();
+		} catch (IOException e) {
+			throw new UncheckedIOException(e);
+		}
+	}
+
+	@Nullable
+	protected static String neutralizeSpreadsheetFormula(@Nullable String value) {
+		if (value == null || value.isEmpty())
+			return value;
+
+		return switch (value.charAt(0)) {
+			case '=', '+', '-', '@', '\t', '\r', '\n' -> "'" + value;
+			default -> value;
+		};
 	}
 
 	@Nonnull
@@ -5183,6 +5298,98 @@ public class ReportingService {
 
 		public void setLastLookupSucceededAt(@Nullable Instant lastLookupSucceededAt) {
 			this.lastLookupSucceededAt = lastLookupSucceededAt;
+		}
+	}
+
+	@NotThreadSafe
+	protected static class CourseFeedbackReportRecord {
+		@Nullable
+		private UUID feedbackId;
+		@Nullable
+		private UUID accountId;
+		@Nullable
+		private UUID courseId;
+		@Nullable
+		private String courseTitle;
+		@Nullable
+		private UUID courseSessionId;
+		@Nullable
+		private String feedbackQuestion;
+		@Nullable
+		private String feedback;
+		@Nullable
+		private Instant feedbackSubmittedAt;
+
+		@Nullable
+		public UUID getFeedbackId() {
+			return feedbackId;
+		}
+
+		public void setFeedbackId(@Nullable UUID feedbackId) {
+			this.feedbackId = feedbackId;
+		}
+
+		@Nullable
+		public UUID getAccountId() {
+			return accountId;
+		}
+
+		public void setAccountId(@Nullable UUID accountId) {
+			this.accountId = accountId;
+		}
+
+		@Nullable
+		public UUID getCourseId() {
+			return courseId;
+		}
+
+		public void setCourseId(@Nullable UUID courseId) {
+			this.courseId = courseId;
+		}
+
+		@Nullable
+		public String getCourseTitle() {
+			return courseTitle;
+		}
+
+		public void setCourseTitle(@Nullable String courseTitle) {
+			this.courseTitle = courseTitle;
+		}
+
+		@Nullable
+		public UUID getCourseSessionId() {
+			return courseSessionId;
+		}
+
+		public void setCourseSessionId(@Nullable UUID courseSessionId) {
+			this.courseSessionId = courseSessionId;
+		}
+
+		@Nullable
+		public String getFeedbackQuestion() {
+			return feedbackQuestion;
+		}
+
+		public void setFeedbackQuestion(@Nullable String feedbackQuestion) {
+			this.feedbackQuestion = feedbackQuestion;
+		}
+
+		@Nullable
+		public String getFeedback() {
+			return feedback;
+		}
+
+		public void setFeedback(@Nullable String feedback) {
+			this.feedback = feedback;
+		}
+
+		@Nullable
+		public Instant getFeedbackSubmittedAt() {
+			return feedbackSubmittedAt;
+		}
+
+		public void setFeedbackSubmittedAt(@Nullable Instant feedbackSubmittedAt) {
+			this.feedbackSubmittedAt = feedbackSubmittedAt;
 		}
 	}
 
