@@ -1654,7 +1654,7 @@ public class ReportingService {
 						LEFT JOIN message_log ml
 							ON ml.institution_id = ai.institution_id
 							AND ml.message_type_id = ?
-							AND ml.serialized_message->>'messageTemplate' = ?
+							AND ml.serialized_message->>'messageTemplate' IN (?, ?)
 							AND jsonb_typeof(ml.serialized_message->'toAddresses') = 'array'
 							AND EXISTS (
 								SELECT 1
@@ -1676,7 +1676,8 @@ public class ReportingService {
 							AND (a.account_id IS NULL OR a.test_account = FALSE)
 							AND (a.account_id IS NULL OR a.account_source_id = ?)
 						ORDER BY ai.created, ml.created
-						""", AdminAnalyticsAccountSignupUnverifiedReportRecord.class, MessageTypeId.EMAIL, EmailMessageTemplate.ACCOUNT_VERIFICATION,
+						""", AdminAnalyticsAccountSignupUnverifiedReportRecord.class, MessageTypeId.EMAIL,
+				EmailMessageTemplate.ACCOUNT_VERIFICATION, EmailMessageTemplate.V2_ACCOUNT_VERIFICATION,
 				institutionId, startInstant, endInstant, RoleId.PATIENT, AccountSourceId.EMAIL_PASSWORD);
 
 		DateTimeFormatter dateTimeFormatter = DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM, FormatStyle.SHORT)

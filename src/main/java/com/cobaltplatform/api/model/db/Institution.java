@@ -114,6 +114,10 @@ public class Institution {
 	@Nullable
 	private String supportEmailAddress;
 	@Nullable
+	private String emailFooterText;
+	@Nullable
+	private String platformEmailImageUrl;
+	@Nullable
 	private Boolean recommendGroupSessionRequests;
 	@Nullable
 	private Boolean groupSessionRequestsEnabled;
@@ -830,6 +834,24 @@ public class Institution {
 
 	public void setSupportEmailAddress(@Nullable String supportEmailAddress) {
 		this.supportEmailAddress = supportEmailAddress;
+	}
+
+	@Nullable
+	public String getEmailFooterText() {
+		return this.emailFooterText;
+	}
+
+	public void setEmailFooterText(@Nullable String emailFooterText) {
+		this.emailFooterText = emailFooterText;
+	}
+
+	@Nullable
+	public String getPlatformEmailImageUrl() {
+		return this.platformEmailImageUrl;
+	}
+
+	public void setPlatformEmailImageUrl(@Nullable String platformEmailImageUrl) {
+		this.platformEmailImageUrl = platformEmailImageUrl;
 	}
 
 	@Nullable

@@ -336,10 +336,13 @@ public class MessageService implements AutoCloseable {
 			);
 
 			messageContext.put("supportEmailAddress", supportEmailAddress);
+			messageContext.put("privacyPolicyUrl", trimToNull(institution.getPrivacyPolicyUrl()));
+			messageContext.put("emailFooterText", trimToNull(institution.getEmailFooterText()));
 
 			// Platform email image URL (optionally overridable).
-			String platformEmailImageUrl = ObjectUtils.firstNonNull(
-					trimToNull((String) messageContext.get(EmailMessageContextKey.OVERRIDE_PLATFORM_EMAIL_IMAGE_URL.name())),
+			String platformEmailImageUrl = resolvePlatformEmailImageUrl(
+					(String) messageContext.get(EmailMessageContextKey.OVERRIDE_PLATFORM_EMAIL_IMAGE_URL.name()),
+					institution.getPlatformEmailImageUrl(),
 					format("%s/logo@2x.jpg", staticFileUrlPrefix)
 			);
 
@@ -378,6 +381,19 @@ public class MessageService implements AutoCloseable {
 
 		getDatabase().execute("INSERT INTO message_log (message_id, institution_id, message_type_id, message_status_id, message_vendor_id, serialized_message, enqueued) VALUES (?,?,?,?,?,CAST(? AS JSONB),NOW())",
 				message.getMessageId(), message.getInstitutionId(), message.getMessageTypeId(), MessageStatusId.ENQUEUED, messageVendorId, serializedMessage);
+	}
+
+	@Nonnull
+	static String resolvePlatformEmailImageUrl(@Nullable String overridePlatformEmailImageUrl,
+																				 @Nullable String institutionPlatformEmailImageUrl,
+																				 @Nonnull String fallbackPlatformEmailImageUrl) {
+		requireNonNull(fallbackPlatformEmailImageUrl);
+
+		return ObjectUtils.firstNonNull(
+				trimToNull(overridePlatformEmailImageUrl),
+				trimToNull(institutionPlatformEmailImageUrl),
+				fallbackPlatformEmailImageUrl
+		);
 	}
 
 	/**

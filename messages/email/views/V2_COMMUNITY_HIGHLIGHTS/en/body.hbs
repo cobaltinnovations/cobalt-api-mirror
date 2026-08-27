@@ -1,4 +1,23 @@
-{{#partial "body"}}
+{{#partial "styles"}}
+	.em_event_frame { height: 292px !important; }
+	.em_event_placeholder { height: 292px !important; }
+	.em_event_image { max-height: 292px !important; }
+	.em_session_description p { margin: 0 0 12px 0; }
+	.em_session_description p:last-child { margin-bottom: 0; }
+	.em_session_description ul,
+	.em_session_description ol { margin: 0 0 12px 24px; padding: 0; }
+	.em_session_description li { margin-bottom: 8px; }
+	.em_session_description li:last-child { margin-bottom: 0; }
+	.em_session_description a { color: #2C4F82; text-decoration: underline; }
+{{/partial}}
+
+{{#partial "mobileStyles"}}
+	.em_event_frame { height: 198px !important; }
+	.em_event_placeholder { height: 198px !important; }
+	.em_event_image { max-height: 198px !important; }
+{{/partial}}
+
+{{#partial "content"}}
 	<table width="100%" border="0" cellspacing="0" cellpadding="0" align="center">
 		<tr>
 			<td align="left" class="em_h1" style="font-family:'SF Pro Display', 'SF Pro Text', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif; font-size:28px; line-height:36px; font-weight:700; color:#20406C;">
