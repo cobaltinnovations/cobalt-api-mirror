@@ -50,6 +50,8 @@ public class AccountEmailTemplateTests {
 	private static final String VERIFICATION_URL = "https://example.com/verify?token=verification-token";
 	@Nonnull
 	private static final String PASSWORD_RESET_LINK = "https://example.com/reset?token=password-reset-token";
+	@Nonnull
+	private static final String PLATFORM_EMAIL_IMAGE_URL = "https://cdn-prod.cobalt.care/logos/dh-behavior-bridge-hero.png";
 
 	@Test
 	public void rendersV2AccountVerificationEmail() {
@@ -145,11 +147,14 @@ public class AccountEmailTemplateTests {
 	}
 
 	protected void assertBrandingRendered(@Nonnull String body) {
-		Assert.assertTrue(body.contains("src=\"https://example.com/logo.png\""));
+		Assert.assertTrue(body.contains("src=\"" + PLATFORM_EMAIL_IMAGE_URL + "\""));
 		Assert.assertTrue(body.contains("background-color:#F7F8F7"));
-		Assert.assertTrue(body.contains("background-color:#2F8868"));
+		Assert.assertTrue(body.contains("background-color:#2F7F61"));
 		Assert.assertTrue(body.contains("@media only screen and (max-width: 639px)"));
 		Assert.assertTrue(body.contains("width:600px; max-width:600px; background-color:#FFFFFF; border-radius:8px"));
+		Assert.assertFalse(body.contains("background-color:;"));
+		Assert.assertFalse(body.contains("color:;"));
+		Assert.assertFalse(body.contains("bgcolor=\"\""));
 	}
 
 	@Nonnull
@@ -157,12 +162,12 @@ public class AccountEmailTemplateTests {
 		Map<String, Object> context = new HashMap<>();
 		context.put("colors", Map.of(
 				"n50", "#F7F8F7",
-				"n900", "#202020",
-				"p500", "#2F8868"
+				"n900", "#2D3030",
+				"p500", "#2F7F61"
 		));
-		context.put("institutionId", "COBALT_FHIR");
+		context.put("institutionId", "COBALT_COURSES");
 		context.put("platformName", PLATFORM_NAME);
-		context.put("platformEmailImageUrl", "https://example.com/logo.png");
+		context.put("platformEmailImageUrl", PLATFORM_EMAIL_IMAGE_URL);
 		context.put("recipientEmailAddress", RECIPIENT_EMAIL_ADDRESS);
 		context.put("supportEmailAddress", SUPPORT_EMAIL_ADDRESS);
 		context.put("privacyPolicyUrl", PRIVACY_POLICY_URL);

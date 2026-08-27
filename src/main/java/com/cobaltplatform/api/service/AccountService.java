@@ -132,9 +132,9 @@ import static org.apache.commons.lang3.StringUtils.trimToNull;
 @ThreadSafe
 public class AccountService {
 	@Nonnull
-	static final EmailMessageTemplate ACCOUNT_VERIFICATION_EMAIL_MESSAGE_TEMPLATE = EmailMessageTemplate.ACCOUNT_VERIFICATION;
+	static final EmailMessageTemplate ACCOUNT_VERIFICATION_EMAIL_MESSAGE_TEMPLATE = EmailMessageTemplate.V2_ACCOUNT_VERIFICATION;
 	@Nonnull
-	static final EmailMessageTemplate PASSWORD_RESET_EMAIL_MESSAGE_TEMPLATE = EmailMessageTemplate.PASSWORD_RESET;
+	static final EmailMessageTemplate PASSWORD_RESET_EMAIL_MESSAGE_TEMPLATE = EmailMessageTemplate.V2_PASSWORD_RESET;
 
 	@Nonnull
 	private final Provider<CurrentContext> currentContextProvider;

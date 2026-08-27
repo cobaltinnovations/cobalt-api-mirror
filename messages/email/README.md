@@ -17,10 +17,13 @@ Each localized V2 `body.hbs` can provide these blocks:
 The layout consumes these common context fields automatically:
 
 - `platformName`, `institutionId`, and `platformEmailImageUrl` for organization branding.
-- `colors.n50`, `colors.n900`, and `colors.p500` for the theme.
+- `colors.n50`, `colors.n900`, and `colors.p500` from the institution's shared color palette.
 - `emailFooterText` for an escaped, institution-specific, single-paragraph footer. When present, it
   replaces the template's `footer` block.
 - `privacyPolicyUrl` for the optional Privacy Policy link.
+
+`platformEmailImageUrl` comes from `institution.platform_email_image_url` unless the sending flow
+provides `OVERRIDE_PLATFORM_EMAIL_IMAGE_URL`; that per-message override takes precedence.
 
 Minimal V2 body:
 

@@ -20,7 +20,6 @@
 package com.cobaltplatform.api.service;
 
 import com.cobaltplatform.api.UnitTest;
-import com.cobaltplatform.api.messaging.email.EmailMessageTemplate;
 import org.junit.Assert;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
@@ -32,12 +31,31 @@ import javax.annotation.concurrent.ThreadSafe;
  */
 @ThreadSafe
 @Category(UnitTest.class)
-public class AccountServiceEmailTemplateTests {
+public class MessageServiceEmailBrandingTests {
 	@Test
-	public void liveAccountFlowsUseV2Templates() {
-		Assert.assertEquals(EmailMessageTemplate.V2_ACCOUNT_VERIFICATION,
-				AccountService.ACCOUNT_VERIFICATION_EMAIL_MESSAGE_TEMPLATE);
-		Assert.assertEquals(EmailMessageTemplate.V2_PASSWORD_RESET,
-				AccountService.PASSWORD_RESET_EMAIL_MESSAGE_TEMPLATE);
+	public void explicitImageOverrideTakesPrecedence() {
+		Assert.assertEquals("https://example.com/override.png", MessageService.resolvePlatformEmailImageUrl(
+				"https://example.com/override.png",
+				"https://example.com/institution.png",
+				"https://example.com/fallback.png"
+		));
+	}
+
+	@Test
+	public void institutionImageTakesPrecedenceOverFallback() {
+		Assert.assertEquals("https://example.com/institution.png", MessageService.resolvePlatformEmailImageUrl(
+				null,
+				"https://example.com/institution.png",
+				"https://example.com/fallback.png"
+		));
+	}
+
+	@Test
+	public void blankConfiguredImagesUseFallback() {
+		Assert.assertEquals("https://example.com/fallback.png", MessageService.resolvePlatformEmailImageUrl(
+				" ",
+				"\t",
+				"https://example.com/fallback.png"
+		));
 	}
 }

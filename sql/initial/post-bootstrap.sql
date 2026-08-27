@@ -1,28 +1,15 @@
+-- Local-only adjustments for records created by the optional bootstrap data.
+
 BEGIN;
-SELECT _v.register_patch('260-v2-account-email-templates', NULL, NULL);
 
--- Optional institution-specific plain text that replaces the default footer
--- copy in V2 transactional emails.
-ALTER TABLE institution
-  ADD COLUMN email_footer_text TEXT;
-
--- Optional institution-specific image used in the email header.  Explicit
--- per-message overrides continue to take precedence over this value.
-ALTER TABLE institution
-  ADD COLUMN platform_email_image_url TEXT;
-
--- Local development uses COBALT_COURSES for Behavior Bridge.
 UPDATE institution
-SET platform_name = 'Behavior Bridge'
+SET
+  platform_name = 'Behavior Bridge',
+  platform_email_image_url = 'https://cdn-prod.cobalt.care/logos/dh-behavior-bridge-hero.png'
 WHERE institution_id = 'COBALT_COURSES';
 
--- Production uses BEHAVIOR_BRIDGE; local development uses COBALT_COURSES.
-UPDATE institution
-SET platform_email_image_url = 'https://cdn-prod.cobalt.care/logos/dh-behavior-bridge-hero.png'
-WHERE institution_id IN ('COBALT_COURSES', 'BEHAVIOR_BRIDGE');
-
--- Populate missing institution colors from the Behavior Bridge web theme.
--- V2 emails consume this same institution palette; existing values are preserved.
+-- Match the shared COBALT_COURSES institution palette to the Behavior Bridge
+-- web theme. Existing values are preserved.
 WITH target_institution AS (
   SELECT institution_id
   FROM institution
