@@ -264,10 +264,13 @@ PGPASSWORD=password psql -U cobalt -h localhost -p 5501 < updates/254-group-topi
 PGPASSWORD=password psql -U cobalt -h localhost -p 5501 < updates/255-account-onboarding-complete-v2-report.sql
 PGPASSWORD=password psql -U cobalt -h localhost -p 5501 < updates/257-page-builder-v2.sql
 PGPASSWORD=password psql -U cobalt -h localhost -p 5501 < updates/258-page-subscription-email-additional-content.sql
+PGPASSWORD=password psql -U cobalt -h localhost -p 5501 < updates/259-course-feedback-report.sql
+PGPASSWORD=password psql -U cobalt -h localhost -p 5501 < updates/260-v2-account-email-templates.sql
 
 if [ -f "initial/bootstrap.sql" ]; then
   echo "Loading bootstrap data..."
   PGPASSWORD=password psql -U cobalt -h localhost -p 5501 < initial/bootstrap.sql
+  PGPASSWORD=password psql -U cobalt -h localhost -p 5501 < initial/post-bootstrap.sql
 fi
 
 # Post-bootstrap patches. The Autism Clinic updates depend on bootstrap fixture

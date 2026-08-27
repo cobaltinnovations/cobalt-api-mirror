@@ -345,13 +345,29 @@ public class MessageService implements AutoCloseable {
 		messageContext.put("supportEmailAddress", ObjectUtils.firstNonNull(
 				trimToNull((String) messageContext.get(EmailMessageContextKey.OVERRIDE_PLATFORM_SUPPORT_EMAIL_ADDRESS.name())),
 				institution.getSupportEmailAddress()));
-		messageContext.put("platformEmailImageUrl", ObjectUtils.firstNonNull(
-				trimToNull((String) messageContext.get(EmailMessageContextKey.OVERRIDE_PLATFORM_EMAIL_IMAGE_URL.name())),
+		messageContext.put("privacyPolicyUrl", trimToNull(institution.getPrivacyPolicyUrl()));
+		messageContext.put("emailFooterText", trimToNull(institution.getEmailFooterText()));
+		messageContext.put("platformEmailImageUrl", resolvePlatformEmailImageUrl(
+				(String) messageContext.get(EmailMessageContextKey.OVERRIDE_PLATFORM_EMAIL_IMAGE_URL.name()),
+				institution.getPlatformEmailImageUrl(),
 				format("%s/logo@2x.jpg", staticFileUrlPrefix)));
 
 		EmailMessage preparedEmailMessage = emailMessage.toBuilder().messageContext(messageContext).build();
 		return getEnterprisePluginProvider().enterprisePluginForInstitutionId(institutionId)
 				.customizeEmailMessage(preparedEmailMessage);
+	}
+
+	@Nonnull
+	static String resolvePlatformEmailImageUrl(@Nullable String overridePlatformEmailImageUrl,
+																				 @Nullable String institutionPlatformEmailImageUrl,
+																				 @Nonnull String fallbackPlatformEmailImageUrl) {
+		requireNonNull(fallbackPlatformEmailImageUrl);
+
+		return ObjectUtils.firstNonNull(
+				trimToNull(overridePlatformEmailImageUrl),
+				trimToNull(institutionPlatformEmailImageUrl),
+				fallbackPlatformEmailImageUrl
+		);
 	}
 
 	/**

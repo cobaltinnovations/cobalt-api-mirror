@@ -132,6 +132,11 @@ import static org.apache.commons.lang3.StringUtils.trimToNull;
 @ThreadSafe
 public class AccountService {
 	@Nonnull
+	static final EmailMessageTemplate ACCOUNT_VERIFICATION_EMAIL_MESSAGE_TEMPLATE = EmailMessageTemplate.V2_ACCOUNT_VERIFICATION;
+	@Nonnull
+	static final EmailMessageTemplate PASSWORD_RESET_EMAIL_MESSAGE_TEMPLATE = EmailMessageTemplate.V2_PASSWORD_RESET;
+
+	@Nonnull
 	private final Provider<CurrentContext> currentContextProvider;
 	@Nonnull
 	private final Provider<AuditLogService> auditLogServiceProvider;
@@ -452,13 +457,14 @@ public class AccountService {
 		Institution institution = getInstitutionService().findInstitutionById(accountInvite.getInstitutionId()).get();
 
 		EmailMessage verificationEmail = new EmailMessage.Builder(
-				institution.getInstitutionId(), EmailMessageTemplate.ACCOUNT_VERIFICATION, institution.getLocale())
+				institution.getInstitutionId(), ACCOUNT_VERIFICATION_EMAIL_MESSAGE_TEMPLATE, institution.getLocale())
 				.toAddresses(new ArrayList<>() {{
 					add(accountInvite.getEmailAddress());
 				}})
 				.messageContext(new HashMap<String, Object>() {{
 					put("verificationUrl", getLinkGenerator().generateAccountInviteLink(institution.getInstitutionId(),
 							userExperienceTypeId, ClientDeviceTypeId.WEB_BROWSER, accountInvite.getAccountInviteCode()));
+					put("recipientEmailAddress", accountInvite.getEmailAddress());
 				}})
 				.build();
 
@@ -985,13 +991,14 @@ public class AccountService {
 					account.get().getAccountId(), passwordResetToken, expirationTimestamp);
 
 			EmailMessage passwordResetEmail = new EmailMessage.Builder(
-					account.get().getInstitutionId(), EmailMessageTemplate.PASSWORD_RESET, account.get().getLocale())
+					account.get().getInstitutionId(), PASSWORD_RESET_EMAIL_MESSAGE_TEMPLATE, account.get().getLocale())
 					.toAddresses(new ArrayList<>() {{
 						add(emailAddress);
 					}})
 					.messageContext(new HashMap<String, Object>() {{
 						put("passwordResetLink", getLinkGenerator().generatePasswordResetLink(account.get().getInstitutionId(),
 								userExperienceTypeId, ClientDeviceTypeId.WEB_BROWSER, passwordResetToken));
+						put("recipientEmailAddress", emailAddress);
 					}})
 					.build();
 

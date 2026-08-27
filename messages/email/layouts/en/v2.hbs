@@ -18,24 +18,13 @@
 		.em_main_table { width: 600px !important; }
 		.em_side { width: 40px !important; }
 		.em_footer_side { width: 40px !important; }
-		.em_event_frame { height: 292px !important; }
-		.em_event_placeholder { height: 292px !important; }
-		.em_event_image { max-height: 292px !important; }
-		.em_session_description p { margin: 0 0 12px 0; }
-		.em_session_description p:last-child { margin-bottom: 0; }
-		.em_session_description ul,
-		.em_session_description ol { margin: 0 0 12px 24px; padding: 0; }
-		.em_session_description li { margin-bottom: 8px; }
-		.em_session_description li:last-child { margin-bottom: 0; }
-		.em_session_description a { color: #2C4F82; text-decoration: underline; }
+		{{#block "styles"}}{{/block}}
 
 		@media only screen and (max-width: 639px) {
 			.em_main_table { width: 100% !important; }
 			.em_side { width: 24px !important; }
 			.em_footer_side { width: 24px !important; }
-			.em_event_frame { height: 198px !important; }
-			.em_event_placeholder { height: 198px !important; }
-			.em_event_image { max-height: 198px !important; }
+			{{#block "mobileStyles"}}{{/block}}
 		}
 	</style>
 
@@ -76,7 +65,7 @@
 				<tr>
 					<td class="em_side" width="40" style="width:40px;">&nbsp;</td>
 					<td style="padding:16px 0 16px 0;">
-						{{#block "body"}}{{/block}}
+						{{#block "content"}}{{/block}}
 					</td>
 					<td class="em_side" width="40" style="width:40px;">&nbsp;</td>
 				</tr>
@@ -89,7 +78,18 @@
 				<tr>
 					<td class="em_footer_side" width="40" style="width:40px;">&nbsp;</td>
 					<td align="center" style="font-family:'SF Pro Text', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif; font-size:14px; line-height:20px; color:#333333; padding:24px 0;">
-						{{#block "footer"}}{{/block}}
+						<div>
+							{{#if emailFooterText}}
+								{{emailFooterText}}
+							{{else}}
+								{{#block "footer"}}{{/block}}
+							{{/if}}
+						</div>
+						{{#if privacyPolicyUrl}}
+							<div style="padding-top:14px; font-size:12px; line-height:16px; font-weight:600;">
+								<a href="{{{privacyPolicyUrl}}}" target="_blank" style="color:{{colors.p500}}; text-decoration:none;">Privacy Policy</a>
+							</div>
+						{{/if}}
 					</td>
 					<td class="em_footer_side" width="40" style="width:40px;">&nbsp;</td>
 				</tr>
