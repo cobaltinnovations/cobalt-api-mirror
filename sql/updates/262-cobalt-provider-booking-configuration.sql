@@ -1,9 +1,9 @@
 BEGIN;
 SELECT _v.register_patch(
-	'259-cobalt-provider-booking-configuration',
+	'262-cobalt-provider-booking-configuration',
 	ARRAY[
 		'250-autism-clinic-referrer',
-		'259-provider-booking-database'
+		'261-provider-booking-database'
 	],
 	NULL
 );

@@ -55,6 +55,27 @@ public class AuthorizationServiceTests {
 	}
 
 	@Test
+	public void careEncounterManagementFlagUsesPublicResponseFieldName() {
+		AccountCapabilityFlags flags = new AccountCapabilityFlags();
+		flags.setCanManageCareEncounters(true);
+
+		assertTrue(new Gson().toJson(flags).contains("\"canManageCareEncounters\":true"));
+	}
+
+	@Test
+	public void careEncounterManagementFlagMatchesCanManageCareEncounters() {
+		Account administratorNavigator = account(RoleId.ADMINISTRATOR, "[\"NAVIGATOR\"]");
+		Account administratorWithoutCapability = account(RoleId.ADMINISTRATOR, null);
+
+		assertTrue(authorizationService(true)
+				.determineAccountCapabilityFlagsForAccount(administratorNavigator).isCanManageCareEncounters());
+		assertFalse(authorizationService(false)
+				.determineAccountCapabilityFlagsForAccount(administratorNavigator).isCanManageCareEncounters());
+		assertFalse(authorizationService(true)
+				.determineAccountCapabilityFlagsForAccount(administratorWithoutCapability).isCanManageCareEncounters());
+	}
+
+	@Test
 	public void careEncounterManagementRequiresNavigatorRoleButNotProviderIdentity() {
 		AuthorizationService authorizationService = authorizationService(true);
 		Account administratorNavigator = account(RoleId.ADMINISTRATOR, "[\"NAVIGATOR\"]");

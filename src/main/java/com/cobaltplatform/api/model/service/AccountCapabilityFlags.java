@@ -44,6 +44,7 @@ public class AccountCapabilityFlags {
 	private boolean canManageCareResources;
 	private boolean canCreatePages;
 	private boolean isCareNavigator;
+	private boolean canManageCareEncounters;
 
 	public boolean isCanServiceIcOrders() {
 		return this.canServiceIcOrders;
@@ -187,5 +188,13 @@ public class AccountCapabilityFlags {
 
 	public void setCareNavigator(boolean careNavigator) {
 		this.isCareNavigator = careNavigator;
+	}
+
+	public boolean isCanManageCareEncounters() {
+		return this.canManageCareEncounters;
+	}
+
+	public void setCanManageCareEncounters(boolean canManageCareEncounters) {
+		this.canManageCareEncounters = canManageCareEncounters;
 	}
 }

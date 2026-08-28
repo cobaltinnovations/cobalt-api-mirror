@@ -407,6 +407,42 @@ public class CareNavigatorBookingFixtureTests {
 	}
 
 	@Test
+	public void careEncounterPreservesAppointmentEmailWhenScreeningSessionIsAbsent() {
+		IntegrationTestExecutor.runTransactionallyAndForceRollback((app) -> {
+			Database database = app.getInjector().getInstance(DatabaseProvider.class).getWritableMasterDatabase();
+			UUID appointmentId = UUID.randomUUID();
+			String appointmentEmailAddress = "care-encounter.booking-fallback@example.com";
+
+			assertEquals(1, database.execute("""
+					UPDATE appointment
+					SET email_address=?
+					WHERE appointment_id=?
+					""", appointmentEmailAddress, CARE_NAVIGATOR_ACTIVE_APPOINTMENT_ID));
+
+			cloneAsActiveAppointmentForProviderAndAccount(
+					database,
+					CARE_NAVIGATOR_ACTIVE_APPOINTMENT_ID,
+					appointmentId,
+					CARE_NAVIGATOR_PROVIDER_ID,
+					CARE_NAVIGATOR_PATIENT_CANCELED_FIXTURE_PATIENT_ID,
+					60);
+
+			assertNull(database.queryForObject("""
+					SELECT screening_session_id
+					FROM appointment
+					WHERE appointment_id=?
+					""", UUID.class, appointmentId).orElse(null));
+
+			UUID careEncounterId = careEncounterIdForAppointment(database, appointmentId);
+			assertEquals(appointmentEmailAddress, database.queryForObject("""
+					SELECT email_address
+					FROM care_encounter
+					WHERE care_encounter_id=?
+					""", String.class, careEncounterId).get());
+		});
+	}
+
+	@Test
 	public void databaseRejectsSecondActiveAttendedAndTerminalEncounterBookings() {
 		RuntimeException secondActiveException = assertThrows(RuntimeException.class, () ->
 				IntegrationTestExecutor.runTransactionallyAndForceRollback((app) -> {

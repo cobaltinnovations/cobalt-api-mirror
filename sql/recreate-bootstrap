@@ -278,15 +278,8 @@ fi
 # rollout configuration and local/bootstrap seed data.
 PGPASSWORD=password psql -U cobalt -h postgres-cobalt -p 5432 < updates/250-autism-clinic-referrer.sql
 PGPASSWORD=password psql -U cobalt -h postgres-cobalt -p 5432 < updates/256-autism-clinic-penn-updates.sql
-PGPASSWORD=password psql -U cobalt -h postgres-cobalt -p 5432 < updates/259-provider-booking-database.sql
-PGPASSWORD=password psql -U cobalt -h postgres-cobalt -p 5432 < updates/259-cobalt-provider-booking-configuration.sql
-PGPASSWORD=password psql -U cobalt -h postgres-cobalt -p 5432 < local/259-provider-booking-seed.sql
-PGPASSWORD=password psql -U cobalt -h postgres-cobalt -p 5432 < updates/260-care-navigator.sql
-PGPASSWORD=password psql -U cobalt -h postgres-cobalt -p 5432 < local/260-care-navigator-seed.sql
-PGPASSWORD=password psql -U cobalt -h postgres-cobalt -p 5432 < updates/261-care-encounters.sql
-PGPASSWORD=password psql -U cobalt -h postgres-cobalt -p 5432 < updates/262-care-navigator-appointment-cancellation.sql
-PGPASSWORD=password psql -U cobalt -h postgres-cobalt -p 5432 < updates/263-care-encounter-notes.sql
-PGPASSWORD=password psql -U cobalt -h postgres-cobalt -p 5432 < updates/264-care-navigator-screening-contact.sql
-PGPASSWORD=password psql -U cobalt -h postgres-cobalt -p 5432 < updates/265-care-encounter-scheduled-messages.sql
-PGPASSWORD=password psql -U cobalt -h postgres-cobalt -p 5432 < local/261-care-encounter-seed.sql
-PGPASSWORD=password psql -U cobalt -h postgres-cobalt -p 5432 < local/262-care-navigator-screening-contact-seed.sql
+PGPASSWORD=password psql -U cobalt -h postgres-cobalt -p 5432 < updates/261-provider-booking-database.sql
+PGPASSWORD=password psql -U cobalt -h postgres-cobalt -p 5432 < updates/262-cobalt-provider-booking-configuration.sql
+PGPASSWORD=password psql -U cobalt -h postgres-cobalt -p 5432 < local/262-provider-booking-seed.sql
+PGPASSWORD=password psql -U cobalt -h postgres-cobalt -p 5432 < updates/263-care-navigator.sql
+PGPASSWORD=password psql -U cobalt -h postgres-cobalt -p 5432 < local/263-care-navigator-seed.sql

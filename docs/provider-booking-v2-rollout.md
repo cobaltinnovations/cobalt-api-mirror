@@ -8,31 +8,23 @@ changes described here.
 
 Apply the production patches in this order:
 
-1. `sql/updates/259-provider-booking-database.sql`
-2. `sql/updates/259-cobalt-provider-booking-configuration.sql`
-3. `sql/updates/260-care-navigator.sql`
-4. `sql/updates/261-care-encounters.sql`
-5. `sql/updates/262-care-navigator-appointment-cancellation.sql`
-6. `sql/updates/263-care-encounter-notes.sql`
-7. `sql/updates/264-care-navigator-screening-contact.sql`
-8. `sql/updates/265-care-encounter-scheduled-messages.sql`
+1. `sql/updates/261-provider-booking-database.sql`
+2. `sql/updates/262-cobalt-provider-booking-configuration.sql`
+3. `sql/updates/263-care-navigator.sql`
 
-The Care Navigator patches form one dependency chain and must all be applied
-before deploying an application build that exposes Care Navigator APIs. They
-install the shared schema and baseline behavior; they do not fully provision a
-production tenant's provider, staff mappings, intake screening, appointment
-type, or availability.
+The Care Navigator patch must be applied before deploying an application build
+that exposes Care Navigator APIs. It installs the shared schema and baseline
+behavior; it does not fully provision a production tenant's provider, staff
+mappings, intake screening, appointment type, or availability.
 
 Never apply any of these local fixture patches to a production database:
 
-- `sql/local/259-provider-booking-seed.sql`
-- `sql/local/260-care-navigator-seed.sql`
-- `sql/local/261-care-encounter-seed.sql`
-- `sql/local/262-care-navigator-screening-contact-seed.sql`
+- `sql/local/262-provider-booking-seed.sql`
+- `sql/local/263-care-navigator-seed.sql`
 
 They live outside the production update directory because they contain test
 accounts, fixed fixture identifiers, placeholder content, synthetic clinical
-records, and local-only availability. The `259` fixture also deliberately
+records, and local-only availability. The `262` fixture also deliberately
 enables V2 for the local COBALT institution.
 
 ## Preflight checks
@@ -131,7 +123,7 @@ AND NOT EXISTS (
 
 1. Restore a recent production snapshot into a non-production environment.
 2. Run the preflight checks above.
-3. Apply all eight production patches listed above in the documented order.
+3. Apply all three production patches listed above in the documented order.
 4. Record migration duration and lock time for the `appointment` table.
 5. Verify that `booking_v2_enabled` remains `FALSE` for every institution.
 6. Run the API test suite and exercise V1 provider search before promoting the
@@ -141,9 +133,9 @@ AND NOT EXISTS (
 
 After the shared patches are installed, create a reviewed, idempotent
 production configuration patch for each tenant that will offer Care Navigator.
-Make that patch depend on `265-care-encounter-scheduled-messages` and keep
-tenant-approved copy, staff identities, scheduling hours, contact information,
-and generated UUIDs in that patch. Do not copy or run the local fixture patches
+Make that patch depend on `263-care-navigator` and keep tenant-approved copy,
+staff identities, scheduling hours, contact information, and generated UUIDs in
+that patch. Do not copy or run the local fixture patches
 in production.
 
 Provision each tenant in this order so the database validation triggers can
@@ -184,8 +176,9 @@ enforce every relationship:
    that the time zone, recurrence, start/end dates, duration, and
    videoconference behavior match the tenant's operating plan.
 
-Use the database eligibility function installed by patch `261` to verify every
-staff mapping; the raw presence of a mapping row is not sufficient:
+Use the database eligibility function installed by patch `263-care-navigator`
+to verify every staff mapping; the raw presence of a mapping row is not
+sufficient:
 
 ```sql
 SELECT

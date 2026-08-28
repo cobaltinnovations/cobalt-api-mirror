@@ -1,10 +1,10 @@
 BEGIN;
 SELECT _v.register_patch(
-	'259-local-only-provider-booking-seed',
+	'262-local-only-provider-booking-seed',
 	ARRAY[
 		'250-autism-clinic-referrer',
-		'259-provider-booking-database',
-		'259-cobalt-provider-booking-configuration'
+		'261-provider-booking-database',
+		'262-cobalt-provider-booking-configuration'
 	],
 	NULL
 );

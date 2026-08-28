@@ -214,6 +214,12 @@ public class AuthorizationService {
 				|| account.getRoleId() == RoleId.PROVIDER)
 				&& accountCapabilityTypeIds.contains(AccountCapabilityTypeId.NAVIGATOR));
 
+		// The Care Encounter surface additionally requires the institution to have an active
+		// Care Navigator booking provider.  Expose the effective permission so clients gate on
+		// the same condition the resource layer enforces.
+		accountCapabilityFlags.setCanManageCareEncounters(accountCapabilityFlags.isCareNavigator()
+				&& institutionHasCareNavigatorBookingProvider(account.getInstitutionId()));
+
 		return accountCapabilityFlags;
 	}
 
@@ -221,8 +227,7 @@ public class AuthorizationService {
 	public Boolean canManageCareEncounters(@Nonnull Account account) {
 		requireNonNull(account);
 
-		return determineAccountCapabilityFlagsForAccount(account).isCareNavigator()
-				&& institutionHasCareNavigatorBookingProvider(account.getInstitutionId());
+		return determineAccountCapabilityFlagsForAccount(account).isCanManageCareEncounters();
 	}
 
 	protected boolean institutionHasCareNavigatorBookingProvider(@Nullable InstitutionId institutionId) {

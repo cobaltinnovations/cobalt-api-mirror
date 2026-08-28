@@ -1,5 +1,5 @@
 BEGIN;
-SELECT _v.register_patch('259-provider-booking-database', NULL, NULL);
+SELECT _v.register_patch('261-provider-booking-database', NULL, NULL);
 
 -- Fail before taking schema locks or writing migration data when production
 -- records require deliberate remediation. Never auto-cancel or delete clinical
