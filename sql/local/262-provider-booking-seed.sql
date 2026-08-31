@@ -4,7 +4,7 @@ SELECT _v.register_patch(
 	ARRAY[
 		'250-autism-clinic-referrer',
 		'261-provider-booking-database',
-		'262-cobalt-provider-booking-configuration'
+		'261-local-only-cobalt-provider-booking-configuration'
 	],
 	NULL
 );

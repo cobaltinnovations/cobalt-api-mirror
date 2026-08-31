@@ -3,13 +3,13 @@ SELECT _v.register_patch(
 	'263-local-only-care-navigator-seed',
 	ARRAY[
 		'262-local-only-provider-booking-seed',
-		'263-care-navigator'
+		'262-care-navigator'
 	],
 	NULL
 );
 
 -- Local/bootstrap-only Care Navigator fixture. Production receives the support
--- role, capability type, and feature mapping from 263-care-navigator.sql, but
+-- role, capability type, and feature mapping from 262-care-navigator.sql, but
 -- never receives this account, provider, availability, or screening data.
 DO $$
 DECLARE

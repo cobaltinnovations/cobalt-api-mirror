@@ -1,6 +1,6 @@
 BEGIN;
 SELECT _v.register_patch(
-	'262-cobalt-provider-booking-configuration',
+	'261-local-only-cobalt-provider-booking-configuration',
 	ARRAY[
 		'250-autism-clinic-referrer',
 		'261-provider-booking-database'
@@ -8,6 +8,13 @@ SELECT _v.register_patch(
 	NULL
 );
 
+-- Local/bootstrap-only. Every statement in this file is scoped to the COBALT
+-- institution, which is a local testing tenant, and configures the Autism Clinic
+-- bootstrap fixture created by 250-autism-clinic-referrer and
+-- 256-autism-clinic-penn-updates. It is kept as the worked example of wiring a
+-- tenant for booking v2; a real tenant gets its own reviewed configuration patch.
+-- Nothing in the production chain depends on it.
+--
 -- This patch prepares Cobalt-specific configuration but deliberately leaves
 -- booking v2 disabled. Production rollout is controlled separately by setting
 -- institution.booking_v2_enabled only when the tenant is ready to opt in.

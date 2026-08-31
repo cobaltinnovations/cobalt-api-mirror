@@ -1,5 +1,5 @@
 BEGIN;
-SELECT _v.register_patch('263-care-navigator', ARRAY['261-provider-booking-database'], NULL);
+SELECT _v.register_patch('262-care-navigator', ARRAY['261-provider-booking-database'], NULL);
 
 -- Home-page features may link directly to a specific provider details view.
 -- Existing features remain unchanged because this association is optional.

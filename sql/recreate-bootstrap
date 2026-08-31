@@ -279,7 +279,7 @@ fi
 PGPASSWORD=password psql -U cobalt -h postgres-cobalt -p 5432 < updates/250-autism-clinic-referrer.sql
 PGPASSWORD=password psql -U cobalt -h postgres-cobalt -p 5432 < updates/256-autism-clinic-penn-updates.sql
 PGPASSWORD=password psql -U cobalt -h postgres-cobalt -p 5432 < updates/261-provider-booking-database.sql
-PGPASSWORD=password psql -U cobalt -h postgres-cobalt -p 5432 < updates/262-cobalt-provider-booking-configuration.sql
+PGPASSWORD=password psql -U cobalt -h postgres-cobalt -p 5432 < local/261-cobalt-provider-booking-configuration.sql
 PGPASSWORD=password psql -U cobalt -h postgres-cobalt -p 5432 < local/262-provider-booking-seed.sql
-PGPASSWORD=password psql -U cobalt -h postgres-cobalt -p 5432 < updates/263-care-navigator.sql
+PGPASSWORD=password psql -U cobalt -h postgres-cobalt -p 5432 < updates/262-care-navigator.sql
 PGPASSWORD=password psql -U cobalt -h postgres-cobalt -p 5432 < local/263-care-navigator-seed.sql
