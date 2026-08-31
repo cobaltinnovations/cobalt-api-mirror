@@ -63,6 +63,8 @@ public class ScreeningAnswerOption {
 	private Boolean freeformSupplement;
 	@Nullable
 	private String freeformSupplementText;
+	@Nullable
+	private Boolean freeformSupplementTextRequired;
 
 	@Nullable
 	private Boolean freeformSupplementTextAutoShow;
@@ -164,6 +166,15 @@ public class ScreeningAnswerOption {
 
 	public void setFreeformSupplementText(@Nullable String freeformSupplementText) {
 		this.freeformSupplementText = freeformSupplementText;
+	}
+
+	@Nullable
+	public Boolean getFreeformSupplementTextRequired() {
+		return this.freeformSupplementTextRequired;
+	}
+
+	public void setFreeformSupplementTextRequired(@Nullable Boolean freeformSupplementTextRequired) {
+		this.freeformSupplementTextRequired = freeformSupplementTextRequired;
 	}
 
 	@Nullable

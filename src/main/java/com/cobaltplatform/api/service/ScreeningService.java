@@ -1559,7 +1559,7 @@ public class ScreeningService {
 								} else if (screeningQuestion.getScreeningAnswerFormatId() != ScreeningAnswerFormatId.FREEFORM_TEXT) {
 									// Handle "supplement" (like a radio button with an "Other" option where people can type whatever they like)
 									if (screeningAnswerOption.getFreeformSupplement()) {
-										if (text == null)
+										if (text == null && Boolean.TRUE.equals(screeningAnswerOption.getFreeformSupplementTextRequired()))
 											validationException.add(new FieldError("text", getStrings().get("Please specify a value for '{{screeningAnswerOption}}'.", new HashMap<String, Object>() {{
 												put("screeningAnswerOption", screeningAnswerOption.getAnswerOptionText());
 											}})));

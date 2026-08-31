@@ -10,11 +10,14 @@ Apply the production patches in this order:
 
 1. `sql/updates/261-provider-booking-database.sql`
 2. `sql/updates/262-care-navigator.sql`
+3. `sql/updates/263-care-navigator-screening.sql`
 
-The Care Navigator patch must be applied before deploying an application build
-that exposes Care Navigator APIs. It installs the shared schema and baseline
-behavior; it does not fully provision a production tenant's provider, staff
-mappings, intake screening, appointment type, or availability.
+Both Care Navigator patches must be applied before deploying an application
+build that exposes Care Navigator APIs. The first installs the shared encounter
+schema and baseline behavior. The second installs the canonical intake and
+attaches it to the configured COBALT Care Navigator provider's appointment
+types. Provider, staff mapping, appointment type, and availability provisioning
+remain tenant-specific.
 
 Never apply any of these local fixture patches to a production database:
 
@@ -23,7 +26,7 @@ Never apply any of these local fixture patches to a production database:
 - `sql/local/263-care-navigator-seed.sql`
 
 They live outside the production update directory because they contain test
-accounts, fixed fixture identifiers, placeholder content, synthetic clinical
+accounts, fixed fixture identifiers, synthetic clinical
 records, and local-only availability. The `262` fixture also deliberately
 enables V2 for the local COBALT institution.
 

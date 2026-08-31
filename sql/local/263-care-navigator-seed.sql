@@ -3,14 +3,14 @@ SELECT _v.register_patch(
 	'263-local-only-care-navigator-seed',
 	ARRAY[
 		'262-local-only-provider-booking-seed',
-		'262-care-navigator'
+		'263-care-navigator-screening'
 	],
 	NULL
 );
 
 -- Local/bootstrap-only Care Navigator fixture. Production receives the support
--- role, capability type, and feature mapping from 262-care-navigator.sql, but
--- never receives this account, provider, availability, or screening data.
+-- role, capability type, feature mapping, and screening configuration from the
+-- update migrations, but never receives this account, provider, or availability.
 DO $$
 DECLARE
 	v_institution_id CONSTANT TEXT := 'COBALT';
@@ -22,12 +22,6 @@ DECLARE
 	v_provider_bio CONSTANT TEXT := 'Our Care Navigator is here to help you identify and connect with mental health and wellness resources that best fit your needs. During the video call, they''ll listen to your concerns, answer questions about available benefits and services, and help connect you with resources.';
 	v_provider_description CONSTANT TEXT := 'Our Care Navigator is here to help you identify and connect with mental health and wellness resources that best fit your needs.';
 	v_appointment_type_description CONSTANT TEXT := 'Your appointment is a 30 minute video call with a Care Navigator to discuss potential resources.';
-	v_screening_name CONSTANT TEXT := 'Care Navigator Booking Assessment';
-	v_screening_flow_name CONSTANT TEXT := 'Care Navigator Booking Intake';
-	v_navigation_question_text CONSTANT TEXT := 'What would you like help navigating?';
-	v_support_question_text CONSTANT TEXT := 'What type of support would be most useful right now?';
-	v_follow_up_question_text CONSTANT TEXT := 'How would you prefer your Care Navigator to follow up?';
-	v_context_question_text CONSTANT TEXT := 'Is there anything else you would like your Care Navigator to know?';
 	v_provider_details_html CONSTANT TEXT := $details_html$
 <section class="mb-8">
   <h2 class="mb-4">What is a Care Navigator</h2>
@@ -51,65 +45,12 @@ $details_html$;
 	v_fixture_provider_id CONSTANT UUID := 'ca4e0000-0000-4000-8000-000000000002';
 	v_appointment_type_id CONSTANT UUID := 'ca4e0000-0000-4000-8000-000000000003';
 	v_logical_availability_id CONSTANT UUID := 'ca4e0000-0000-4000-8000-000000000004';
-	v_screening_id CONSTANT UUID := 'ca4e0000-0000-4000-8000-000000000005';
-	v_screening_version_id CONSTANT UUID := 'ca4e0000-0000-4000-8000-000000000006';
-	v_screening_question_id CONSTANT UUID := 'ca4e0000-0000-4000-8000-000000000007';
-	v_answer_option_provider_id CONSTANT UUID := 'ca4e0000-0000-4000-8000-000000000008';
-	v_answer_option_options_id CONSTANT UUID := 'ca4e0000-0000-4000-8000-000000000009';
-	v_answer_option_other_id CONSTANT UUID := 'ca4e0000-0000-4000-8000-00000000000a';
 	v_screening_flow_id CONSTANT UUID := 'ca4e0000-0000-4000-8000-00000000000b';
-	v_screening_flow_version_id CONSTANT UUID := 'ca4e0000-0000-4000-8000-00000000000c';
 	v_institution_feature_id CONSTANT UUID := 'ca4e0000-0000-4000-8000-00000000000d';
 	v_provider_location_id CONSTANT UUID := 'ca4e0000-0000-4000-8000-00000000000e';
-	v_support_question_id CONSTANT UUID := 'ca4e0000-0000-4000-8000-00000000000f';
-	v_support_provider_option_id CONSTANT UUID := 'ca4e0000-0000-4000-8000-000000000010';
-	v_support_benefits_option_id CONSTANT UUID := 'ca4e0000-0000-4000-8000-000000000011';
-	v_support_preparation_option_id CONSTANT UUID := 'ca4e0000-0000-4000-8000-000000000012';
-	v_follow_up_question_id CONSTANT UUID := 'ca4e0000-0000-4000-8000-000000000013';
-	v_follow_up_email_option_id CONSTANT UUID := 'ca4e0000-0000-4000-8000-000000000014';
-	v_follow_up_phone_option_id CONSTANT UUID := 'ca4e0000-0000-4000-8000-000000000015';
-	v_follow_up_either_option_id CONSTANT UUID := 'ca4e0000-0000-4000-8000-000000000016';
-	v_context_question_id CONSTANT UUID := 'ca4e0000-0000-4000-8000-000000000017';
-	v_context_answer_option_id CONSTANT UUID := 'ca4e0000-0000-4000-8000-000000000018';
 
 	v_account_id UUID;
 	v_provider_id UUID;
-	v_scoring_function TEXT;
-	v_orchestration_function CONSTANT TEXT := $orchestration$
-const screeningSessionScreening = (input.screeningSessionScreenings || [])[0];
-const screeningResults = screeningSessionScreening
-  ? (input.screeningResultsByScreeningSessionScreeningId[screeningSessionScreening.screeningSessionScreeningId] || [])
-  : [];
-
-output.completed = screeningSessionScreening ? Boolean(screeningSessionScreening.completed) : false;
-output.crisisIndicated = screeningResults.some((screeningResult) => {
-  return (screeningResult.screeningResponses || []).some((screeningResponse) => {
-    return screeningResponse.screeningAnswerOption && screeningResponse.screeningAnswerOption.indicatesCrisis;
-  });
-});
-$orchestration$;
-	v_results_function CONSTANT TEXT := $results$
-output.supportRoleRecommendations = [];
-output.recommendLegacyContentAnswerIds = false;
-output.legacyContentAnswerIds = [];
-output.recommendedTagIds = [];
-output.recommendedFeatureIds = [];
-output.integratedCareTriages = [];
-$results$;
-	v_destination_function CONSTANT TEXT := $destination$
-const screeningSessionScreening = (input.screeningSessionScreenings || [])[0];
-const belowScoringThreshold = screeningSessionScreening
-  ? Boolean(screeningSessionScreening.belowScoringThreshold)
-  : true;
-
-output.screeningSessionDestinationId = null;
-output.context = {};
-
-if (input.screeningSession.completed) {
-  output.screeningSessionDestinationId = 'APPOINTMENT_BOOKING_CONFIRMATION';
-  output.context.result = belowScoringThreshold ? 'FAILURE' : 'SUCCESS';
-}
-$destination$;
 BEGIN
 	-- Reuse a matching local row when one already exists, while retaining fixed
 	-- UUIDs for clean database recreations.
@@ -346,7 +287,7 @@ BEGIN
 		v_institution_feature_id,
 		v_institution_id,
 		'RESOURCE_NAVIGATOR',
-		'Connect with a Care Navigator.',
+		'Connect with a Care Navigator',
 		'Find help understanding care options and connecting with a mental health provider.',
 		12,
 		TRUE,
@@ -362,182 +303,6 @@ BEGIN
 		landing_page_visible=EXCLUDED.landing_page_visible,
 		treatment_description=EXCLUDED.treatment_description,
 		provider_id=EXCLUDED.provider_id;
-
-	v_scoring_function := FORMAT($scoring$
-const questionIds = ['%s', '%s', '%s', '%s'];
-const nextUnansweredQuestionId = questionIds.find((questionId) => {
-  const selectedAnswerIds = input.screeningAnswerIdsByScreeningQuestionId[questionId] || [];
-  return selectedAnswerIds.length === 0;
-});
-
-output.completed = nextUnansweredQuestionId === undefined;
-output.score = { overallScore: output.completed ? 1 : 0 };
-output.belowScoringThreshold = !output.completed;
-output.nextScreeningQuestionId = output.completed ? null : nextUnansweredQuestionId;
-$scoring$, v_screening_question_id, v_support_question_id, v_follow_up_question_id, v_context_question_id);
-
-	INSERT INTO screening (
-		screening_id,
-		name,
-		active_screening_version_id,
-		created_by_account_id
-	) VALUES (
-		v_screening_id,
-		v_screening_name,
-		NULL,
-		v_account_id
-	)
-	ON CONFLICT (screening_id) DO UPDATE
-	SET name=EXCLUDED.name,
-		created_by_account_id=EXCLUDED.created_by_account_id;
-
-	INSERT INTO screening_version (
-		screening_version_id,
-		screening_id,
-		screening_type_id,
-		created_by_account_id,
-		version_number,
-		scoring_function
-	) VALUES (
-		v_screening_version_id,
-		v_screening_id,
-		'CUSTOM',
-		v_account_id,
-		1,
-		v_scoring_function
-	)
-	ON CONFLICT (screening_version_id) DO UPDATE
-	SET screening_id=EXCLUDED.screening_id,
-		screening_type_id=EXCLUDED.screening_type_id,
-		created_by_account_id=EXCLUDED.created_by_account_id,
-		version_number=EXCLUDED.version_number,
-		scoring_function=EXCLUDED.scoring_function;
-
-	UPDATE screening
-	SET active_screening_version_id=v_screening_version_id
-	WHERE screening_id=v_screening_id;
-
-	INSERT INTO screening_institution (screening_id, institution_id)
-	VALUES (v_screening_id, v_institution_id)
-	ON CONFLICT (screening_id, institution_id) DO NOTHING;
-
-	INSERT INTO screening_question (
-		screening_question_id,
-		screening_version_id,
-		screening_answer_format_id,
-		screening_answer_content_hint_id,
-		question_text,
-		minimum_answer_count,
-		maximum_answer_count,
-		display_order,
-		prefer_autosubmit,
-		screening_question_submission_style_id
-	) VALUES
-		(v_screening_question_id, v_screening_version_id, 'SINGLE_SELECT', 'NONE',
-			v_navigation_question_text, 1, 1, 1, TRUE, 'NEXT'),
-		(v_support_question_id, v_screening_version_id, 'MULTI_SELECT', 'NONE',
-			v_support_question_text, 1, 3, 2, FALSE, 'NEXT'),
-		(v_follow_up_question_id, v_screening_version_id, 'SINGLE_SELECT', 'NONE',
-			v_follow_up_question_text, 1, 1, 3, TRUE, 'NEXT'),
-		(v_context_question_id, v_screening_version_id, 'FREEFORM_TEXT', 'NONE',
-			v_context_question_text, 1, 1, 4, FALSE, 'NEXT')
-	ON CONFLICT (screening_question_id) DO UPDATE
-	SET screening_version_id=EXCLUDED.screening_version_id,
-		screening_answer_format_id=EXCLUDED.screening_answer_format_id,
-		screening_answer_content_hint_id=EXCLUDED.screening_answer_content_hint_id,
-		question_text=EXCLUDED.question_text,
-		minimum_answer_count=EXCLUDED.minimum_answer_count,
-		maximum_answer_count=EXCLUDED.maximum_answer_count,
-		display_order=EXCLUDED.display_order,
-		prefer_autosubmit=EXCLUDED.prefer_autosubmit,
-		screening_question_submission_style_id=EXCLUDED.screening_question_submission_style_id;
-
-	INSERT INTO screening_answer_option (
-		screening_answer_option_id,
-		screening_question_id,
-		answer_option_text,
-		score,
-		indicates_crisis,
-		display_order
-	) VALUES
-		(v_answer_option_provider_id, v_screening_question_id, 'Finding a mental health provider', 1, FALSE, 1),
-		(v_answer_option_options_id, v_screening_question_id, 'Understanding care options', 1, FALSE, 2),
-		(v_answer_option_other_id, v_screening_question_id, 'Something else', 1, FALSE, 3),
-		(v_support_provider_option_id, v_support_question_id, 'Finding an in-network provider', 1, FALSE, 1),
-		(v_support_benefits_option_id, v_support_question_id, 'Understanding costs and benefits', 1, FALSE, 2),
-		(v_support_preparation_option_id, v_support_question_id, 'Preparing for a first appointment', 1, FALSE, 3),
-		(v_follow_up_email_option_id, v_follow_up_question_id, 'Email', 1, FALSE, 1),
-		(v_follow_up_phone_option_id, v_follow_up_question_id, 'Phone', 1, FALSE, 2),
-		(v_follow_up_either_option_id, v_follow_up_question_id, 'No preference', 1, FALSE, 3),
-		(v_context_answer_option_id, v_context_question_id, 'Share any context that would be helpful.', 1, FALSE, 1)
-	ON CONFLICT (screening_answer_option_id) DO UPDATE
-	SET screening_question_id=EXCLUDED.screening_question_id,
-		answer_option_text=EXCLUDED.answer_option_text,
-		score=EXCLUDED.score,
-		indicates_crisis=EXCLUDED.indicates_crisis,
-		display_order=EXCLUDED.display_order;
-
-	INSERT INTO screening_flow (
-		screening_flow_id,
-		institution_id,
-		active_screening_flow_version_id,
-		screening_flow_type_id,
-		created_by_account_id,
-		name
-	) VALUES (
-		v_screening_flow_id,
-		v_institution_id,
-		NULL,
-		'PROVIDER_INTAKE',
-		v_account_id,
-		v_screening_flow_name
-	)
-	ON CONFLICT (screening_flow_id) DO UPDATE
-	SET institution_id=EXCLUDED.institution_id,
-		screening_flow_type_id=EXCLUDED.screening_flow_type_id,
-		created_by_account_id=EXCLUDED.created_by_account_id,
-		name=EXCLUDED.name;
-
-	INSERT INTO screening_flow_version (
-		screening_flow_version_id,
-		screening_flow_id,
-		initial_screening_id,
-		phone_number_required,
-		version_number,
-		orchestration_function,
-		results_function,
-		destination_function,
-		created_by_account_id,
-		skippable,
-		screening_flow_skip_type_id
-	) VALUES (
-		v_screening_flow_version_id,
-		v_screening_flow_id,
-		v_screening_id,
-		FALSE,
-		1,
-		v_orchestration_function,
-		v_results_function,
-		v_destination_function,
-		v_account_id,
-		FALSE,
-		'EXIT'
-	)
-	ON CONFLICT (screening_flow_version_id) DO UPDATE
-	SET screening_flow_id=EXCLUDED.screening_flow_id,
-		initial_screening_id=EXCLUDED.initial_screening_id,
-		phone_number_required=EXCLUDED.phone_number_required,
-		version_number=EXCLUDED.version_number,
-		orchestration_function=EXCLUDED.orchestration_function,
-		results_function=EXCLUDED.results_function,
-		destination_function=EXCLUDED.destination_function,
-		created_by_account_id=EXCLUDED.created_by_account_id,
-		skippable=EXCLUDED.skippable,
-		screening_flow_skip_type_id=EXCLUDED.screening_flow_skip_type_id;
-
-	UPDATE screening_flow
-	SET active_screening_flow_version_id=v_screening_flow_version_id
-	WHERE screening_flow_id=v_screening_flow_id;
 
 	INSERT INTO appointment_type (
 		appointment_type_id,
@@ -654,17 +419,19 @@ DECLARE
 	v_provider_id CONSTANT UUID := 'ca4e0000-0000-4000-8000-000000000002';
 	v_navigator_account_id CONSTANT UUID := 'ca4e0000-0000-4000-8000-000000000001';
 	v_appointment_type_id CONSTANT UUID := 'ca4e0000-0000-4000-8000-000000000003';
-	v_screening_version_id CONSTANT UUID := 'ca4e0000-0000-4000-8000-000000000006';
-	v_navigation_question_id CONSTANT UUID := 'ca4e0000-0000-4000-8000-000000000007';
-	v_navigation_answer_option_id CONSTANT UUID := 'ca4e0000-0000-4000-8000-000000000008';
-	v_screening_flow_version_id CONSTANT UUID := 'ca4e0000-0000-4000-8000-00000000000c';
-	v_support_question_id CONSTANT UUID := 'ca4e0000-0000-4000-8000-00000000000f';
-	v_support_provider_option_id CONSTANT UUID := 'ca4e0000-0000-4000-8000-000000000010';
-	v_support_benefits_option_id CONSTANT UUID := 'ca4e0000-0000-4000-8000-000000000011';
-	v_follow_up_question_id CONSTANT UUID := 'ca4e0000-0000-4000-8000-000000000013';
-	v_follow_up_email_option_id CONSTANT UUID := 'ca4e0000-0000-4000-8000-000000000014';
-	v_context_question_id CONSTANT UUID := 'ca4e0000-0000-4000-8000-000000000017';
-	v_context_answer_option_id CONSTANT UUID := 'ca4e0000-0000-4000-8000-000000000018';
+	v_screening_version_id CONSTANT UUID := 'ca4e5000-0000-4000-8000-000000000001';
+	v_screening_flow_version_id CONSTANT UUID := 'ca4e5000-0000-4000-8000-000000000002';
+	v_support_for_question_id CONSTANT UUID := 'ca4e5000-0000-4000-8000-000000000010';
+	v_employer_question_id CONSTANT UUID := 'ca4e5000-0000-4000-8000-000000000011';
+	v_health_insurance_question_id CONSTANT UUID := 'ca4e5000-0000-4000-8000-000000000012';
+	v_behavioral_health_insurance_question_id CONSTANT UUID := 'ca4e5000-0000-4000-8000-000000000013';
+	v_support_type_question_id CONSTANT UUID := 'ca4e5000-0000-4000-8000-000000000014';
+	v_myself_answer_option_id CONSTANT UUID := 'ca4e5000-0000-4000-8000-000000000100';
+	v_uphs_answer_option_id CONSTANT UUID := 'ca4e5000-0000-4000-8000-000000000200';
+	v_penncare_ppo_answer_option_id CONSTANT UUID := 'ca4e5000-0000-4000-8000-000000000300';
+	v_aetna_behavioral_answer_option_id CONSTANT UUID := 'ca4e5000-0000-4000-8000-000000000400';
+	v_therapist_support_answer_option_id CONSTANT UUID := 'ca4e5000-0000-4000-8000-000000000500';
+	v_other_support_answer_option_id CONSTANT UUID := 'ca4e5000-0000-4000-8000-000000000508';
 	v_patient_one_id CONSTANT UUID := 'ca4e1000-0000-4000-8000-000000000001';
 	v_patient_two_id CONSTANT UUID := 'ca4e1000-0000-4000-8000-000000000002';
 	v_patient_three_id CONSTANT UUID := 'ca4e1000-0000-4000-8000-000000000003';
@@ -676,20 +443,22 @@ DECLARE
 	v_patient_canceled_appointment_id CONSTANT UUID := 'ca4e2000-0000-4000-8000-000000000005';
 	v_upcoming_screening_session_id CONSTANT UUID := 'ca4e3000-0000-4000-8000-000000000001';
 	v_upcoming_session_screening_id CONSTANT UUID := 'ca4e3000-0000-4000-8000-000000000002';
-	v_upcoming_navigation_response_id CONSTANT UUID := 'ca4e3000-0000-4000-8000-000000000003';
-	v_upcoming_support_response_id CONSTANT UUID := 'ca4e3000-0000-4000-8000-000000000004';
-	v_upcoming_follow_up_response_id CONSTANT UUID := 'ca4e3000-0000-4000-8000-000000000005';
-	v_upcoming_context_response_id CONSTANT UUID := 'ca4e3000-0000-4000-8000-000000000006';
+	v_upcoming_support_for_response_id CONSTANT UUID := 'ca4e3000-0000-4000-8000-000000000003';
+	v_upcoming_employer_response_id CONSTANT UUID := 'ca4e3000-0000-4000-8000-000000000004';
+	v_upcoming_health_insurance_response_id CONSTANT UUID := 'ca4e3000-0000-4000-8000-000000000005';
+	v_upcoming_behavioral_insurance_response_id CONSTANT UUID := 'ca4e3000-0000-4000-8000-000000000006';
+	v_upcoming_support_type_response_id CONSTANT UUID := 'ca4e3000-0000-4000-8000-00000000000c';
 	v_completed_note_id CONSTANT UUID := 'ca4e4000-0000-4000-8000-000000000001';
 	v_upcoming_note_one_id CONSTANT UUID := 'ca4e4000-0000-4000-8000-000000000002';
 	v_upcoming_note_two_id CONSTANT UUID := 'ca4e4000-0000-4000-8000-000000000003';
 	v_rebooked_note_id CONSTANT UUID := 'ca4e4000-0000-4000-8000-000000000004';
 	v_patient_canceled_note_id CONSTANT UUID := 'ca4e4000-0000-4000-8000-000000000005';
-	v_upcoming_navigation_answer_id CONSTANT UUID := 'ca4e3000-0000-4000-8000-000000000007';
-	v_upcoming_support_provider_answer_id CONSTANT UUID := 'ca4e3000-0000-4000-8000-000000000008';
-	v_upcoming_support_benefits_answer_id CONSTANT UUID := 'ca4e3000-0000-4000-8000-000000000009';
-	v_upcoming_follow_up_answer_id CONSTANT UUID := 'ca4e3000-0000-4000-8000-00000000000a';
-	v_upcoming_context_answer_id CONSTANT UUID := 'ca4e3000-0000-4000-8000-00000000000b';
+	v_upcoming_support_for_answer_id CONSTANT UUID := 'ca4e3000-0000-4000-8000-000000000007';
+	v_upcoming_employer_answer_id CONSTANT UUID := 'ca4e3000-0000-4000-8000-000000000008';
+	v_upcoming_health_insurance_answer_id CONSTANT UUID := 'ca4e3000-0000-4000-8000-000000000009';
+	v_upcoming_behavioral_insurance_answer_id CONSTANT UUID := 'ca4e3000-0000-4000-8000-00000000000a';
+	v_upcoming_therapist_support_answer_id CONSTANT UUID := 'ca4e3000-0000-4000-8000-00000000000b';
+	v_upcoming_other_support_answer_id CONSTANT UUID := 'ca4e3000-0000-4000-8000-00000000000d';
 	v_upcoming_context_text CONSTANT TEXT := 'I would like help finding an in-network therapist with evening availability.';
 	v_appointment_reason_id UUID;
 	v_today TIMESTAMP := DATE_TRUNC('day', NOW() AT TIME ZONE 'America/New_York');
@@ -790,10 +559,11 @@ BEGIN
 		screening_session_screening_id,
 		screening_question_id
 	) VALUES
-		(v_upcoming_navigation_response_id, v_upcoming_session_screening_id, v_navigation_question_id),
-		(v_upcoming_support_response_id, v_upcoming_session_screening_id, v_support_question_id),
-		(v_upcoming_follow_up_response_id, v_upcoming_session_screening_id, v_follow_up_question_id),
-		(v_upcoming_context_response_id, v_upcoming_session_screening_id, v_context_question_id)
+		(v_upcoming_support_for_response_id, v_upcoming_session_screening_id, v_support_for_question_id),
+		(v_upcoming_employer_response_id, v_upcoming_session_screening_id, v_employer_question_id),
+		(v_upcoming_health_insurance_response_id, v_upcoming_session_screening_id, v_health_insurance_question_id),
+		(v_upcoming_behavioral_insurance_response_id, v_upcoming_session_screening_id, v_behavioral_health_insurance_question_id),
+		(v_upcoming_support_type_response_id, v_upcoming_session_screening_id, v_support_type_question_id)
 	ON CONFLICT (screening_session_answered_screening_question_id) DO UPDATE
 	SET screening_session_screening_id=EXCLUDED.screening_session_screening_id,
 		screening_question_id=EXCLUDED.screening_question_id,
@@ -807,11 +577,12 @@ BEGIN
 		text,
 		answer_order
 	) VALUES
-		(v_upcoming_navigation_answer_id, v_navigation_answer_option_id, v_upcoming_navigation_response_id, v_patient_two_id, NULL, 1),
-		(v_upcoming_support_provider_answer_id, v_support_provider_option_id, v_upcoming_support_response_id, v_patient_two_id, NULL, 1),
-		(v_upcoming_support_benefits_answer_id, v_support_benefits_option_id, v_upcoming_support_response_id, v_patient_two_id, NULL, 2),
-		(v_upcoming_follow_up_answer_id, v_follow_up_email_option_id, v_upcoming_follow_up_response_id, v_patient_two_id, NULL, 1),
-		(v_upcoming_context_answer_id, v_context_answer_option_id, v_upcoming_context_response_id, v_patient_two_id, v_upcoming_context_text, 1)
+		(v_upcoming_support_for_answer_id, v_myself_answer_option_id, v_upcoming_support_for_response_id, v_patient_two_id, NULL, 1),
+		(v_upcoming_employer_answer_id, v_uphs_answer_option_id, v_upcoming_employer_response_id, v_patient_two_id, NULL, 1),
+		(v_upcoming_health_insurance_answer_id, v_penncare_ppo_answer_option_id, v_upcoming_health_insurance_response_id, v_patient_two_id, NULL, 1),
+		(v_upcoming_behavioral_insurance_answer_id, v_aetna_behavioral_answer_option_id, v_upcoming_behavioral_insurance_response_id, v_patient_two_id, NULL, 1),
+		(v_upcoming_therapist_support_answer_id, v_therapist_support_answer_option_id, v_upcoming_support_type_response_id, v_patient_two_id, NULL, 1),
+		(v_upcoming_other_support_answer_id, v_other_support_answer_option_id, v_upcoming_support_type_response_id, v_patient_two_id, v_upcoming_context_text, 2)
 	ON CONFLICT (screening_answer_id) DO UPDATE
 	SET screening_answer_option_id=EXCLUDED.screening_answer_option_id,
 		screening_session_answered_screening_question_id=EXCLUDED.screening_session_answered_screening_question_id,
@@ -874,6 +645,22 @@ BEGIN
 		canceled_at=EXCLUDED.canceled_at,
 		canceled_by_account_id=EXCLUDED.canceled_by_account_id;
 
+	-- The canonical intake has no email-address question. Keep the synthetic
+	-- encounter aligned with the appointment contact even when this fixture is
+	-- applied over an older local seed that collected a screening email.
+	UPDATE care_encounter
+	SET email_address=(
+			SELECT email_address
+			FROM appointment
+			WHERE appointment_id=v_upcoming_appointment_id
+		),
+		last_updated_by_account_id=v_patient_two_id
+	WHERE care_encounter_id=(
+		SELECT care_encounter_id
+		FROM appointment
+		WHERE appointment_id=v_upcoming_appointment_id
+	);
+
 	UPDATE care_encounter
 	SET care_encounter_status_id='OPEN',
 		closed_at=NULL,
@@ -920,151 +707,5 @@ BEGIN
 		note=EXCLUDED.note,
 		created_by_account_id=EXCLUDED.created_by_account_id,
 		last_updated_by_account_id=EXCLUDED.last_updated_by_account_id;
-END $$;
-
--- Keep the local Care Navigator fixture aligned with environments whose
--- appointment screening collects a dedicated contact email address.
-DO $$
-DECLARE
-	v_screening_version_id CONSTANT UUID := 'ca4e0000-0000-4000-8000-000000000006';
-	v_navigation_question_id CONSTANT UUID := 'ca4e0000-0000-4000-8000-000000000007';
-	v_support_question_id CONSTANT UUID := 'ca4e0000-0000-4000-8000-00000000000f';
-	v_follow_up_question_id CONSTANT UUID := 'ca4e0000-0000-4000-8000-000000000013';
-	v_context_question_id CONSTANT UUID := 'ca4e0000-0000-4000-8000-000000000017';
-	v_contact_email_question_id CONSTANT UUID := 'ca4e0000-0000-4000-8000-000000000019';
-	v_contact_email_answer_option_id CONSTANT UUID := 'ca4e0000-0000-4000-8000-00000000001a';
-	v_upcoming_appointment_id CONSTANT UUID := 'ca4e2000-0000-4000-8000-000000000002';
-	v_upcoming_screening_session_id CONSTANT UUID := 'ca4e3000-0000-4000-8000-000000000001';
-	v_upcoming_session_screening_id CONSTANT UUID := 'ca4e3000-0000-4000-8000-000000000002';
-	v_upcoming_contact_email_response_id CONSTANT UUID := 'ca4e3000-0000-4000-8000-00000000000c';
-	v_upcoming_contact_email_answer_id CONSTANT UUID := 'ca4e3000-0000-4000-8000-00000000000d';
-	v_upcoming_patient_id CONSTANT UUID := 'ca4e1000-0000-4000-8000-000000000002';
-	v_upcoming_contact_email_address CONSTANT TEXT := 'care-encounter.screening.jordan@example.com';
-	v_scoring_function TEXT;
-BEGIN
-	UPDATE screening_question
-	SET display_order=5
-	WHERE screening_question_id=v_context_question_id;
-
-	INSERT INTO screening_question (
-		screening_question_id,
-		screening_version_id,
-		screening_answer_format_id,
-		screening_answer_content_hint_id,
-		question_text,
-		minimum_answer_count,
-		maximum_answer_count,
-		display_order,
-		prefer_autosubmit,
-		screening_question_submission_style_id
-	) VALUES (
-		v_contact_email_question_id,
-		v_screening_version_id,
-		'FREEFORM_TEXT',
-		'EMAIL_ADDRESS',
-		'What email address should your Care Navigator use to contact you?',
-		1,
-		1,
-		4,
-		FALSE,
-		'NEXT'
-	)
-	ON CONFLICT (screening_question_id) DO UPDATE
-	SET screening_version_id=EXCLUDED.screening_version_id,
-		screening_answer_format_id=EXCLUDED.screening_answer_format_id,
-		screening_answer_content_hint_id=EXCLUDED.screening_answer_content_hint_id,
-		question_text=EXCLUDED.question_text,
-		minimum_answer_count=EXCLUDED.minimum_answer_count,
-		maximum_answer_count=EXCLUDED.maximum_answer_count,
-		display_order=EXCLUDED.display_order,
-		prefer_autosubmit=EXCLUDED.prefer_autosubmit,
-		screening_question_submission_style_id=EXCLUDED.screening_question_submission_style_id;
-
-	INSERT INTO screening_answer_option (
-		screening_answer_option_id,
-		screening_question_id,
-		answer_option_text,
-		score,
-		indicates_crisis,
-		display_order
-	) VALUES (
-		v_contact_email_answer_option_id,
-		v_contact_email_question_id,
-		'Email address',
-		1,
-		FALSE,
-		1
-	)
-	ON CONFLICT (screening_answer_option_id) DO UPDATE
-	SET screening_question_id=EXCLUDED.screening_question_id,
-		answer_option_text=EXCLUDED.answer_option_text,
-		score=EXCLUDED.score,
-		indicates_crisis=EXCLUDED.indicates_crisis,
-		display_order=EXCLUDED.display_order;
-
-	v_scoring_function := FORMAT($scoring$
-const questionIds = ['%s', '%s', '%s', '%s', '%s'];
-const nextUnansweredQuestionId = questionIds.find((questionId) => {
-  const selectedAnswerIds = input.screeningAnswerIdsByScreeningQuestionId[questionId] || [];
-  return selectedAnswerIds.length === 0;
-});
-
-output.completed = nextUnansweredQuestionId === undefined;
-output.score = { overallScore: output.completed ? 1 : 0 };
-output.belowScoringThreshold = !output.completed;
-output.nextScreeningQuestionId = output.completed ? null : nextUnansweredQuestionId;
-$scoring$, v_navigation_question_id, v_support_question_id, v_follow_up_question_id,
-		v_contact_email_question_id, v_context_question_id);
-
-	UPDATE screening_version
-	SET scoring_function=v_scoring_function
-	WHERE screening_version_id=v_screening_version_id;
-
-	INSERT INTO screening_session_answered_screening_question (
-		screening_session_answered_screening_question_id,
-		screening_session_screening_id,
-		screening_question_id
-	) VALUES (
-		v_upcoming_contact_email_response_id,
-		v_upcoming_session_screening_id,
-		v_contact_email_question_id
-	)
-	ON CONFLICT (screening_session_answered_screening_question_id) DO UPDATE
-	SET screening_session_screening_id=EXCLUDED.screening_session_screening_id,
-		screening_question_id=EXCLUDED.screening_question_id,
-		valid=TRUE;
-
-	INSERT INTO screening_answer (
-		screening_answer_id,
-		screening_answer_option_id,
-		screening_session_answered_screening_question_id,
-		created_by_account_id,
-		text,
-		answer_order
-	) VALUES (
-		v_upcoming_contact_email_answer_id,
-		v_contact_email_answer_option_id,
-		v_upcoming_contact_email_response_id,
-		v_upcoming_patient_id,
-		v_upcoming_contact_email_address,
-		1
-	)
-	ON CONFLICT (screening_answer_id) DO UPDATE
-	SET screening_answer_option_id=EXCLUDED.screening_answer_option_id,
-		screening_session_answered_screening_question_id=
-			EXCLUDED.screening_session_answered_screening_question_id,
-		created_by_account_id=EXCLUDED.created_by_account_id,
-		text=EXCLUDED.text,
-		answer_order=EXCLUDED.answer_order,
-		valid=TRUE;
-
-	-- Re-run the observable seed behavior for the pre-existing local fixture.
-	UPDATE appointment
-	SET screening_session_id=NULL
-	WHERE appointment_id=v_upcoming_appointment_id;
-
-	UPDATE appointment
-	SET screening_session_id=v_upcoming_screening_session_id
-	WHERE appointment_id=v_upcoming_appointment_id;
 END $$;
 COMMIT;

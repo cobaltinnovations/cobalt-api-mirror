@@ -27,6 +27,9 @@ import com.cobaltplatform.api.model.db.AccountSource.AccountSourceId;
 import com.cobaltplatform.api.model.db.Institution;
 import com.cobaltplatform.api.model.db.Institution.InstitutionId;
 import com.cobaltplatform.api.model.db.ScreeningFlow;
+import com.cobaltplatform.api.model.db.ScreeningAnswerContentHint.ScreeningAnswerContentHintId;
+import com.cobaltplatform.api.model.db.ScreeningAnswerFormat.ScreeningAnswerFormatId;
+import com.cobaltplatform.api.model.db.ScreeningAnswerOption;
 import com.cobaltplatform.api.model.db.ScreeningSession;
 import com.cobaltplatform.api.model.service.ScreeningQuestionContext;
 import com.cobaltplatform.api.model.service.ScreeningQuestionContextId;
@@ -584,12 +587,12 @@ public class ScreeningServiceTests {
 					screeningQuestionContext = screeningQuestionContextToResetTo;
 
 				// Pick the last answer option...
-				UUID screeningAnswerOptionId = screeningQuestionContext.getScreeningAnswerOptions().get(
-						screeningQuestionContext.getScreeningAnswerOptions().size() - 1).getScreeningAnswerOptionId();
+				ScreeningAnswerOption screeningAnswerOption = screeningQuestionContext.getScreeningAnswerOptions().get(
+						screeningQuestionContext.getScreeningAnswerOptions().size() - 1);
 
 				// ...or, if we are resetting, change the previous answer to a different one (the first option)
 				if (i == screeningQuestionIndexToResetAt) {
-					screeningAnswerOptionId = screeningQuestionContext.getScreeningAnswerOptions().get(0).getScreeningAnswerOptionId();
+					screeningAnswerOption = screeningQuestionContext.getScreeningAnswerOptions().get(0);
 					reset = true;
 				}
 
@@ -597,14 +600,28 @@ public class ScreeningServiceTests {
 						screeningQuestionContext.getScreeningSessionScreening().getScreeningSessionScreeningId(),
 						screeningQuestionContext.getScreeningQuestion().getScreeningQuestionId());
 
-				UUID pinnedScreeningAnswerOptionId = screeningAnswerOptionId;
+				ScreeningAnswerOption pinnedScreeningAnswerOption = screeningAnswerOption;
+				ScreeningAnswerFormatId pinnedScreeningAnswerFormatId =
+						screeningQuestionContext.getScreeningQuestion().getScreeningAnswerFormatId();
+				ScreeningAnswerContentHintId pinnedScreeningAnswerContentHintId =
+						screeningQuestionContext.getScreeningQuestion().getScreeningAnswerContentHintId();
 
 				// ...and answer it.
 				screeningService.createScreeningAnswers(new CreateScreeningAnswersRequest() {{
 					setScreeningQuestionContextId(screeningQuestionContextId);
 					setCreatedByAccountId(accountId);
 					setAnswers(List.of(new CreateAnswerRequest() {{
-						setScreeningAnswerOptionId(pinnedScreeningAnswerOptionId);
+						setScreeningAnswerOptionId(pinnedScreeningAnswerOption.getScreeningAnswerOptionId());
+						if (pinnedScreeningAnswerFormatId == ScreeningAnswerFormatId.FREEFORM_TEXT) {
+							if (pinnedScreeningAnswerContentHintId == ScreeningAnswerContentHintId.EMAIL_ADDRESS)
+								setText("screening-test@example.com");
+							else if (pinnedScreeningAnswerContentHintId == ScreeningAnswerContentHintId.PHONE_NUMBER)
+								setText("+12155550123");
+							else
+								setText("Additional details");
+						} else if (pinnedScreeningAnswerOption.getFreeformSupplement()) {
+							setText("Additional details");
+						}
 					}}));
 				}});
 
