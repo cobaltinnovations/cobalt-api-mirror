@@ -55,6 +55,7 @@ import com.cobaltplatform.api.model.db.Feature.FeatureId;
 import com.cobaltplatform.api.model.db.GroupSession;
 import com.cobaltplatform.api.model.db.Institution;
 import com.cobaltplatform.api.model.db.Institution.InstitutionId;
+import com.cobaltplatform.api.model.db.InstitutionLocation;
 import com.cobaltplatform.api.model.db.MessageType.MessageTypeId;
 import com.cobaltplatform.api.model.db.PatientOrder;
 import com.cobaltplatform.api.model.db.PatientOrderCareType.PatientOrderCareTypeId;
@@ -1471,6 +1472,8 @@ public class ScreeningService {
 		Account createdByAccount = null;
 		boolean force = request.getForce() == null ? false : request.getForce();
 		String accountPhoneNumberToUpdate = null;
+		boolean shouldUpdateAccountInstitutionLocation = false;
+		UUID accountInstitutionLocationIdToUpdate = null;
 		ValidationException validationException = new ValidationException();
 
 		if (screeningQuestionContextId == null) {
@@ -1598,6 +1601,42 @@ public class ScreeningService {
 		ScreeningSession screeningSession = findScreeningSessionById(screeningSessionScreening.getScreeningSessionId()).get();
 		Account targetAccount = screeningSession.getTargetAccountId() == null ? null
 				: getAccountService().findAccountById(screeningSession.getTargetAccountId()).orElse(null);
+
+		if (Objects.equals(Boolean.TRUE, screeningQuestion.getMetadata().get("shouldUpdateAccountInstitutionLocation"))) {
+			shouldUpdateAccountInstitutionLocation = true;
+			ScreeningAnswerOption selectedAnswerOption = screeningAnswerOptions.size() == 1
+					? screeningAnswerOptions.get(0) : null;
+			Object institutionLocationIdMetadata = selectedAnswerOption == null ? null
+					: selectedAnswerOption.getMetadata().get("institutionLocationId");
+			String institutionLocationIdAsString = institutionLocationIdMetadata instanceof String
+					? trimToNull((String) institutionLocationIdMetadata) : null;
+			boolean declinesInstitutionLocation = selectedAnswerOption != null
+					&& Objects.equals(Boolean.TRUE, selectedAnswerOption.getMetadata().get("declinesInstitutionLocation"));
+
+			if (targetAccount == null) {
+				validationException.add(new FieldError("answers", getStrings().get("The selected institution location is invalid.")));
+			} else if ((institutionLocationIdAsString == null && !declinesInstitutionLocation)
+					|| (institutionLocationIdAsString != null && declinesInstitutionLocation)
+					|| (institutionLocationIdMetadata != null && institutionLocationIdAsString == null)) {
+				validationException.add(new FieldError("answers", getStrings().get("The selected institution location is invalid.")));
+			} else if (institutionLocationIdAsString != null) {
+				try {
+					accountInstitutionLocationIdToUpdate = UUID.fromString(institutionLocationIdAsString);
+				} catch (IllegalArgumentException e) {
+					validationException.add(new FieldError("answers", getStrings().get("The selected institution location is invalid.")));
+				}
+
+				InstitutionLocation institutionLocation = accountInstitutionLocationIdToUpdate == null ? null
+						: getInstitutionService().findLocationById(accountInstitutionLocationIdToUpdate).orElse(null);
+
+				if (institutionLocation == null
+						|| !Objects.equals(institutionLocation.getInstitutionId(), targetAccount.getInstitutionId()))
+					validationException.add(new FieldError("answers", getStrings().get("The selected institution location is invalid.")));
+			}
+		}
+
+		if (validationException.hasErrors())
+			throw validationException;
 
 		if (accountPhoneNumberToUpdate != null) {
 			getLogger().info("Setting phone number for account ID {} to {}...", screeningSession.getTargetAccountId(), accountPhoneNumberToUpdate);
@@ -1762,6 +1801,17 @@ public class ScreeningService {
 			}
 
 			throw e;
+		}
+
+		if (shouldUpdateAccountInstitutionLocation) {
+			getLogger().info("Setting institution location for account ID {} to {}...", screeningSession.getTargetAccountId(),
+					accountInstitutionLocationIdToUpdate);
+			getDatabase().execute("""
+					UPDATE account
+					SET institution_location_id=?,
+					    prompted_for_institution_location=TRUE
+					WHERE account_id=?
+					""", accountInstitutionLocationIdToUpdate, screeningSession.getTargetAccountId());
 		}
 
 		getEnterprisePluginProvider().enterprisePluginForInstitutionId(institution.getInstitutionId()).postProcessScreeningAnswers(

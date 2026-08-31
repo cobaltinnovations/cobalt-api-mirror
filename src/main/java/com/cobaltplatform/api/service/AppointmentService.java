@@ -798,6 +798,9 @@ public class AppointmentService {
 		if (validationException.hasErrors())
 			throw validationException;
 
+		if (isCareNavigatorProvider(providerId))
+			validateCareNavigatorBookingAvailability(accountId);
+
 		UUID screeningFlowId = appointmentType.getScreeningFlowId();
 		Map<String, Object> appointmentBookingContext = appointmentBookingContextFor(request, screeningFlowId);
 
@@ -1481,16 +1484,7 @@ public class AppointmentService {
 
 		if (!validationException.hasErrors() && isCareNavigatorProvider(providerId)) {
 			acquireCareNavigatorAccountBookingLock(accountId);
-
-			if (hasActiveCareNavigatorAppointmentForAccountId(accountId)) {
-				validationException.add(new FieldError("providerId", getStrings().get(
-						"You already have an open appointment with a Care Navigator. Please cancel or complete it before booking another.")));
-				validationException.setMetadata(Map.of("careNavigatorOpenAppointmentExists", true));
-			} else if (hasAttendedAppointmentInOpenCareEncounterForAccountId(accountId)) {
-				validationException.add(new FieldError("providerId", getStrings().get(
-						"Your completed Care Navigator encounter must be closed before another appointment can be booked.")));
-				validationException.setMetadata(Map.of("careNavigatorEncounterAwaitingClosure", true));
-			}
+			validateCareNavigatorBookingAvailability(accountId);
 		}
 
 		if (validationException.hasErrors())
@@ -2212,6 +2206,25 @@ public class AppointmentService {
 					AND appointment.attendance_status_id='ATTENDED'
 				)
 				""", Boolean.class, accountId).orElse(false);
+	}
+
+	protected void validateCareNavigatorBookingAvailability(@Nonnull UUID accountId) {
+		requireNonNull(accountId);
+
+		ValidationException validationException = new ValidationException();
+
+		if (hasActiveCareNavigatorAppointmentForAccountId(accountId)) {
+			validationException.add(new FieldError("providerId", getStrings().get(
+					"You already have an open appointment with a Care Navigator. Please cancel or complete it before booking another.")));
+			validationException.setMetadata(Map.of("careNavigatorOpenAppointmentExists", true));
+		} else if (hasAttendedAppointmentInOpenCareEncounterForAccountId(accountId)) {
+			validationException.add(new FieldError("providerId", getStrings().get(
+					"Your completed Care Navigator encounter must be closed before another appointment can be booked.")));
+			validationException.setMetadata(Map.of("careNavigatorEncounterAwaitingClosure", true));
+		}
+
+		if (validationException.hasErrors())
+			throw validationException;
 	}
 
 	protected void markCareNavigatorAppointmentPendingReschedule(@Nonnull UUID appointmentId) {

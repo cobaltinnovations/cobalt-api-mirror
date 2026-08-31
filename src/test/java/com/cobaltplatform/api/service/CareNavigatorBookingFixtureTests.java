@@ -64,6 +64,7 @@ import com.cobaltplatform.api.model.db.ScheduledMessageSource.ScheduledMessageSo
 import com.cobaltplatform.api.model.db.ScheduledMessage;
 import com.cobaltplatform.api.model.db.ScheduledMessageStatus.ScheduledMessageStatusId;
 import com.cobaltplatform.api.model.db.ScreeningAnswerFormat.ScreeningAnswerFormatId;
+import com.cobaltplatform.api.model.db.ScreeningSession;
 import com.cobaltplatform.api.model.db.VideoconferencePlatform.VideoconferencePlatformId;
 import com.cobaltplatform.api.model.service.AppointmentBookingRequirements;
 import com.cobaltplatform.api.model.service.AppointmentBookingRequirements.AppointmentBookingRequirementsDestinationId;
@@ -221,7 +222,24 @@ public class CareNavigatorBookingFixtureTests {
 			Database database = app.getInjector().getInstance(DatabaseProvider.class).getWritableMasterDatabase();
 			Account account = accountService.findAdminAccountsForInstitution(InstitutionId.COBALT).get(0);
 
+			// This scenario exercises creation of a fresh lifecycle. Keep it isolated from
+			// any canceled appointments left behind by local manual testing.
+			database.execute("""
+					UPDATE care_encounter
+					SET care_encounter_status_id='CLOSED',
+					    closed_at=NOW(),
+					    closed_by_account_id=?
+					WHERE account_id=?
+					AND care_encounter_status_id='OPEN'
+					""", account.getAccountId(), account.getAccountId());
 			assertFixtureGraph(database);
+			assertEquals(Long.valueOf(0), database.queryForObject("""
+					SELECT COUNT(*)
+					FROM care_encounter
+					WHERE account_id=?
+					AND care_encounter_status_id='OPEN'
+					AND deleted=FALSE
+					""", Long.class, account.getAccountId()).get());
 
 			LocalDate bookingDate = nextWeekday(LocalDate.now(ZoneId.of("America/New_York")).plusDays(14));
 			LocalTime bookingTime = LocalTime.of(9, 0);
@@ -332,6 +350,8 @@ public class CareNavigatorBookingFixtureTests {
 
 			assertNull(screeningService.findNextUnansweredScreeningQuestionContextByScreeningSessionId(screeningSessionId)
 					.orElse(null));
+			assertNull(database.queryForObject("SELECT screening_session_contact_email_address(?)", String.class,
+					screeningSessionId).orElse(null));
 			ScreeningSessionDestination destination = screeningService
 					.determineDestinationForScreeningSessionId(screeningSessionId)
 					.get();
@@ -371,14 +391,22 @@ public class CareNavigatorBookingFixtureTests {
 			assertNotNull(appointmentId);
 			Appointment appointment = appointmentService.findAppointmentById(appointmentId).get();
 			assertEquals(screeningSessionId, appointment.getScreeningSessionId());
+			assertEquals(bookingEmailAddress, appointment.getEmailAddress());
 			assertEquals(VideoconferencePlatformId.SWITCHBOARD, appointment.getVideoconferencePlatformId());
 			assertNull(appointment.getMicrosoftTeamsMeetingId());
+
 			assertEquals(CARE_NAVIGATOR_ACCOUNT_ID, database.queryForObject("""
 					SELECT care_encounter.care_navigator_account_id
 					FROM appointment
 					JOIN care_encounter ON care_encounter.care_encounter_id=appointment.care_encounter_id
 					WHERE appointment.appointment_id=?
 					""", UUID.class, appointmentId).get());
+			assertEquals(bookingEmailAddress, database.queryForObject("""
+					SELECT care_encounter.email_address
+					FROM appointment
+					JOIN care_encounter ON care_encounter.care_encounter_id=appointment.care_encounter_id
+					WHERE appointment.appointment_id=?
+					""", String.class, appointmentId).get());
 
 			CareEncounter careEncounter = careEncounterService.findCareEncounterByIdForInstitutionId(
 					appointment.getCareEncounterId(), InstitutionId.COBALT).get();
@@ -448,13 +476,149 @@ public class CareNavigatorBookingFixtureTests {
 					appointmentScopedResponse.getAppointmentHistory().get(0).getScreeningSessionId());
 			assertNotNull(appointmentScopedResponse.getAppointmentHistory().get(0).getScreeningSessionResult());
 
-			AppointmentBookingRequirements nextBookingRequirements =
-					appointmentService.findAppointmentBookingRequirements(requirementsRequest, account);
-			assertEquals(AppointmentBookingRequirementsDestinationId.SCREENING_SESSION,
-					nextBookingRequirements.getAppointmentBookingRequirementsDestinationId());
-			assertNotNull(nextBookingRequirements.getScreeningSession());
-			assertNotEquals(screeningSessionId,
-					nextBookingRequirements.getScreeningSession().getScreeningSessionId());
+			ValidationException duplicateRequirementsException = assertThrows(ValidationException.class,
+					() -> appointmentService.findAppointmentBookingRequirements(requirementsRequest, account));
+			assertEquals(Boolean.TRUE,
+					duplicateRequirementsException.getMetadata().get("careNavigatorOpenAppointmentExists"));
+		});
+	}
+
+	@Test
+	public void careNavigatorBookingRequirementsRejectDuplicatesBeforeChangingScreeningSessions() {
+		IntegrationTestExecutor.runTransactionallyAndForceRollback((app) -> {
+			AppointmentService appointmentService = app.getInjector().getInstance(AppointmentService.class);
+			ScreeningService screeningService = app.getInjector().getInstance(ScreeningService.class);
+			AccountService accountService = app.getInjector().getInstance(AccountService.class);
+			Database database = app.getInjector().getInstance(DatabaseProvider.class).getWritableMasterDatabase();
+			Account account = accountService.findAccountById(CARE_NAVIGATOR_ACTIVE_FIXTURE_PATIENT_ID).get();
+			LocalDate bookingDate = nextWeekday(LocalDate.now(ZoneId.of("America/New_York")).plusDays(14));
+			LocalTime bookingTime = LocalTime.of(9, 0);
+			String untouchedMetadata = "{\"preflightTest\":true}";
+
+			database.execute("""
+					UPDATE screening_session
+					SET completed=FALSE,
+					    completed_at=NULL,
+					    metadata=CAST(? AS JSONB),
+					    last_updated=NOW() - INTERVAL '1 day'
+					WHERE screening_session_id=?
+					""", untouchedMetadata, CARE_NAVIGATOR_UPCOMING_SCREENING_SESSION_ID);
+			ScreeningSession sessionBefore = screeningService
+					.findScreeningSessionById(CARE_NAVIGATOR_UPCOMING_SCREENING_SESSION_ID).get();
+
+			ValidationException exception = assertThrows(ValidationException.class,
+					() -> appointmentService.findAppointmentBookingRequirements(
+						requirementsRequestFor(account, bookingDate, bookingTime), account));
+
+			assertEquals(Boolean.TRUE, exception.getMetadata().get("careNavigatorOpenAppointmentExists"));
+			ScreeningSession sessionAfter = screeningService
+					.findScreeningSessionById(CARE_NAVIGATOR_UPCOMING_SCREENING_SESSION_ID).get();
+			assertEquals(sessionBefore.getLastUpdated(), sessionAfter.getLastUpdated());
+			assertEquals(sessionBefore.getMetadata(), sessionAfter.getMetadata());
+		});
+
+		IntegrationTestExecutor.runTransactionallyAndForceRollback((app) -> {
+			AppointmentService appointmentService = app.getInjector().getInstance(AppointmentService.class);
+			ScreeningService screeningService = app.getInjector().getInstance(ScreeningService.class);
+			AccountService accountService = app.getInjector().getInstance(AccountService.class);
+			Account account = accountService.findAccountById(CARE_NAVIGATOR_ATTENDED_FIXTURE_PATIENT_ID).get();
+			LocalDate bookingDate = nextWeekday(LocalDate.now(ZoneId.of("America/New_York")).plusDays(14));
+			LocalTime bookingTime = LocalTime.of(9, 0);
+			int sessionCountBefore = screeningService.findScreeningSessionsByScreeningFlowIdAndTargetAccountId(
+					CARE_NAVIGATOR_SCREENING_FLOW_ID, account.getAccountId()).size();
+
+			ValidationException exception = assertThrows(ValidationException.class,
+					() -> appointmentService.findAppointmentBookingRequirements(
+						requirementsRequestFor(account, bookingDate, bookingTime), account));
+
+			assertEquals(Boolean.TRUE, exception.getMetadata().get("careNavigatorEncounterAwaitingClosure"));
+			assertEquals(sessionCountBefore, screeningService.findScreeningSessionsByScreeningFlowIdAndTargetAccountId(
+					CARE_NAVIGATOR_SCREENING_FLOW_ID, account.getAccountId()).size());
+		});
+	}
+
+	@Test
+	public void appointmentCreationRetainsLockedCareNavigatorDuplicateValidation() {
+		IntegrationTestExecutor.runTransactionallyAndForceRollback((app) -> {
+			AppointmentService appointmentService = app.getInjector().getInstance(AppointmentService.class);
+			AccountService accountService = app.getInjector().getInstance(AccountService.class);
+			Database database = app.getInjector().getInstance(DatabaseProvider.class).getWritableMasterDatabase();
+			Account account = accountService.findAccountById(CARE_NAVIGATOR_ACTIVE_FIXTURE_PATIENT_ID).get();
+			String emailAddress = "care-navigator-race-check@cobaltinnovations.org";
+
+			// Make the fixture's completed screening available without removing its active appointment.
+			database.execute("UPDATE appointment SET screening_session_id=NULL WHERE appointment_id=?",
+					CARE_NAVIGATOR_ACTIVE_APPOINTMENT_ID);
+			database.execute("""
+					UPDATE appointment
+					SET created=(
+					  SELECT completed_at - INTERVAL '1 second'
+					  FROM screening_session
+					  WHERE screening_session_id=?
+					)
+					WHERE appointment_id=?
+					""", CARE_NAVIGATOR_UPCOMING_SCREENING_SESSION_ID, CARE_NAVIGATOR_ACTIVE_APPOINTMENT_ID);
+			database.execute("""
+					INSERT INTO account_email_verification (
+					  account_email_verification_id, account_id, code, email_address, verified
+					) VALUES (?, ?, ?, ?, TRUE)
+					""", UUID.randomUUID(), account.getAccountId(), "123456", emailAddress);
+
+			CreateAppointmentRequest request = new CreateAppointmentRequest();
+			request.setAccountId(account.getAccountId());
+			request.setCreatedByAcountId(account.getAccountId());
+			request.setProviderId(CARE_NAVIGATOR_PROVIDER_ID);
+			request.setAppointmentTypeId(CARE_NAVIGATOR_APPOINTMENT_TYPE_ID);
+			request.setDate(nextWeekday(LocalDate.now(ZoneId.of("America/New_York")).plusDays(14)));
+			request.setTime(LocalTime.of(9, 0));
+			request.setFirstName("Care");
+			request.setLastName("Navigator Race Check");
+			request.setEmailAddress(emailAddress);
+			request.setPhoneNumber("+12155550123");
+			request.setBookingExperienceId(BookingExperienceId.V2);
+			request.setAppointmentModalityId(ProviderAppointmentModalityId.VIRTUAL);
+
+			ValidationException exception = assertThrows(ValidationException.class,
+					() -> appointmentService.createAppointment(request));
+			assertEquals(Boolean.TRUE, exception.getMetadata().get("careNavigatorOpenAppointmentExists"));
+		});
+	}
+
+	@Test
+	public void canceledAppointmentsAndClosedEncountersCanReachBookingRequirements() {
+		IntegrationTestExecutor.runTransactionallyAndForceRollback((app) -> {
+			AppointmentService appointmentService = app.getInjector().getInstance(AppointmentService.class);
+			AccountService accountService = app.getInjector().getInstance(AccountService.class);
+			Database database = app.getInjector().getInstance(DatabaseProvider.class).getWritableMasterDatabase();
+			Account canceledAppointmentAccount = accountService
+					.findAccountById(CARE_NAVIGATOR_ACTIVE_FIXTURE_PATIENT_ID).get();
+			LocalDate bookingDate = nextWeekday(LocalDate.now(ZoneId.of("America/New_York")).plusDays(14));
+			LocalTime bookingTime = LocalTime.of(9, 0);
+
+			database.execute("""
+					UPDATE appointment
+					SET canceled=TRUE,
+					    attendance_status_id='CANCELED'
+					WHERE appointment_id=?
+					""", CARE_NAVIGATOR_ACTIVE_APPOINTMENT_ID);
+			AppointmentBookingRequirements canceledRequirements = appointmentService.findAppointmentBookingRequirements(
+					requirementsRequestFor(canceledAppointmentAccount, bookingDate, bookingTime),
+					canceledAppointmentAccount);
+			assertNotNull(canceledRequirements);
+
+			Account closedEncounterAccount = accountService
+					.findAccountById(CARE_NAVIGATOR_ATTENDED_FIXTURE_PATIENT_ID).get();
+			database.execute("""
+					UPDATE care_encounter
+					SET care_encounter_status_id='CLOSED',
+					    closed_at=NOW(),
+					    closed_by_account_id=?
+					WHERE account_id=?
+					AND care_encounter_status_id='OPEN'
+					""", CARE_NAVIGATOR_ACCOUNT_ID, closedEncounterAccount.getAccountId());
+			AppointmentBookingRequirements closedRequirements = appointmentService.findAppointmentBookingRequirements(
+					requirementsRequestFor(closedEncounterAccount, bookingDate, bookingTime), closedEncounterAccount);
+			assertNotNull(closedRequirements);
 		});
 	}
 
