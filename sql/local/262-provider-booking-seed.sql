@@ -86,7 +86,7 @@ FROM (VALUES
 	('eb19c43f-c452-407f-92c1-3602695bceb2'::UUID, 'Dr. Attention Deficit evaluates attention concerns and treatment planning needs.', 'Psychiatry visits for attention, focus, and executive functioning concerns.', '+12155551009', 'SWITCHBOARD'),
 	('b988f30d-11a6-4818-9c34-ac6f7c429ee1'::UUID, 'Dr. EAP Clinic offers short-term psychiatry support for workplace stress.', 'Brief EAP psychiatry appointments for acute stress and work-related concerns.', '+12155551010', 'SWITCHBOARD'),
 	('11e02870-30bc-4178-8614-16caf5fe8996'::UUID, 'Dr. No Intake is used to test direct booking without legacy intake requirements.', 'Direct booking psychiatry appointments without a clinic intake assessment.', '+12155551011', 'SWITCHBOARD'),
-	('9d692393-f613-4c6f-8d7c-9272af495f4a'::UUID, 'Dr. Adam Grayson is a military family clinic fixture for one-to-one support visits.', 'One-to-one support appointments for military family stress and transition needs.', '+12155551013', 'SWITCHBOARD')
+	('21bcf0dc-2b22-4613-bb1b-5437860b23f6'::UUID, 'Dr. Adam Grayson is a military family clinic fixture for one-to-one support visits.', 'One-to-one support appointments for military family stress and transition needs.', '+12155551013', 'SWITCHBOARD')
 ) AS provider_fixture(provider_id, bio, description, phone_number, videoconference_platform_id)
 WHERE provider.provider_id=provider_fixture.provider_id;
 
@@ -285,7 +285,7 @@ FROM (VALUES
 	('dc7aeafd-0fc8-4c4d-b09a-09d4dc3079c1'::UUID, 'Cobalt Downtown'),
 	('2d6b7032-0145-4273-84f5-94e7238bc331'::UUID, 'Cobalt Downtown'),
 	('31633b9d-651b-402b-9314-7def6af811b6'::UUID, 'Cobalt Downtown'),
-	('9d692393-f613-4c6f-8d7c-9272af495f4a'::UUID, 'Cobalt Downtown'),
+	('21bcf0dc-2b22-4613-bb1b-5437860b23f6'::UUID, 'Cobalt Downtown'),
 	('9dcc6e07-821e-4b64-8975-aee5fcd5ca8b'::UUID, 'Cobalt Virtual Care'),
 	('ed461fc4-0436-4880-b340-b075d56a06f4'::UUID, 'Cobalt Virtual Care'),
 	('eb19c43f-c452-407f-92c1-3602695bceb2'::UUID, 'Cobalt Virtual Care'),
@@ -319,7 +319,8 @@ WITH fixture_availability (
 	('409b6b18-78b4-4a0b-bb03-6c77ff100008'::UUID, 'a865013e-d50c-46fc-b828-0e5ccdac41b6'::UUID, TIMESTAMP '2026-01-05 09:00:00', TIMESTAMP '2099-12-31 17:00:00'),
 	('409b6b18-78b4-4a0b-bb03-6c77ff100009'::UUID, 'eb19c43f-c452-407f-92c1-3602695bceb2'::UUID, TIMESTAMP '2026-01-05 09:00:00', TIMESTAMP '2099-12-31 17:00:00'),
 	('409b6b18-78b4-4a0b-bb03-6c77ff100010'::UUID, 'b988f30d-11a6-4818-9c34-ac6f7c429ee1'::UUID, TIMESTAMP '2026-01-05 09:00:00', TIMESTAMP '2099-12-31 17:00:00'),
-	('409b6b18-78b4-4a0b-bb03-6c77ff100011'::UUID, '11e02870-30bc-4178-8614-16caf5fe8996'::UUID, TIMESTAMP '2026-01-05 09:00:00', TIMESTAMP '2099-12-31 17:00:00')
+	('409b6b18-78b4-4a0b-bb03-6c77ff100011'::UUID, '11e02870-30bc-4178-8614-16caf5fe8996'::UUID, TIMESTAMP '2026-01-05 09:00:00', TIMESTAMP '2099-12-31 17:00:00'),
+	('409b6b18-78b4-4a0b-bb03-6c77ff100012'::UUID, '21bcf0dc-2b22-4613-bb1b-5437860b23f6'::UUID, TIMESTAMP '2026-01-05 09:00:00', TIMESTAMP '2099-12-31 17:00:00')
 )
 INSERT INTO logical_availability (
 	logical_availability_id,
@@ -388,7 +389,8 @@ WITH fixture_availability (
 	('409b6b18-78b4-4a0b-bb03-6c77ff100008'::UUID, 'a865013e-d50c-46fc-b828-0e5ccdac41b6'::UUID),
 	('409b6b18-78b4-4a0b-bb03-6c77ff100009'::UUID, 'eb19c43f-c452-407f-92c1-3602695bceb2'::UUID),
 	('409b6b18-78b4-4a0b-bb03-6c77ff100010'::UUID, 'b988f30d-11a6-4818-9c34-ac6f7c429ee1'::UUID),
-	('409b6b18-78b4-4a0b-bb03-6c77ff100011'::UUID, '11e02870-30bc-4178-8614-16caf5fe8996'::UUID)
+	('409b6b18-78b4-4a0b-bb03-6c77ff100011'::UUID, '11e02870-30bc-4178-8614-16caf5fe8996'::UUID),
+	('409b6b18-78b4-4a0b-bb03-6c77ff100012'::UUID, '21bcf0dc-2b22-4613-bb1b-5437860b23f6'::UUID)
 )
 INSERT INTO logical_availability_appointment_type (
 	logical_availability_id,
@@ -544,7 +546,7 @@ WITH fixture_provider AS (
 			'eb19c43f-c452-407f-92c1-3602695bceb2'::UUID,
 			'b988f30d-11a6-4818-9c34-ac6f7c429ee1'::UUID,
 			'11e02870-30bc-4178-8614-16caf5fe8996'::UUID,
-			'9d692393-f613-4c6f-8d7c-9272af495f4a'::UUID
+			'21bcf0dc-2b22-4613-bb1b-5437860b23f6'::UUID
 		)
 		OR provider.name='John Skokowski'
 	)

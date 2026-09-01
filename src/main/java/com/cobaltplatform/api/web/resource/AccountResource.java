@@ -1098,7 +1098,8 @@ public class AccountResource {
 		Map<String, Object> responseData = new HashMap<>();
 		responseData.put("account", getAccountApiResponseFactory().create(appointmentAccount, finalSupplements));
 		responseData.put("appointment", getAppointmentApiResponseFactory().create(appointment, Set.of(AppointmentApiResponseSupplement.PROVIDER,
-				AppointmentApiResponseSupplement.APPOINTMENT_TYPE, AppointmentApiResponseSupplement.PRIVATE_DETAILS)));
+				AppointmentApiResponseSupplement.APPOINTMENT_TYPE, AppointmentApiResponseSupplement.PRIVATE_DETAILS,
+				AppointmentApiResponseSupplement.SCREENING_SESSION_RESULT)));
 		responseData.put("appointments", appointments.stream()
 				.map((a) -> getAppointmentApiResponseFactory().create(a, Set.of(AppointmentApiResponseSupplement.PROVIDER,
 						AppointmentApiResponseSupplement.APPOINTMENT_TYPE, AppointmentApiResponseSupplement.PRIVATE_DETAILS))).collect(Collectors.toList()));

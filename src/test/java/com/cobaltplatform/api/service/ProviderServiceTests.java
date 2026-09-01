@@ -20,8 +20,12 @@
 package com.cobaltplatform.api.service;
 
 import com.cobaltplatform.api.IntegrationTestExecutor;
+import com.cobaltplatform.api.context.CurrentContext;
+import com.cobaltplatform.api.context.CurrentContextExecutor;
 import com.cobaltplatform.api.model.api.request.CreateAccountRequest;
 import com.cobaltplatform.api.model.api.request.ProviderFindRequest;
+import com.cobaltplatform.api.model.api.response.ProviderAvailabilityApiResponse;
+import com.cobaltplatform.api.model.api.response.ProviderListDetailsApiResponse.ProviderAppointmentModalityId;
 import com.cobaltplatform.api.model.api.response.ProviderListDetailsApiResponse.ProviderAppointmentSelectionTypeId;
 import com.cobaltplatform.api.model.api.response.ProviderSearchResultApiResponse;
 import com.cobaltplatform.api.model.db.Account;
@@ -45,16 +49,22 @@ import com.cobaltplatform.api.model.service.ProviderSearchScreeningRequirement;
 import com.cobaltplatform.api.model.db.VideoconferencePlatform.VideoconferencePlatformId;
 import com.cobaltplatform.api.util.Formatter;
 import com.cobaltplatform.api.util.db.DatabaseProvider;
+import com.cobaltplatform.api.web.resource.ProviderAvailabilityResource;
+import com.cobaltplatform.api.web.resource.ProviderResource;
 import com.lokalized.Strings;
 import com.pyranid.Database;
+import com.soklet.web.response.ApiResponse;
 import org.junit.Test;
 
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.time.ZoneId;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -82,6 +92,54 @@ public class ProviderServiceTests {
 
 		assertEquals(1, appointments.size());
 		assertEquals(retainedAppointmentId, appointments.get(0).getAppointmentId());
+	}
+
+	@Test
+	public void adamGraysonFixtureKeepsSearchAndAvailabilityResponsesBookable() {
+		IntegrationTestExecutor.runTransactionallyAndForceRollback((app) -> {
+			ProviderResource providerResource = app.getInjector().getInstance(ProviderResource.class);
+			ProviderAvailabilityResource providerAvailabilityResource =
+					app.getInjector().getInstance(ProviderAvailabilityResource.class);
+			AccountService accountService = app.getInjector().getInstance(AccountService.class);
+			CurrentContextExecutor currentContextExecutor = app.getInjector().getInstance(CurrentContextExecutor.class);
+			Account account = accountService.findAdminAccountsForInstitution(InstitutionId.COBALT).get(0);
+			UUID providerId = UUID.fromString("21bcf0dc-2b22-4613-bb1b-5437860b23f6");
+			UUID institutionLocationId = UUID.fromString("4f11d582-78e8-4559-a1b7-faa53e33f2f1");
+
+			currentContextExecutor.execute(new CurrentContext.Builder(account, Locale.US, ZoneId.of("America/New_York")).build(), () -> {
+				ApiResponse searchResponse = providerResource.searchProviders(Optional.of(FeatureId.MENTAL_HEALTH_PROVIDERS),
+						Optional.of(institutionLocationId.toString()));
+				Map<String, Object> searchModel = (Map<String, Object>) searchResponse.model().get();
+				List<ProviderSearchResultApiResponse> providers =
+						(List<ProviderSearchResultApiResponse>) searchModel.get("providers");
+				ProviderSearchResultApiResponse providerSearchResult = providers.stream()
+						.filter(provider -> providerId.equals(provider.getProviderId()))
+						.findFirst()
+						.orElseThrow();
+
+				assertNotNull(providerSearchResult.getFirstAvailableAppointment());
+				assertEquals(List.of(ProviderAppointmentModalityId.PHONE, ProviderAppointmentModalityId.VIRTUAL),
+						providerSearchResult.getSupportedAppointmentModalities().stream()
+								.map(modality -> modality.getAppointmentModalityId())
+								.toList());
+
+				ApiResponse availabilityResponse = providerAvailabilityResource.providerAvailability(providerId,
+						Optional.empty(), Optional.empty(), Optional.of(FeatureId.MENTAL_HEALTH_PROVIDERS.name()),
+						Optional.of(institutionLocationId), Optional.empty());
+				Map<String, Object> availabilityModel = (Map<String, Object>) availabilityResponse.model().get();
+				ProviderAvailabilityApiResponse providerAvailability =
+						(ProviderAvailabilityApiResponse) availabilityModel.get("providerAvailability");
+
+				assertNotNull(providerAvailability.getFirstAvailableAppointment());
+				assertFalse(providerAvailability.getAppointmentTypes().isEmpty());
+				assertEquals(List.of(ProviderAppointmentModalityId.PHONE, ProviderAppointmentModalityId.VIRTUAL),
+						providerAvailability.getAppointmentModalities().stream()
+								.map(modality -> modality.getAppointmentModalityId())
+								.toList());
+				assertEquals(providerSearchResult.getFirstAvailableAppointment().getDateTime(),
+						providerAvailability.getFirstAvailableAppointment().getDateTime());
+			});
+		});
 	}
 
 	@Test

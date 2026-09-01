@@ -534,7 +534,7 @@ public class CareEncounterService {
 				validationException, true);
 		String customEmailText = validateAndSanitizeCustomEmailText(request.getCustomEmailText(), validationException);
 		validateScheduledMessageType(request.getCareEncounterScheduledMessageTypeId(), validationException);
-		LocalDateTime scheduledAt = validateScheduledAt(request, institutionId, validationException);
+		LocalDateTime scheduledAt = validateScheduledAt(request, validationException);
 		validateRecipientEmailAddress(careEncounter, validationException);
 		validateAttendedAppointmentForFollowUp(careEncounter, institutionId,
 				request.getCareEncounterScheduledMessageTypeId(), validationException);
@@ -597,7 +597,7 @@ public class CareEncounterService {
 					getStrings().get("Only pending scheduled messages can be edited.")));
 		String customEmailText = validateAndSanitizeCustomEmailText(request.getCustomEmailText(), validationException);
 		validateScheduledMessageType(request.getCareEncounterScheduledMessageTypeId(), validationException);
-		LocalDateTime scheduledAt = validateScheduledAt(request, institutionId, validationException);
+		LocalDateTime scheduledAt = validateScheduledAt(request, validationException);
 		validateRecipientEmailAddress(careEncounter, validationException);
 		validateAttendedAppointmentForFollowUp(careEncounter, institutionId,
 				request.getCareEncounterScheduledMessageTypeId(), validationException);
@@ -1491,20 +1491,15 @@ public class CareEncounterService {
 
 	@Nullable
 	protected LocalDateTime validateScheduledAt(@Nonnull CreateCareEncounterScheduledMessageRequest request,
-																					 @Nullable InstitutionId institutionId,
-																					 @Nonnull ValidationException validationException) {
+																			 @Nonnull ValidationException validationException) {
 		if (request.getScheduledAtDate() == null)
 			validationException.add(new FieldError("scheduledAtDate", getStrings().get("Scheduled date is required.")));
 		if (request.getScheduledAtTime() == null)
 			validationException.add(new FieldError("scheduledAtTime", getStrings().get("Scheduled time is required.")));
-		if (request.getScheduledAtDate() == null || request.getScheduledAtTime() == null || institutionId == null)
+		if (request.getScheduledAtDate() == null || request.getScheduledAtTime() == null)
 			return null;
 
-		LocalDateTime scheduledAt = LocalDateTime.of(request.getScheduledAtDate(), request.getScheduledAtTime());
-		Institution institution = getInstitutionService().findInstitutionById(institutionId).orElse(null);
-		if (institution != null && scheduledAt.isBefore(LocalDateTime.now(institution.getTimeZone()).withSecond(0).withNano(0)))
-			validationException.add(new FieldError("scheduledAtDate", getStrings().get("Scheduled time cannot be in the past.")));
-		return scheduledAt;
+		return LocalDateTime.of(request.getScheduledAtDate(), request.getScheduledAtTime());
 	}
 
 	@Nonnull

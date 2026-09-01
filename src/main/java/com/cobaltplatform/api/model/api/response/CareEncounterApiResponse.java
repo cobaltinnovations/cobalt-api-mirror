@@ -86,6 +86,8 @@ public class CareEncounterApiResponse {
 	private final String careEncounterCancellationReasonOtherText;
 	@Nonnull
 	private final UUID createdByAccountId;
+	@Nullable
+	private final String createdByAccountDisplayName;
 	@Nonnull
 	private final UUID lastUpdatedByAccountId;
 	@Nonnull
@@ -171,6 +173,9 @@ public class CareEncounterApiResponse {
 		this.careEncounterCancellationReasonId = careEncounter.getCareEncounterCancellationReasonId();
 		this.careEncounterCancellationReasonOtherText = careEncounter.getCareEncounterCancellationReasonOtherText();
 		this.createdByAccountId = careEncounter.getCreatedByAccountId();
+		this.createdByAccountDisplayName = careEncounter.getAccountId().equals(this.createdByAccountId)
+				? selfBookedDisplayName(this.patientFullName)
+				: displayNameForAccountId(accountService, this.createdByAccountId);
 		this.lastUpdatedByAccountId = careEncounter.getLastUpdatedByAccountId();
 		this.created = careEncounter.getCreated();
 		this.createdDescription = formatter.formatTimestamp(careEncounter.getCreated());
@@ -211,6 +216,16 @@ public class CareEncounterApiResponse {
 				: displayName;
 	}
 
+	@Nonnull
+	protected static String selfBookedDisplayName(@Nonnull String patientFullName) {
+		requireNonNull(patientFullName);
+
+		String displayName = trimToNull(patientFullName);
+		return displayName == null || displayName.equalsIgnoreCase("Anonymous")
+				? "Patient (self-booked)"
+				: String.format("%s (Patient — self-booked)", displayName);
+	}
+
 	@Nonnull public UUID getCareEncounterId() { return this.careEncounterId; }
 	@Nonnull public UUID getAppointmentId() { return this.appointmentId; }
 	@Nonnull public UUID getAccountId() { return this.accountId; }
@@ -232,6 +247,7 @@ public class CareEncounterApiResponse {
 	@Nullable public CareEncounterCancellationReasonId getCareEncounterCancellationReasonId() { return this.careEncounterCancellationReasonId; }
 	@Nullable public String getCareEncounterCancellationReasonOtherText() { return this.careEncounterCancellationReasonOtherText; }
 	@Nonnull public UUID getCreatedByAccountId() { return this.createdByAccountId; }
+	@Nullable public String getCreatedByAccountDisplayName() { return this.createdByAccountDisplayName; }
 	@Nonnull public UUID getLastUpdatedByAccountId() { return this.lastUpdatedByAccountId; }
 	@Nonnull public Instant getCreated() { return this.created; }
 	@Nonnull public String getCreatedDescription() { return this.createdDescription; }

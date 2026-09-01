@@ -101,7 +101,7 @@ BEGIN
 			v_account_email_address,
 			'https://placehold.co/320x320/png?text=Care+Navigator',
 			'https://fixtures.cobalt.care/providers/cobalt-care-navigator/bio',
-			'https://fixtures.cobalt.care/providers/cobalt-care-navigator',
+			NULL,
 			'en-US',
 			'America/New_York',
 			TRUE,
@@ -112,7 +112,7 @@ BEGIN
 			v_provider_bio,
 			v_provider_description,
 			'["Provider matching", "Care options", "Mental health navigation"]',
-			'+12155551014',
+			NULL,
 			FALSE,
 			v_provider_details_html
 		)
@@ -127,7 +127,7 @@ BEGIN
 			email_address=v_account_email_address,
 			image_url='https://placehold.co/320x320/png?text=Care+Navigator',
 			bio_url='https://fixtures.cobalt.care/providers/cobalt-care-navigator/bio',
-			website_url='https://fixtures.cobalt.care/providers/cobalt-care-navigator',
+			website_url=NULL,
 			locale='en-US',
 			time_zone='America/New_York',
 			active=TRUE,
@@ -137,7 +137,7 @@ BEGIN
 			bio=v_provider_bio,
 			description=v_provider_description,
 			tags='["Provider matching", "Care options", "Mental health navigation"]',
-			phone_number='+12155551014',
+			phone_number=NULL,
 			display_phone_number_only_for_booking=FALSE,
 			details_html=v_provider_details_html
 		WHERE provider_id=v_provider_id;

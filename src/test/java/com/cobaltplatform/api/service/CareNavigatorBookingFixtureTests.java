@@ -37,13 +37,14 @@ import com.cobaltplatform.api.model.api.request.FindCareEncountersRequest;
 import com.cobaltplatform.api.model.api.request.FindCareEncountersRequest.CareEncounterAssignmentScopeId;
 import com.cobaltplatform.api.model.api.request.UpdateAppointmentRequest;
 import com.cobaltplatform.api.model.api.request.UpdateCareEncounterNoteRequest;
-import com.cobaltplatform.api.model.api.response.LocationApiResponse;
-import com.cobaltplatform.api.model.api.response.InstitutionApiResponse;
-import com.cobaltplatform.api.model.api.response.ProviderApiResponse;
+import com.cobaltplatform.api.model.api.response.AppointmentApiResponse;
 import com.cobaltplatform.api.model.api.response.CareEncounterApiResponse;
 import com.cobaltplatform.api.model.api.response.CareEncounterApiResponse.CareEncounterApiResponseFactory;
 import com.cobaltplatform.api.model.api.response.CareEncounterListApiResponse;
 import com.cobaltplatform.api.model.api.response.CareEncounterListApiResponse.CareEncounterListApiResponseFactory;
+import com.cobaltplatform.api.model.api.response.InstitutionApiResponse;
+import com.cobaltplatform.api.model.api.response.LocationApiResponse;
+import com.cobaltplatform.api.model.api.response.ProviderApiResponse;
 import com.cobaltplatform.api.model.api.response.ProviderListDetailsApiResponse.ProviderAppointmentModalityId;
 import com.cobaltplatform.api.model.api.response.ProviderListDetailsApiResponse.ProviderAppointmentSelectionTypeId;
 import com.cobaltplatform.api.model.api.response.ScreeningAnswerOptionApiResponse;
@@ -184,15 +185,16 @@ public class CareNavigatorBookingFixtureTests {
 				assertEquals("https://placehold.co/320x320/png?text=Care+Navigator", provider.getImageUrl());
 				assertEquals(Boolean.FALSE, provider.getDefaultImageUrl());
 				assertEquals("https://fixtures.cobalt.care/providers/cobalt-care-navigator/bio", provider.getBioUrl());
-				assertEquals("https://fixtures.cobalt.care/providers/cobalt-care-navigator", provider.getWebsiteUrl());
+				assertEquals("care-navigator@cobaltinnovations.org", provider.getEmailAddress());
+				assertNull(provider.getWebsiteUrl());
 				assertTrue(provider.getBio().contains("During the video call"));
 				assertTrue(provider.getDetailsHtml().contains("What is a Care Navigator"));
 				assertTrue(provider.getDetailsHtml().contains("Care Navigators are not licensed clinicians"));
 				assertTrue(provider.getDetailsHtml().contains("please call 911 or 988 immediately"));
 				assertTrue(provider.getDetailsHtml().contains("Your privacy is important to us"));
 				assertEquals(List.of("Provider matching", "Care options", "Mental health navigation"), provider.getTags());
-				assertEquals("+12155551014", provider.getPhoneNumber());
-				assertEquals("(215) 555-1014", provider.getFormattedPhoneNumber());
+				assertNull(provider.getPhoneNumber());
+				assertNull(provider.getFormattedPhoneNumber());
 				assertEquals("Care Navigator", provider.getSupportRolesDescription());
 				assertEquals(List.of("No Fee"), provider.getPaymentFundingDescriptions());
 				assertEquals(1, provider.getSupportedAppointmentModalities().size());
@@ -208,6 +210,62 @@ public class CareNavigatorBookingFixtureTests {
 				assertEquals("Virtual Care", location.getShortName());
 				assertNull(location.getAddress());
 			});
+		});
+	}
+
+	@Test
+	public void careNavigatorProviderAppointmentDetailsIncludeBookingContactAndScreeningResponses() {
+		IntegrationTestExecutor.runTransactionallyAndForceRollback((app) -> {
+			AccountResource accountResource = app.getInjector().getInstance(AccountResource.class);
+			AccountService accountService = app.getInjector().getInstance(AccountService.class);
+			CurrentContextExecutor currentContextExecutor = app.getInjector().getInstance(CurrentContextExecutor.class);
+			Account careNavigatorAccount = accountService.findAccountById(CARE_NAVIGATOR_ACCOUNT_ID).get();
+
+			currentContextExecutor.execute(
+					new CurrentContext.Builder(careNavigatorAccount, Locale.US, ZoneId.of("America/New_York")).build(),
+					() -> {
+						ApiResponse response = accountResource.accountWithAppointmentDetails(
+								CARE_NAVIGATOR_ACTIVE_FIXTURE_PATIENT_ID, CARE_NAVIGATOR_ACTIVE_APPOINTMENT_ID);
+						Map<String, Object> model = (Map<String, Object>) response.model().get();
+						AppointmentApiResponse appointment = (AppointmentApiResponse) model.get("appointment");
+
+						assertEquals(200, response.status());
+						assertEquals("Jordan", appointment.getFirstName());
+						assertEquals("Lee", appointment.getLastName());
+						assertEquals("care-encounter.jordan@example.com", appointment.getEmailAddress());
+						assertEquals("+12155553002", appointment.getContactPhoneNumber());
+						assertNotNull(appointment.getScreeningSessionResult());
+						assertEquals(5, appointment.getScreeningSessionResult()
+								.getScreeningSessionScreeningResults().get(0).getScreeningQuestionResults().size());
+						assertEquals(NAVIGATOR_CONTEXT_FIXTURE_TEXT, appointment.getScreeningSessionResult()
+								.getScreeningSessionScreeningResults().get(0).getScreeningQuestionResults().get(4)
+								.getScreeningAnswerResults().get(1).getText());
+					});
+		});
+	}
+
+	@Test
+	public void careNavigatorEncounterIdentifiesSelfBookingPatient() {
+		IntegrationTestExecutor.runTransactionallyAndForceRollback((app) -> {
+			AppointmentService appointmentService = app.getInjector().getInstance(AppointmentService.class);
+			CareEncounterService careEncounterService = app.getInjector().getInstance(CareEncounterService.class);
+			CareEncounterApiResponseFactory responseFactory = app.getInjector()
+					.getInstance(CareEncounterApiResponseFactory.class);
+			AccountService accountService = app.getInjector().getInstance(AccountService.class);
+			CurrentContextExecutor currentContextExecutor = app.getInjector().getInstance(CurrentContextExecutor.class);
+			Account careNavigatorAccount = accountService.findAccountById(CARE_NAVIGATOR_ACCOUNT_ID).get();
+			Appointment appointment = appointmentService.findAppointmentById(CARE_NAVIGATOR_ACTIVE_APPOINTMENT_ID).get();
+			CareEncounter careEncounter = careEncounterService.findCareEncounterByIdForInstitutionId(
+					appointment.getCareEncounterId(), InstitutionId.COBALT).get();
+
+			currentContextExecutor.execute(
+					new CurrentContext.Builder(careNavigatorAccount, Locale.US, ZoneId.of("America/New_York")).build(),
+					() -> {
+						CareEncounterApiResponse response = responseFactory.create(careEncounter);
+
+						assertEquals(CARE_NAVIGATOR_ACTIVE_FIXTURE_PATIENT_ID, response.getCreatedByAccountId());
+						assertEquals("Jordan Lee (Patient — self-booked)", response.getCreatedByAccountDisplayName());
+					});
 		});
 	}
 
@@ -1179,6 +1237,26 @@ public class CareNavigatorBookingFixtureTests {
 					.anyMatch(error -> error.getField().equals("attendanceStatusId")));
 			assertEquals(originalMessageCount,
 					service.findCareEncounterScheduledMessagesByCareEncounterId(encounterId).size());
+		});
+	}
+
+	@Test
+	public void encounterFollowUpAllowsPastScheduledTimeForImmediateProcessing() {
+		IntegrationTestExecutor.runTransactionallyAndForceRollback((app) -> {
+			Database database = app.getInjector().getInstance(DatabaseProvider.class).getWritableMasterDatabase();
+			CareEncounterService service = app.getInjector().getInstance(CareEncounterService.class);
+			UUID encounterId = careEncounterIdForAppointment(database, CARE_NAVIGATOR_ATTENDED_APPOINTMENT_ID);
+			ZoneId timeZone = ZoneId.of("America/New_York");
+			LocalDate scheduledDate = LocalDate.now(timeZone).minusDays(1);
+			LocalTime scheduledTime = LocalTime.of(9, 30);
+			CreateCareEncounterScheduledMessageRequest request = scheduledFollowUpRequest(
+					scheduledDate, scheduledTime, "<p>Send these resources immediately.</p>");
+
+			CareEncounterScheduledMessage message = service.createCareEncounterScheduledMessage(
+					encounterId, InstitutionId.COBALT, CARE_NAVIGATOR_ACCOUNT_ID, request);
+
+			assertEquals(scheduledDate, message.getScheduledAt().toLocalDate());
+			assertEquals(scheduledTime, message.getScheduledAt().toLocalTime());
 		});
 	}
 
