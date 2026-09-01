@@ -1,5 +1,13 @@
 BEGIN;
-SELECT _v.register_patch('264-cobalt-employer-onboarding', ARRAY['263-care-navigator-screening'], NULL);
+SELECT _v.register_patch(
+	'264-local-only-cobalt-employer-onboarding',
+	ARRAY['262-local-only-provider-booking-seed'],
+	NULL
+);
+
+-- Local/bootstrap-only employer-onboarding fixture for the COBALT testing
+-- institution. Real tenants receive their own reviewed configuration patch.
+-- Nothing in the production update chain depends on this patch.
 
 DO $$
 DECLARE
@@ -17,14 +25,14 @@ DECLARE
 	v_location_count INTEGER;
 	v_scoring_function TEXT;
 BEGIN
-	-- Updates-only database builds do not contain tenant data. Tenant configuration
-	-- is installed when COBALT exists in the target database.
+	-- Fail loudly if this local-only patch is invoked without its bootstrap data;
+	-- silently registering an empty fixture would make a later retry impossible.
 	IF NOT EXISTS (
 		SELECT 1
 		FROM institution
 		WHERE institution_id=v_institution_id
 	) THEN
-		RETURN;
+		RAISE EXCEPTION 'The COBALT institution is required to configure local employer onboarding.';
 	END IF;
 
 	SELECT onboarding_screening_flow_id

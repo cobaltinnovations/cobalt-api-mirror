@@ -24,6 +24,7 @@ Never apply any of these local fixture patches to a production database:
 - `sql/local/261-cobalt-provider-booking-configuration.sql`
 - `sql/local/262-provider-booking-seed.sql`
 - `sql/local/263-care-navigator-seed.sql`
+- `sql/local/264-cobalt-employer-onboarding.sql`
 
 They live outside the production update directory because they contain test
 accounts, fixed fixture identifiers, synthetic clinical
@@ -35,6 +36,12 @@ COBALT testing institution, configuring the Autism Clinic bootstrap fixture for
 booking v2. Keep it as the worked example of what tenant configuration involves,
 but provision a real tenant with its own reviewed patch rather than by copying
 it. Nothing in the production chain depends on it.
+
+`264-cobalt-employer-onboarding.sql` creates the COBALT-branded local onboarding
+flow and snapshots the local COBALT institution locations as employer choices.
+Provision a real tenant, including PENN, with a reviewed enterprise patch using
+tenant-approved copy and employer choices. Do not run the local fixture outside
+local or bootstrap databases.
 
 ## Preflight checks
 
@@ -132,7 +139,7 @@ AND NOT EXISTS (
 
 1. Restore a recent production snapshot into a non-production environment.
 2. Run the preflight checks above.
-3. Apply both production patches listed above in the documented order.
+3. Apply all three production patches listed above in the documented order.
 4. Record migration duration and lock time for the `appointment` table.
 5. Verify that `booking_v2_enabled` remains `FALSE` for every institution.
 6. Run the API test suite and exercise V1 provider search before promoting the
