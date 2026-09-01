@@ -1,0 +1,18 @@
+{{#partial "body"}}
+	<tr>
+		<td align="left" style="font-family:'Karla', 'Open Sans', 'Roboto', Arial, sans-serif; font-size:18px; line-height:26px; color:#000000;">
+			<p>Hello{{#if patientFirstName}} {{patientFirstName}}{{/if}},</p>
+			{{#if appointmentDateDescription}}
+				<p>Thank you for attending your meeting with the Care Navigator on {{appointmentDateDescription}}.</p>
+			{{/if}}
+			<div>{{{customEmailText}}}</div>
+			<p>Please do not reply to this email. This mailbox is not monitored.{{#if careNavigatorBookingUrl}} If you have questions or would like additional support, please <a href="{{careNavigatorBookingUrl}}">schedule another Care Navigator call through {{platformName}}</a>.{{/if}}</p>
+			{{#if integratedCarePhoneNumberFormatted}}
+				<p>If you are experiencing a medical or mental health emergency, or are concerned about your immediate safety or the safety of someone else, please call 911 or 988 immediately. {{platformName}} employees may also contact the EAP 24/7 Crisis Line at {{integratedCarePhoneNumberFormatted}}.</p>
+			{{/if}}
+			<p>Warmly, The {{platformName}} Team</p>
+		</td>
+	</tr>
+{{/partial}}
+
+{{> layouts/en/default}}

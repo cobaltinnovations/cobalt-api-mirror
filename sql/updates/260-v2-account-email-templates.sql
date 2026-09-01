@@ -18,7 +18,7 @@ WHERE institution_id = 'COBALT_COURSES';
 
 -- Production uses BEHAVIOR_BRIDGE; local development uses COBALT_COURSES.
 UPDATE institution
-SET platform_email_image_url = 'https://cdn-prod.cobalt.care/logos/dh-behavior-bridge-hero.png'
+SET platform_email_image_url = 'https://cdn-prod.cobalt.care/logos/behavior-bridge-email-logo.png'
 WHERE institution_id IN ('COBALT_COURSES', 'BEHAVIOR_BRIDGE');
 
 -- Populate missing institution colors from the Behavior Bridge web theme.

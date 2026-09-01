@@ -50,6 +50,8 @@ public class ScreeningAnswerOptionApiResponse {
 	private final Boolean freeformSupplement;
 	@Nullable
 	private final String freeformSupplementText;
+	@Nonnull
+	private final Boolean freeformSupplementTextRequired;
 	@Nullable
 	private final Boolean freeformSupplementTextAutoShow;
 	@Nullable
@@ -83,6 +85,7 @@ public class ScreeningAnswerOptionApiResponse {
 		this.answerOptionText = screeningAnswerOption.getAnswerOptionText();
 		this.freeformSupplement = screeningAnswerOption.getFreeformSupplement();
 		this.freeformSupplementText = screeningAnswerOption.getFreeformSupplementText();
+		this.freeformSupplementTextRequired = screeningAnswerOption.getFreeformSupplementTextRequired();
 		this.score = screeningAnswerOption.getScore();
 		this.scoreDescription = screeningAnswerOption.getScore() == null ? null : formatter.formatNumber(screeningAnswerOption.getScore());
 		this.displayOrder = screeningAnswerOption.getDisplayOrder();
@@ -114,6 +117,11 @@ public class ScreeningAnswerOptionApiResponse {
 	@Nonnull
 	public Optional<String> getFreeformSupplementText() {
 		return Optional.ofNullable(this.freeformSupplementText);
+	}
+
+	@Nonnull
+	public Boolean getFreeformSupplementTextRequired() {
+		return this.freeformSupplementTextRequired;
 	}
 
 	@Nonnull

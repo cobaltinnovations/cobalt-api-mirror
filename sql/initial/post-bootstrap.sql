@@ -5,7 +5,7 @@ BEGIN;
 UPDATE institution
 SET
   platform_name = 'Behavior Bridge',
-  platform_email_image_url = 'https://cdn-prod.cobalt.care/logos/dh-behavior-bridge-hero.png'
+  platform_email_image_url = 'https://cdn-prod.cobalt.care/logos/behavior-bridge-email-logo.png'
 WHERE institution_id = 'COBALT_COURSES';
 
 -- Match the shared COBALT_COURSES institution palette to the Behavior Bridge

@@ -43,7 +43,7 @@ public class V2EmailBrandingSqlContractTests {
 	@Nonnull
 	private static final Path POST_BOOTSTRAP_PATH = Paths.get("sql/initial/post-bootstrap.sql");
 	@Nonnull
-	private static final String PLATFORM_EMAIL_IMAGE_URL = "https://cdn-prod.cobalt.care/logos/dh-behavior-bridge-hero.png";
+	private static final String PLATFORM_EMAIL_IMAGE_URL = "https://cdn-prod.cobalt.care/logos/behavior-bridge-email-logo.png";
 
 	@Test
 	public void migrationScopesBehaviorBridgeBrandingData() throws IOException {

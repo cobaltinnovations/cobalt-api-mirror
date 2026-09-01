@@ -75,7 +75,8 @@ public class MessageServiceTests {
 
 			Map<String, Object> metadataFromJson = new Gson().fromJson(scheduledMessage.getMetadata(), Map.class);
 
-			Assert.assertEquals(metadataFromJson.get("exampleId").toString(), metadata.get("exampleId").toString(), "Metadatas differ");
+			Assert.assertEquals("Metadatas differ", metadata.get("exampleId").toString(),
+					metadataFromJson.get("exampleId").toString());
 
 			boolean canceled = messageService.cancelScheduledMessage(scheduledMessageId);
 
@@ -122,7 +123,8 @@ public class MessageServiceTests {
 			ScheduledMessage scheduledMessage = scheduledMessages.get(0);
 			Map<String, Object> metadataFromJson = new Gson().fromJson(scheduledMessage.getMetadata(), Map.class);
 
-			Assert.assertEquals(metadataFromJson.get("exampleId").toString(), metadata1.get("exampleId").toString(), "Metadatas differ");
+			Assert.assertEquals("Metadatas differ", metadata1.get("exampleId").toString(),
+					metadataFromJson.get("exampleId").toString());
 		});
 	}
 
@@ -130,7 +132,6 @@ public class MessageServiceTests {
 	public void testScheduledSending() {
 		IntegrationTestExecutor.runTransactionallyAndForceRollback((app) -> {
 			MessageService messageService = app.getInjector().getInstance(MessageService.class);
-			Database database = app.getInjector().getInstance(DatabaseProvider.class).getWritableMasterDatabase();
 
 			// Schedule it for "now" so it will be sent immediately
 			ZoneId timeZone = ZoneId.systemDefault();
@@ -142,11 +143,8 @@ public class MessageServiceTests {
 				setTimeZone(timeZone);
 			}});
 
-			// Force a commit here so the scheduled message sender task will be able to see it
-			database.execute("COMMIT");
-
-			// Wait for the scheduled message sender to notice the message and send it
-			Thread.sleep(3000L);
+			// Run the scheduler in the fixture transaction so all generated records roll back with the test.
+			messageService.getScheduledMessageTaskProvider().get().processPendingScheduledMessages();
 
 			ScheduledMessage scheduledMessage = messageService.findScheduledMessageById(scheduledMessageId).get();
 
@@ -159,7 +157,6 @@ public class MessageServiceTests {
 	public void testScheduledSendingTimeZones() {
 		IntegrationTestExecutor.runTransactionallyAndForceRollback((app) -> {
 			MessageService messageService = app.getInjector().getInstance(MessageService.class);
-			Database database = app.getInjector().getInstance(DatabaseProvider.class).getWritableMasterDatabase();
 
 			// Schedule it for "now" so it will be sent immediately
 			ZoneId timeZone = ZoneId.of("America/New_York");
@@ -171,11 +168,8 @@ public class MessageServiceTests {
 				setTimeZone(timeZone);
 			}});
 
-			// Force a commit here so the scheduled message sender task will be able to see it
-			database.execute("COMMIT");
-
-			// Wait for the scheduled message sender to notice the message and send it
-			Thread.sleep(3000L);
+			// Run the scheduler in the fixture transaction so all generated records roll back with the test.
+			messageService.getScheduledMessageTaskProvider().get().processPendingScheduledMessages();
 
 			ScheduledMessage scheduledMessage = messageService.findScheduledMessageById(scheduledMessageId).get();
 
@@ -203,11 +197,8 @@ public class MessageServiceTests {
 			// Put junk into the serialized message field which will cause the scheduled send to fail
 			database.execute("UPDATE scheduled_message SET serialized_message='{\"junk\": true}'::jsonb WHERE scheduled_message_id=?", scheduledMessageId);
 
-			// Force a commit here so the scheduled message sender task will be able to see it
-			database.execute("COMMIT");
-
-			// Wait for the scheduled message sender to notice the message and send it
-			Thread.sleep(3000L);
+			// Run the scheduler in the fixture transaction so all generated records roll back with the test.
+			messageService.getScheduledMessageTaskProvider().get().processPendingScheduledMessages();
 
 			ScheduledMessage scheduledMessage = messageService.findScheduledMessageById(scheduledMessageId).get();
 
