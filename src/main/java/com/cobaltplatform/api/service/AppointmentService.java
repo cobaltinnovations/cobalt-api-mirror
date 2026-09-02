@@ -3878,36 +3878,40 @@ public class AppointmentService {
 			videoconferenceUrl = null;
 			String okToLeaveVoicemail = "No";
 
-			// Temporary hack: pull out the assessment answers for HA...
-			try {
-				List<Question> questions = getAssessmentService().findQuestionsForAssessmentId(intakeSession.getAssessmentId());
-				List<Answer> answers = getSessionService().findAnswersForSession(intakeSession);
-				List<AccountSessionAnswer> accountSessionAnswers = getSessionService().findAccountSessionAnswersForAccountSessionId(intakeSession.getAccountSessionId());
-				Map<UUID, Question> questionsByQuestionId = new HashMap<>(questions.size());
+			// Temporary hack: pull out the assessment answers for HA. Booking V2 uses
+			// screening sessions instead of legacy intake sessions, so a missing legacy
+			// session is expected and the request contact data above remains the fallback.
+			if (intakeSession != null) {
+				try {
+					List<Question> questions = getAssessmentService().findQuestionsForAssessmentId(intakeSession.getAssessmentId());
+					List<Answer> answers = getSessionService().findAnswersForSession(intakeSession);
+					List<AccountSessionAnswer> accountSessionAnswers = getSessionService().findAccountSessionAnswersForAccountSessionId(intakeSession.getAccountSessionId());
+					Map<UUID, Question> questionsByQuestionId = new HashMap<>(questions.size());
 
-				for (Question question : questions)
-					questionsByQuestionId.put(question.getQuestionId(), question);
+					for (Question question : questions)
+						questionsByQuestionId.put(question.getQuestionId(), question);
 
-				List<String> finalAnswers = new ArrayList<>(answers.size());
+					List<String> finalAnswers = new ArrayList<>(answers.size());
 
-				for (int i = 0; i < answers.size(); ++i) {
-					Answer answer = answers.get(i);
-					AccountSessionAnswer accountSessionAnswer = accountSessionAnswers.get(i);
-					Question question = questionsByQuestionId.get(answer.getQuestionId());
-					String finalAnswer = question.getQuestionTypeId().isFreeform() ? accountSessionAnswer.getAnswerText() : answer.getAnswerText();
+					for (int i = 0; i < answers.size(); ++i) {
+						Answer answer = answers.get(i);
+						AccountSessionAnswer accountSessionAnswer = accountSessionAnswers.get(i);
+						Question question = questionsByQuestionId.get(answer.getQuestionId());
+						String finalAnswer = question.getQuestionTypeId().isFreeform() ? accountSessionAnswer.getAnswerText() : answer.getAnswerText();
 
-					finalAnswers.add(finalAnswer);
+						finalAnswers.add(finalAnswer);
+					}
+
+					// ...and we know the name is at index 3, so include in email
+					// TODO: this should be cleaned up, it will error out if the HA intake assessment changes so name/number is in a different spot
+					name = finalAnswers.get(3);
+					phoneNumber = finalAnswers.get(4);
+					phoneNumber = getFormatter().formatPhoneNumber(phoneNumber, account.getLocale());
+					okToLeaveVoicemail = finalAnswers.get(5);
+				} catch (Exception e) {
+					getLogger().warn("Unable to pull data from Health Advocate intake, continuing on...", e);
+					getErrorReporter().report(e);
 				}
-
-				// ...and we know the name is at index 3, so include in email
-				// TODO: this should be cleaned up, it will error out if the HA intake assessment changes so name/number is in a different spot
-				name = finalAnswers.get(3);
-				phoneNumber = finalAnswers.get(4);
-				phoneNumber = getFormatter().formatPhoneNumber(phoneNumber, account.getLocale());
-				okToLeaveVoicemail = finalAnswers.get(5);
-			} catch (Exception e) {
-				getLogger().warn("Unable to pull data from Health Advocate intake, continuing on...", e);
-				getErrorReporter().report(e);
 			}
 
 			intakeAssessmentAnswerString = format("Name: %s, Phone Number: %s, OK to leave voicemail? %s", name, phoneNumber, okToLeaveVoicemail);

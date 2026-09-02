@@ -20,6 +20,8 @@
 package com.cobaltplatform.api.service;
 
 import com.cobaltplatform.api.IntegrationTestExecutor;
+import com.cobaltplatform.api.error.ConsoleErrorReporter;
+import com.cobaltplatform.api.error.ErrorReporter;
 import com.cobaltplatform.api.integration.acuity.AcuitySchedulingClient;
 import com.cobaltplatform.api.integration.acuity.MockAcuitySchedulingClient;
 import com.cobaltplatform.api.integration.acuity.model.AcuityAppointment;
@@ -79,6 +81,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -1101,6 +1104,45 @@ public class AppointmentServiceTests {
 			@Override
 			protected void configure() {
 				bind(AcuitySchedulingClient.class).toInstance(acuitySchedulingClient);
+			}
+		});
+	}
+
+	@Test
+	public void createAppointmentDoesNotReportMissingLegacyIntakeForTelephoneProvider() {
+		RecordingAcuitySchedulingClient acuitySchedulingClient = new RecordingAcuitySchedulingClient();
+		RecordingErrorReporter errorReporter = new RecordingErrorReporter();
+
+		IntegrationTestExecutor.runTransactionallyAndForceRollback((app) -> {
+			AppointmentService appointmentService = app.getInjector().getInstance(AppointmentService.class);
+			AccountService accountService = app.getInjector().getInstance(AccountService.class);
+			Database database = app.getInjector().getInstance(DatabaseProvider.class).getWritableMasterDatabase();
+			AcuityAppointmentTestData testData = createAcuityAppointmentTestData(accountService, database, acuitySchedulingClient);
+
+			database.execute("""
+					UPDATE provider
+					SET videoconference_platform_id=?,
+					    phone_number=?
+					WHERE provider_id=?
+					""", VideoconferencePlatformId.TELEPHONE, "+12155551000", testData.getProviderId());
+
+			errorReporter.clearReportedThrowables();
+			CreateAppointmentRequest request = requestForAcuityAppointment(testData);
+			request.setAppointmentModalityId(ProviderAppointmentModalityId.PHONE);
+
+			UUID appointmentId = appointmentService.createAppointment(request);
+
+			assertNotNull(appointmentId);
+			assertNotNull(acuitySchedulingClient.getLastCreateAppointmentRequest());
+			assertTrue(errorReporter.getReportedThrowables().isEmpty());
+			Appointment appointment = appointmentService.findAppointmentById(appointmentId).get();
+			assertEquals(VideoconferencePlatformId.TELEPHONE, appointment.getVideoconferencePlatformId());
+			assertEquals("+12155551000", appointment.getPhoneNumber());
+		}, new AbstractModule() {
+			@Override
+			protected void configure() {
+				bind(AcuitySchedulingClient.class).toInstance(acuitySchedulingClient);
+				bind(ErrorReporter.class).toInstance(errorReporter);
 			}
 		});
 	}
@@ -2262,6 +2304,26 @@ public class AppointmentServiceTests {
 		@Nullable
 		public AcuityAppointmentCreateRequest getLastCreateAppointmentRequest() {
 			return this.lastCreateAppointmentRequest;
+		}
+	}
+
+	@ThreadSafe
+	public static class RecordingErrorReporter extends ConsoleErrorReporter {
+		@Nonnull
+		private final List<Throwable> reportedThrowables = new CopyOnWriteArrayList<>();
+
+		@Override
+		protected void reportNormalizedThrowable(@Nonnull Throwable throwable) {
+			reportedThrowables.add(throwable);
+		}
+
+		public void clearReportedThrowables() {
+			reportedThrowables.clear();
+		}
+
+		@Nonnull
+		public List<Throwable> getReportedThrowables() {
+			return List.copyOf(reportedThrowables);
 		}
 	}
 }
