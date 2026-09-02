@@ -378,15 +378,16 @@ public class ProviderSearchResultApiResponse {
 		requireNonNull(availableAppointments);
 		requireNonNull(appointmentTypesById);
 
-		// A provider configured as telephone-only must never become online-bookable merely because its
-		// public phone is missing. Clients render an unavailable state when this contract has no number.
-		if (appointmentByPhoneFor(providerFinds, providersById))
-			return ProviderAppointmentSelectionTypeId.APPOINTMENT_BY_PHONE;
+		// Telephone describes the appointment modality, not necessarily how the appointment is booked.
+		// Prefer valid online availability when it exists and use phone booking only as a fallback.
+		if (availableAppointments.size() == 0) {
+			if (appointmentByPhoneFor(providerFinds, providersById))
+				return ProviderAppointmentSelectionTypeId.APPOINTMENT_BY_PHONE;
 
-		if (availableAppointments.size() == 0)
 			return phoneFallbackAvailable
 					? ProviderAppointmentSelectionTypeId.APPOINTMENT_BY_PHONE
 					: ProviderAppointmentSelectionTypeId.APPOINTMENT_UNDETERMINED;
+		}
 
 		Set<UUID> appointmentTypeIds = distinctAppointmentTypeIdsForAvailableAppointments(availableAppointments);
 
