@@ -241,6 +241,56 @@ public class ProviderSearchResultApiResponseTests {
 	}
 
 	@Test
+	public void telephoneProviderWithKnownAvailabilityUsesOnlineAppointmentSelection() {
+		UUID providerId = UUID.randomUUID();
+		UUID appointmentTypeId = UUID.randomUUID();
+		Provider provider = provider(providerId, VideoconferencePlatformId.TELEPHONE);
+		ProviderFind providerFind = providerFind(providerId, Set.of(appointmentTypeId));
+
+		ProviderAppointmentSelectionTypeId appointmentSelectionTypeId =
+				ProviderSearchResultApiResponse.appointmentSelectionTypeIdFor(List.of(providerFind),
+						Map.of(providerId, provider), List.of(availableAppointment(provider, List.of(appointmentTypeId))),
+						Map.of(appointmentTypeId, appointmentType(appointmentTypeId, null)));
+
+		assertEquals(ProviderAppointmentSelectionTypeId.APPOINTMENT_PREDETERMINED, appointmentSelectionTypeId);
+	}
+
+	@Test
+	public void telephoneProviderResponsePreservesOnlineAvailabilityWithoutBookingPhone() {
+		UUID providerId = UUID.randomUUID();
+		UUID appointmentTypeId = UUID.randomUUID();
+		Provider provider = provider(providerId, VideoconferencePlatformId.TELEPHONE);
+		ProviderFind providerFind = providerFind(providerId, Set.of(appointmentTypeId));
+		AvailabilityDate availabilityDate = new AvailabilityDate();
+		AvailabilityTime firstAvailabilityTime = new AvailabilityTime();
+		AvailabilityTime secondAvailabilityTime = new AvailabilityTime();
+
+		availabilityDate.setDate(LocalDate.of(2026, 9, 7));
+		firstAvailabilityTime.setTime(LocalTime.of(10, 0));
+		firstAvailabilityTime.setStatus(AvailabilityStatus.AVAILABLE);
+		firstAvailabilityTime.setAppointmentTypeIds(List.of(appointmentTypeId));
+		secondAvailabilityTime.setTime(LocalTime.of(11, 0));
+		secondAvailabilityTime.setStatus(AvailabilityStatus.AVAILABLE);
+		secondAvailabilityTime.setAppointmentTypeIds(List.of(appointmentTypeId));
+		availabilityDate.setTimes(List.of(firstAvailabilityTime, secondAvailabilityTime));
+		providerFind.setDates(List.of(availabilityDate));
+
+		ProviderSearchResult providerSearchResult = ProviderSearchResult.forProvider(provider, providerFind,
+				Map.of(appointmentTypeId, appointmentType(appointmentTypeId, null)), Set.of());
+		ProviderSearchResultApiResponse response = new ProviderSearchResultApiResponse(formatter(), strings(),
+				providerSearchResult);
+
+		assertEquals(ProviderAppointmentSelectionTypeId.APPOINTMENT_PREDETERMINED,
+				response.getAppointmentSelectionTypeId());
+		assertSupportedAppointmentModalities(response, List.of(ProviderAppointmentModalityId.PHONE));
+		assertNull(response.getPhoneNumber());
+		assertNotNull(response.getFirstAvailableAppointment());
+		assertEquals(LocalDate.of(2026, 9, 7), response.getFirstAvailableAppointment().getDate());
+		assertEquals(LocalTime.of(10, 0), response.getFirstAvailableAppointment().getTime());
+		assertEquals(true, response.getHasMoreAppointments());
+	}
+
+	@Test
 	public void appointmentSelectionTypeAggregatesClinicSlotAppointmentTypeIds() {
 		UUID firstProviderId = UUID.randomUUID();
 		UUID secondProviderId = UUID.randomUUID();
