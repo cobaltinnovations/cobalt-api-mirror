@@ -80,6 +80,7 @@ import com.cobaltplatform.api.model.service.ProviderFind;
 import com.cobaltplatform.api.model.service.ProviderFind.AvailabilityDate;
 import com.cobaltplatform.api.model.service.ProviderFind.AvailabilityStatus;
 import com.cobaltplatform.api.model.service.ProviderFind.AvailabilityTime;
+import com.cobaltplatform.api.model.service.ProviderReferralBooking;
 import com.cobaltplatform.api.service.AppointmentService;
 import com.cobaltplatform.api.service.AssessmentScoringService;
 import com.cobaltplatform.api.service.AssessmentService;
@@ -1054,9 +1055,11 @@ public class ProviderResource {
 		Boolean bookingV2Enabled = bookingV2EnabledPreloaded
 				? getInstitutionService().isBookingV2Enabled(institutionIds.iterator().next())
 				: null;
+		Map<UUID, ProviderReferralBooking> referralBookingsByProviderId =
+				getProviderService().findProviderReferralBookingsByProviderIds(providerIds);
 
 		return new ProviderApiResponseBatchContext(providerLocationsByProviderId, addressesByAddressId, true, true,
-				bookingV2Enabled, bookingV2EnabledPreloaded);
+				bookingV2Enabled, bookingV2EnabledPreloaded, referralBookingsByProviderId, true);
 	}
 
 	@Nonnull
@@ -1457,8 +1460,9 @@ public class ProviderResource {
 
 		ProviderApiResponseBatchContext batchContext = providerApiResponseBatchContextFor(List.of(provider));
 		boolean bookingV2Enabled = getInstitutionService().isBookingV2Enabled(account.getInstitutionId());
+		boolean referralBooking = batchContext.getReferralBookingByProviderId(provider.getProviderId()) != null;
 
-		if (bookingV2Enabled) {
+		if (bookingV2Enabled && !referralBooking) {
 			Map<UUID, AppointmentType> appointmentTypesById = appointmentTypesByIdFor(account);
 			ProviderFind providerFind = getProviderService().findProviders(providerFindRequestForBookingContext(account, provider.getProviderId(), null), account, false)
 					.stream()

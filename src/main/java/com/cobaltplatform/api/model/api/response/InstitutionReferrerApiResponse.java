@@ -21,6 +21,7 @@ package com.cobaltplatform.api.model.api.response;
 
 import com.cobaltplatform.api.model.db.Institution.InstitutionId;
 import com.cobaltplatform.api.model.db.InstitutionReferrer;
+import com.cobaltplatform.api.service.ProviderService;
 import com.cobaltplatform.api.util.Formatter;
 import com.google.inject.assistedinject.Assisted;
 import com.google.inject.assistedinject.AssistedInject;
@@ -64,6 +65,8 @@ public class InstitutionReferrerApiResponse {
 	private final String ctaDescription; // CTA to be displayed on the institution referrer page.  Can include HTML
 	@Nonnull
 	private final Map<String, Object> metadata;
+	@Nullable
+	private final UUID providerId;
 
 	// Note: requires FactoryModuleBuilder entry in AppModule
 	@ThreadSafe
@@ -74,10 +77,12 @@ public class InstitutionReferrerApiResponse {
 
 	@AssistedInject
 	public InstitutionReferrerApiResponse(@Nonnull Formatter formatter,
-																				@Nonnull Strings strings,
-																				@Assisted @Nonnull InstitutionReferrer institutionReferrer) {
+																@Nonnull Strings strings,
+																@Nonnull ProviderService providerService,
+																@Assisted @Nonnull InstitutionReferrer institutionReferrer) {
 		requireNonNull(formatter);
 		requireNonNull(strings);
+		requireNonNull(providerService);
 		requireNonNull(institutionReferrer);
 
 		this.institutionReferrerId = institutionReferrer.getInstitutionReferrerId();
@@ -91,6 +96,7 @@ public class InstitutionReferrerApiResponse {
 		this.ctaTitle = institutionReferrer.getCtaTitle();
 		this.ctaDescription = institutionReferrer.getCtaDescription();
 		this.metadata = Collections.unmodifiableMap(new HashMap<>(institutionReferrer.getMetadata()));
+		this.providerId = providerService.findProviderIdByInstitutionReferrerId(institutionReferrer.getInstitutionReferrerId()).orElse(null);
 	}
 
 	@Nonnull
@@ -146,5 +152,10 @@ public class InstitutionReferrerApiResponse {
 	@Nonnull
 	public Map<String, Object> getMetadata() {
 		return this.metadata;
+	}
+
+	@Nonnull
+	public Optional<UUID> getProviderId() {
+		return Optional.ofNullable(this.providerId);
 	}
 }

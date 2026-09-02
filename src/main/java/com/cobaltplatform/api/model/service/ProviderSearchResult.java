@@ -52,6 +52,8 @@ public class ProviderSearchResult {
 	@Nullable
 	private final ProviderFind providerFind;
 	@Nullable
+	private final ProviderReferralBooking referralBooking;
+	@Nullable
 	private final Clinic clinic;
 	@Nonnull
 	private final List<ProviderFind> providerFinds;
@@ -76,16 +78,25 @@ public class ProviderSearchResult {
 
 	@Nonnull
 	public static ProviderSearchResult forProvider(@Nonnull Provider provider,
-																									 @Nonnull ProviderFind providerFind,
-																									 @Nonnull Map<UUID, AppointmentType> appointmentTypesById,
-																									 @Nonnull Set<AppointmentBookingScreeningKey> completedAppointmentBookingScreeningKeys) {
+																	 @Nonnull ProviderFind providerFind,
+																	 @Nonnull Map<UUID, AppointmentType> appointmentTypesById,
+																	 @Nonnull Set<AppointmentBookingScreeningKey> completedAppointmentBookingScreeningKeys) {
+		return forProvider(provider, providerFind, appointmentTypesById, completedAppointmentBookingScreeningKeys, null);
+	}
+
+	@Nonnull
+	public static ProviderSearchResult forProvider(@Nonnull Provider provider,
+																	 @Nonnull ProviderFind providerFind,
+																	 @Nonnull Map<UUID, AppointmentType> appointmentTypesById,
+																	 @Nonnull Set<AppointmentBookingScreeningKey> completedAppointmentBookingScreeningKeys,
+																	 @Nullable ProviderReferralBooking referralBooking) {
 		requireNonNull(provider);
 		requireNonNull(providerFind);
 		requireNonNull(appointmentTypesById);
 		requireNonNull(completedAppointmentBookingScreeningKeys);
 
 		return new ProviderSearchResult(ProviderSearchResultTypeId.PROVIDER, requireNonNull(provider.getProviderId()),
-				AppointmentBookingLevelId.PROVIDER, providerFind.getName(), provider, providerFind, null, List.of(providerFind), Map.of(provider.getProviderId(), provider),
+				AppointmentBookingLevelId.PROVIDER, providerFind.getName(), provider, providerFind, referralBooking, null, List.of(providerFind), Map.of(provider.getProviderId(), provider),
 				appointmentTypesById, Set.copyOf(completedAppointmentBookingScreeningKeys));
 	}
 
@@ -110,7 +121,7 @@ public class ProviderSearchResult {
 		requireNonNull(completedAppointmentBookingScreeningKeys);
 
 		return new ProviderSearchResult(ProviderSearchResultTypeId.CLINIC, requireNonNull(clinic.getClinicId()),
-				clinic.getAppointmentBookingLevelId(), clinic.getDescription(), null, null, clinic, List.copyOf(providerFinds), providersById, appointmentTypesById,
+				clinic.getAppointmentBookingLevelId(), clinic.getDescription(), null, null, null, clinic, List.copyOf(providerFinds), providersById, appointmentTypesById,
 				Set.copyOf(completedAppointmentBookingScreeningKeys));
 	}
 
@@ -120,6 +131,7 @@ public class ProviderSearchResult {
 																 @Nullable String name,
 																 @Nullable Provider provider,
 																 @Nullable ProviderFind providerFind,
+																 @Nullable ProviderReferralBooking referralBooking,
 																 @Nullable Clinic clinic,
 																 @Nonnull List<ProviderFind> providerFinds,
 																 @Nonnull Map<UUID, Provider> providersById,
@@ -138,6 +150,7 @@ public class ProviderSearchResult {
 		this.name = name;
 		this.provider = provider;
 		this.providerFind = providerFind;
+		this.referralBooking = referralBooking;
 		this.clinic = clinic;
 		this.providerFinds = providerFinds;
 		this.providersById = providersById;
@@ -173,6 +186,11 @@ public class ProviderSearchResult {
 	@Nullable
 	public ProviderFind getProviderFind() {
 		return providerFind;
+	}
+
+	@Nullable
+	public ProviderReferralBooking getReferralBooking() {
+		return this.referralBooking;
 	}
 
 	@Nullable

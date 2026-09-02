@@ -283,5 +283,6 @@ PGPASSWORD=password psql -U cobalt -h localhost -p 5501 < local/261-cobalt-provi
 PGPASSWORD=password psql -U cobalt -h localhost -p 5501 < local/262-provider-booking-seed.sql
 PGPASSWORD=password psql -U cobalt -h localhost -p 5501 < updates/262-care-navigator.sql
 PGPASSWORD=password psql -U cobalt -h localhost -p 5501 < updates/263-care-navigator-screening.sql
+PGPASSWORD=password psql -U cobalt -h localhost -p 5501 < updates/264-provider-institution-referrer.sql
 PGPASSWORD=password psql -U cobalt -h localhost -p 5501 < local/263-care-navigator-seed.sql
 PGPASSWORD=password psql -U cobalt -h localhost -p 5501 < local/264-cobalt-employer-onboarding.sql

@@ -35,6 +35,7 @@ import com.cobaltplatform.api.model.service.ProviderFind;
 import com.cobaltplatform.api.model.service.ProviderFind.AvailabilityDate;
 import com.cobaltplatform.api.model.service.ProviderFind.AvailabilityStatus;
 import com.cobaltplatform.api.model.service.ProviderFind.AvailabilityTime;
+import com.cobaltplatform.api.model.service.ProviderReferralBooking;
 import com.cobaltplatform.api.model.service.ProviderSearchResult;
 import com.cobaltplatform.api.model.service.ProviderSearchScreeningRequirement;
 import com.cobaltplatform.api.util.Formatter;
@@ -136,6 +137,35 @@ public class ProviderSearchResultApiResponseTests {
 
 		assertEquals(1, response.getSupportedAppointmentModalities().size());
 		assertEquals(ProviderAppointmentModalityId.PHONE, response.getSupportedAppointmentModalities().get(0).getAppointmentModalityId());
+	}
+
+	@Test
+	public void referralBackedResponseExposesReferralActionAndExplicitModalityWithoutAvailability() {
+		UUID providerId = UUID.randomUUID();
+		UUID institutionReferrerId = UUID.randomUUID();
+		UUID intakeScreeningFlowId = UUID.randomUUID();
+		Provider provider = provider(providerId, VideoconferencePlatformId.SWITCHBOARD);
+		ProviderFind providerFind = providerFind(providerId, null);
+		ProviderReferralBooking referralBooking = new ProviderReferralBooking();
+		referralBooking.setProviderId(providerId);
+		referralBooking.setInstitutionReferrerId(institutionReferrerId);
+		referralBooking.setUrlName("team-clinic-pilot");
+		referralBooking.setIntakeScreeningFlowId(intakeScreeningFlowId);
+		referralBooking.setAppointmentModalityId(ProviderAppointmentModalityId.IN_PERSON);
+		ProviderSearchResult providerSearchResult = ProviderSearchResult.forProvider(provider, providerFind, Map.of(),
+				Set.of(), referralBooking);
+
+		ProviderSearchResultApiResponse response = new ProviderSearchResultApiResponse(formatter(), strings(), providerSearchResult);
+
+		assertNotNull(response.getReferralBooking());
+		assertEquals(institutionReferrerId, response.getReferralBooking().getInstitutionReferrerId());
+		assertEquals("team-clinic-pilot", response.getReferralBooking().getUrlName());
+		assertEquals(intakeScreeningFlowId, response.getReferralBooking().getIntakeScreeningFlowId());
+		assertSupportedAppointmentModalities(response, List.of(ProviderAppointmentModalityId.IN_PERSON));
+		assertNull(response.getAppointmentSelectionTypeId());
+		assertNull(response.getFirstAvailableAppointment());
+		assertNull(response.getScreeningRequirement());
+		assertEquals(false, response.getHasMoreAppointments());
 	}
 
 	@Test

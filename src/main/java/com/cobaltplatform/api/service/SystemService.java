@@ -529,7 +529,7 @@ public class SystemService {
 			providerAvailabilitySyncManager = getAcuitySyncManager();
 
 		if (providerAvailabilitySyncManager == null) {
-			getLogger().info("Provider {} uses {} for calendaring, no need to sync.", provider.getName(), provider.getSchedulingSystemId().name());
+			getLogger().info("Provider {} uses {} for calendaring, no need to sync.", provider.getName(), provider.getSchedulingSystemId());
 			return;
 		}
 
