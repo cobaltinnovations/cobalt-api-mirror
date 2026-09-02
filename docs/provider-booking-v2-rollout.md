@@ -11,13 +11,16 @@ Apply the production patches in this order:
 1. `sql/updates/261-provider-booking-database.sql`
 2. `sql/updates/262-care-navigator.sql`
 3. `sql/updates/263-care-navigator-screening.sql`
+4. `sql/updates/264-provider-institution-referrer.sql`
 
 Both Care Navigator patches must be applied before deploying an application
 build that exposes Care Navigator APIs. The first installs the shared encounter
 schema and baseline behavior. The second installs the canonical intake and
 attaches it to the configured COBALT Care Navigator provider's appointment
-types. Provider, staff mapping, appointment type, and availability provisioning
-remain tenant-specific.
+types. The provider-referrer patch must be applied before deploying an
+application build that exposes referral-backed provider profiles. Provider,
+staff mapping, appointment type, and availability provisioning remain
+tenant-specific.
 
 Never apply any of these local fixture patches to a production database:
 
@@ -139,7 +142,7 @@ AND NOT EXISTS (
 
 1. Restore a recent production snapshot into a non-production environment.
 2. Run the preflight checks above.
-3. Apply all three production patches listed above in the documented order.
+3. Apply all four production patches listed above in the documented order.
 4. Record migration duration and lock time for the `appointment` table.
 5. Verify that `booking_v2_enabled` remains `FALSE` for every institution.
 6. Run the API test suite and exercise V1 provider search before promoting the

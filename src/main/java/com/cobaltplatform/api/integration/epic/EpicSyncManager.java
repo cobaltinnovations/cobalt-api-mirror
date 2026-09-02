@@ -740,7 +740,7 @@ public class EpicSyncManager implements ProviderAvailabilitySyncManager, AutoClo
 				getCurrentContextExecutor().execute(currentContext, () -> {
 					// Pick out all EPIC-scheduled providers
 					List<Provider> providers = getProviderService().findProvidersByInstitutionId(institution.getInstitutionId()).stream()
-							.filter(provider -> provider.getSchedulingSystemId().equals(SchedulingSystemId.EPIC))
+							.filter(provider -> provider.getSchedulingSystemId() == SchedulingSystemId.EPIC)
 							.collect(Collectors.toList());
 
 					EpicClient epicClient = getEnterprisePluginProvider().enterprisePluginForInstitutionId(institution.getInstitutionId()).epicClientForBackendService().get();

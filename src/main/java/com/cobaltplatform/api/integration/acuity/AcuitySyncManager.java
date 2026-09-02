@@ -424,7 +424,7 @@ public class AcuitySyncManager implements ProviderAvailabilitySyncManager, AutoC
 			getCurrentContextExecutor().execute(currentContext, () -> {
 				// Pick out all Acuity-scheduled providers
 				List<Provider> providers = getProviderService().findProvidersByInstitutionId(InstitutionId.COBALT).stream()
-						.filter(provider -> provider.getSchedulingSystemId().equals(SchedulingSystemId.ACUITY) && provider.getActive())
+						.filter(provider -> provider.getSchedulingSystemId() == SchedulingSystemId.ACUITY && provider.getActive())
 						.collect(Collectors.toList());
 
 				// This is nuts, but Acuity has some weird undocumented syncing limits...shuffle so each sync can get a different random ordering

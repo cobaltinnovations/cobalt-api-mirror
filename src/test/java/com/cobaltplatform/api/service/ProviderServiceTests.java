@@ -43,6 +43,7 @@ import com.cobaltplatform.api.model.service.ProviderFind;
 import com.cobaltplatform.api.model.service.ProviderFind.AvailabilityDate;
 import com.cobaltplatform.api.model.service.ProviderFind.AvailabilityStatus;
 import com.cobaltplatform.api.model.service.ProviderFind.AvailabilityTime;
+import com.cobaltplatform.api.model.service.ProviderReferralBooking;
 import com.cobaltplatform.api.model.service.ProviderSearchResult;
 import com.cobaltplatform.api.model.service.ProviderSearchResult.ProviderSearchResultTypeId;
 import com.cobaltplatform.api.model.service.ProviderSearchScreeningRequirement;
@@ -433,6 +434,31 @@ public class ProviderServiceTests {
 	}
 
 	@Test
+	public void providerSearchResultsIncludeReferralBackedProviderWithoutAvailabilityOrPhoneFallback() {
+		UUID providerId = UUID.fromString("00000000-0000-0000-0000-000000000035");
+		UUID institutionReferrerId = UUID.fromString("00000000-0000-0000-0000-000000000045");
+		UUID intakeScreeningFlowId = UUID.fromString("00000000-0000-0000-0000-000000000055");
+		Provider provider = provider(providerId, "Referral Provider");
+		ProviderFind providerFind = providerFind(providerId, "Referral Provider");
+		ProviderReferralBooking referralBooking = providerReferralBooking(providerId, institutionReferrerId,
+				intakeScreeningFlowId, ProviderAppointmentModalityId.IN_PERSON);
+
+		List<ProviderSearchResult> providerSearchResults = ProviderService.providerSearchResultsFor(
+				List.of(providerFind),
+				Map.of(providerId, provider),
+				Map.of(providerId, List.of(clinic(UUID.randomUUID(), "Ordinary Clinic", AppointmentBookingLevelId.CLINIC))),
+				Map.of(),
+				Set.of(),
+				Map.of(providerId, referralBooking));
+
+		assertEquals(1, providerSearchResults.size());
+		ProviderSearchResult providerSearchResult = providerSearchResults.get(0);
+		assertEquals(ProviderSearchResultTypeId.PROVIDER, providerSearchResult.getProviderSearchResultTypeId());
+		assertEquals(providerId, providerSearchResult.getProviderSearchResultId());
+		assertEquals(referralBooking, providerSearchResult.getReferralBooking());
+	}
+
+	@Test
 	public void providerSearchResultsIncludeProviderWithAvailableOnlineSlotWithoutPhoneFallback() {
 		UUID providerId = UUID.fromString("00000000-0000-0000-0000-000000000033");
 		UUID appointmentTypeId = UUID.fromString("00000000-0000-0000-0000-000000000043");
@@ -632,6 +658,20 @@ public class ProviderServiceTests {
 		providerFind.setDates(List.of(availabilityDate));
 
 		return providerFind;
+	}
+
+	@Nonnull
+	protected ProviderReferralBooking providerReferralBooking(@Nonnull UUID providerId,
+																								 @Nonnull UUID institutionReferrerId,
+																								 @Nullable UUID intakeScreeningFlowId,
+																								 @Nonnull ProviderAppointmentModalityId appointmentModalityId) {
+		ProviderReferralBooking referralBooking = new ProviderReferralBooking();
+		referralBooking.setProviderId(providerId);
+		referralBooking.setInstitutionReferrerId(institutionReferrerId);
+		referralBooking.setUrlName("referral-provider");
+		referralBooking.setIntakeScreeningFlowId(intakeScreeningFlowId);
+		referralBooking.setAppointmentModalityId(appointmentModalityId);
+		return referralBooking;
 	}
 
 	@Nonnull

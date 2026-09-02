@@ -48,6 +48,7 @@ import com.cobaltplatform.api.model.db.Feature.FeatureId;
 import com.cobaltplatform.api.model.db.Holiday;
 import com.cobaltplatform.api.model.db.Holiday.HolidayId;
 import com.cobaltplatform.api.model.db.Institution;
+import com.cobaltplatform.api.model.db.InstitutionFeatureInstitutionReferrer;
 import com.cobaltplatform.api.model.db.Institution.InstitutionId;
 import com.cobaltplatform.api.model.db.InstitutionLocation;
 import com.cobaltplatform.api.model.db.Interaction;
@@ -76,6 +77,7 @@ import com.cobaltplatform.api.model.service.ProviderFind;
 import com.cobaltplatform.api.model.service.ProviderFind.AvailabilityDate;
 import com.cobaltplatform.api.model.service.ProviderFind.AvailabilityStatus;
 import com.cobaltplatform.api.model.service.ProviderFind.AvailabilityTime;
+import com.cobaltplatform.api.model.service.ProviderReferralBooking;
 import com.cobaltplatform.api.model.service.ProviderSearchResult;
 import com.cobaltplatform.api.util.BusinessHoursCalculator;
 import com.cobaltplatform.api.util.BusinessHoursCalculator.BusinessHours;
@@ -339,6 +341,76 @@ public class ProviderService {
 				WHERE provider_id = ANY (CAST(? AS UUID[]))
 				ORDER BY name, provider_id
 				""", Provider.class, (Object) providerIds.toArray(new UUID[0]));
+	}
+
+	@Nonnull
+	public Optional<ProviderReferralBooking> findProviderReferralBookingByProviderId(@Nullable UUID providerId) {
+		if (providerId == null)
+			return Optional.empty();
+
+		return getDatabase().queryForObject("""
+				SELECT pir.provider_id,
+				       pir.institution_referrer_id,
+				       pir.appointment_modality_id,
+				       ir.url_name,
+				       ir.intake_screening_flow_id
+				FROM provider_institution_referrer pir
+				JOIN institution_referrer ir
+				  ON ir.institution_referrer_id=pir.institution_referrer_id
+				WHERE pir.provider_id=?
+				""", ProviderReferralBooking.class, providerId);
+	}
+
+	@Nonnull
+	public Map<UUID, ProviderReferralBooking> findProviderReferralBookingsByProviderIds(@Nullable Set<UUID> providerIds) {
+		if (providerIds == null || providerIds.isEmpty())
+			return Map.of();
+
+		return getDatabase().queryForList("""
+				SELECT pir.provider_id,
+				       pir.institution_referrer_id,
+				       pir.appointment_modality_id,
+				       ir.url_name,
+				       ir.intake_screening_flow_id
+				FROM provider_institution_referrer pir
+				JOIN institution_referrer ir
+				  ON ir.institution_referrer_id=pir.institution_referrer_id
+				WHERE pir.provider_id = ANY (CAST(? AS UUID[]))
+				ORDER BY pir.provider_id
+				""", ProviderReferralBooking.class, (Object) providerIds.toArray(new UUID[0])).stream()
+				.collect(Collectors.toMap(ProviderReferralBooking::getProviderId, Function.identity()));
+	}
+
+	@Nonnull
+	public Map<UUID, ProviderReferralBooking> findProviderReferralBookingsByInstitutionReferrerIds(@Nullable Set<UUID> institutionReferrerIds) {
+		if (institutionReferrerIds == null || institutionReferrerIds.isEmpty())
+			return Map.of();
+
+		return getDatabase().queryForList("""
+				SELECT pir.provider_id,
+				       pir.institution_referrer_id,
+				       pir.appointment_modality_id,
+				       ir.url_name,
+				       ir.intake_screening_flow_id
+				FROM provider_institution_referrer pir
+				JOIN institution_referrer ir
+				  ON ir.institution_referrer_id=pir.institution_referrer_id
+				WHERE pir.institution_referrer_id = ANY (CAST(? AS UUID[]))
+				ORDER BY pir.provider_id
+				""", ProviderReferralBooking.class, (Object) institutionReferrerIds.toArray(new UUID[0])).stream()
+				.collect(Collectors.toMap(ProviderReferralBooking::getProviderId, Function.identity()));
+	}
+
+	@Nonnull
+	public Optional<UUID> findProviderIdByInstitutionReferrerId(@Nullable UUID institutionReferrerId) {
+		if (institutionReferrerId == null)
+			return Optional.empty();
+
+		return getDatabase().queryForObject("""
+				SELECT provider_id
+				FROM provider_institution_referrer
+				WHERE institution_referrer_id=?
+				""", UUID.class, institutionReferrerId);
 	}
 
 	@Nonnull
@@ -607,8 +679,17 @@ public class ProviderService {
 		requireNonNull(account);
 
 		List<SupportRoleId> supportRoleIds = getFeatureService().findSupportRoleByFeatureId(featureId);
+		List<InstitutionFeatureInstitutionReferrer> institutionFeatureInstitutionReferrers =
+				getInstitutionService().findInstitutionFeatureInstitutionReferrers(account.getInstitutionId(), featureId);
+		institutionFeatureInstitutionReferrers = getEnterprisePluginProvider()
+				.enterprisePluginForInstitutionId(account.getInstitutionId())
+				.applyCustomizationsToInstitutionFeatureInstitutionReferrers(institutionFeatureInstitutionReferrers, account);
+		Set<UUID> visibleInstitutionReferrerIds = institutionFeatureInstitutionReferrers.stream()
+				.map(InstitutionFeatureInstitutionReferrer::getInstitutionReferrerId)
+				.filter(Objects::nonNull)
+				.collect(Collectors.toSet());
 
-		if (supportRoleIds.size() == 0)
+		if (supportRoleIds.size() == 0 && visibleInstitutionReferrerIds.size() == 0)
 			return List.of();
 
 		ProviderFindRequest request = new ProviderFindRequest();
@@ -616,12 +697,20 @@ public class ProviderService {
 		request.setInstitutionLocationId(institutionLocationId);
 		request.setSupportRoleIds(new HashSet<>(supportRoleIds));
 
-		return findProviderSearchResults(request, account);
+		return findProviderSearchResults(request, account, visibleInstitutionReferrerIds, supportRoleIds.size() > 0);
 	}
 
 	@Nonnull
 	public List<ProviderSearchResult> findProviderSearchResults(@Nonnull ProviderFindRequest request,
-																															@Nonnull Account account) {
+																							 @Nonnull Account account) {
+		return findProviderSearchResults(request, account, null, true);
+	}
+
+	@Nonnull
+	protected List<ProviderSearchResult> findProviderSearchResults(@Nonnull ProviderFindRequest request,
+																												 @Nonnull Account account,
+																												 @Nullable Set<UUID> visibleInstitutionReferrerIds,
+																												 boolean includeOrdinaryProviders) {
 		requireNonNull(request);
 		requireNonNull(account);
 
@@ -631,9 +720,11 @@ public class ProviderService {
 		// when ALL statuses are requested.  Response construction filters BOOKED slots after reconciliation.
 		providerFindRequest.setAvailability(ProviderFindAvailability.ALL);
 
-		List<ProviderFind> providerFinds = findProviders(providerFindRequest, account, false);
+		List<ProviderFind> providerFinds = includeOrdinaryProviders
+				? new ArrayList<>(findProviders(providerFindRequest, account, false))
+				: new ArrayList<>();
 
-		if (providerFinds.size() == 0)
+		if (providerFinds.size() == 0 && (visibleInstitutionReferrerIds == null || visibleInstitutionReferrerIds.isEmpty()))
 			return List.of();
 
 		Set<UUID> providerIds = providerFinds.stream()
@@ -641,21 +732,54 @@ public class ProviderService {
 				.filter(Objects::nonNull)
 				.collect(Collectors.toCollection(HashSet::new));
 
-		if (providerIds.size() == 0)
+		if (providerIds.size() == 0 && (visibleInstitutionReferrerIds == null || visibleInstitutionReferrerIds.isEmpty()))
 			return List.of();
 
 		Map<UUID, AppointmentType> appointmentTypesById = getAppointmentService().findAppointmentTypesByInstitutionId(account.getInstitutionId()).stream()
 				.collect(Collectors.toMap(AppointmentType::getAppointmentTypeId, Function.identity()));
+		Map<UUID, ProviderReferralBooking> referralBookingsByProviderId = findProviderReferralBookingsByProviderIds(providerIds);
+
+		if (visibleInstitutionReferrerIds != null) {
+			Set<UUID> hiddenReferralProviderIds = referralBookingsByProviderId.values().stream()
+					.filter(referralBooking -> !visibleInstitutionReferrerIds.contains(referralBooking.getInstitutionReferrerId()))
+					.map(ProviderReferralBooking::getProviderId)
+					.filter(Objects::nonNull)
+					.collect(Collectors.toSet());
+
+			providerFinds = providerFinds.stream()
+					.filter(providerFind -> !hiddenReferralProviderIds.contains(providerFind.getProviderId()))
+					.collect(Collectors.toList());
+			providerIds.removeAll(hiddenReferralProviderIds);
+			// Referral profiles are discovered from the feature/referrer association itself, independently of
+			// ordinary provider location, appointment-type, and availability filters.
+			referralBookingsByProviderId = findProviderReferralBookingsByInstitutionReferrerIds(visibleInstitutionReferrerIds);
+			providerIds.addAll(referralBookingsByProviderId.keySet());
+		}
+
 		Map<UUID, Provider> providersById = findProvidersByIds(providerIds).stream()
 				.filter(provider -> Boolean.TRUE.equals(provider.getActive()))
 				.filter(provider -> Objects.equals(provider.getInstitutionId(), account.getInstitutionId()))
 				.collect(Collectors.toMap(Provider::getProviderId, Function.identity()));
+		Set<UUID> providerFindIds = providerFinds.stream()
+				.map(ProviderFind::getProviderId)
+				.filter(Objects::nonNull)
+				.collect(Collectors.toSet());
+
+		for (ProviderReferralBooking referralBooking : referralBookingsByProviderId.values()) {
+			Provider provider = providersById.get(referralBooking.getProviderId());
+
+			if (provider != null && !providerFindIds.contains(provider.getProviderId())) {
+				providerFinds.add(providerFindForReferralProvider(provider));
+				providerFindIds.add(provider.getProviderId());
+			}
+		}
+
 		Map<UUID, List<Clinic>> clinicsByProviderId = getClinicService().findClinicsByProviderIds(providerIds);
 		Set<AppointmentBookingScreeningKey> completedAppointmentBookingScreeningKeys =
 				findCompletedAppointmentBookingScreeningKeys(account, providerFinds, appointmentTypesById);
 
 		return providerSearchResultsFor(providerFinds, providersById, clinicsByProviderId, appointmentTypesById,
-				completedAppointmentBookingScreeningKeys);
+				completedAppointmentBookingScreeningKeys, referralBookingsByProviderId);
 	}
 
 	@Nonnull
@@ -682,19 +806,34 @@ public class ProviderService {
 	protected static List<ProviderSearchResult> providerSearchResultsFor(@Nonnull List<ProviderFind> providerFinds,
 																																			 @Nonnull Map<UUID, Provider> providersById,
 																																			 @Nonnull Map<UUID, List<Clinic>> clinicsByProviderId,
-																																			 @Nonnull Map<UUID, AppointmentType> appointmentTypesById,
-																																			 @Nonnull Set<AppointmentBookingScreeningKey> completedAppointmentBookingScreeningKeys) {
+																													 @Nonnull Map<UUID, AppointmentType> appointmentTypesById,
+																													 @Nonnull Set<AppointmentBookingScreeningKey> completedAppointmentBookingScreeningKeys) {
+		return providerSearchResultsFor(providerFinds, providersById, clinicsByProviderId, appointmentTypesById,
+				completedAppointmentBookingScreeningKeys, Map.of());
+	}
+
+	@Nonnull
+	protected static List<ProviderSearchResult> providerSearchResultsFor(@Nonnull List<ProviderFind> providerFinds,
+																													 @Nonnull Map<UUID, Provider> providersById,
+																													 @Nonnull Map<UUID, List<Clinic>> clinicsByProviderId,
+																													 @Nonnull Map<UUID, AppointmentType> appointmentTypesById,
+																													 @Nonnull Set<AppointmentBookingScreeningKey> completedAppointmentBookingScreeningKeys,
+																													 @Nonnull Map<UUID, ProviderReferralBooking> referralBookingsByProviderId) {
 		requireNonNull(providerFinds);
 		requireNonNull(providersById);
 		requireNonNull(clinicsByProviderId);
 		requireNonNull(appointmentTypesById);
 		requireNonNull(completedAppointmentBookingScreeningKeys);
+		requireNonNull(referralBookingsByProviderId);
 
 		Map<UUID, Clinic> clinicsById = new HashMap<>();
 		Map<UUID, List<ProviderFind>> providerFindsByClinicId = new HashMap<>();
 		Set<UUID> providerIdsRepresentedByClinicResult = new HashSet<>();
 
 		for (ProviderFind providerFind : providerFinds) {
+			if (referralBookingsByProviderId.containsKey(providerFind.getProviderId()))
+				continue;
+
 			List<Clinic> providerClinics = clinicsByProviderId.get(providerFind.getProviderId());
 
 			if (providerClinics == null)
@@ -727,10 +866,12 @@ public class ProviderService {
 				continue;
 
 			Provider provider = providersById.get(providerFind.getProviderId());
+			ProviderReferralBooking referralBooking = referralBookingsByProviderId.get(providerFind.getProviderId());
 
-			if (provider != null && providerSearchResultCanBeShownForProvider(provider, providerFind, appointmentTypesById))
+			if (provider != null && providerSearchResultCanBeShownForProvider(provider, providerFind, appointmentTypesById,
+					referralBooking))
 				providerSearchResults.add(ProviderSearchResult.forProvider(provider, providerFind, appointmentTypesById,
-						completedAppointmentBookingScreeningKeys));
+						completedAppointmentBookingScreeningKeys, referralBooking));
 		}
 
 		for (Entry<UUID, List<ProviderFind>> entry : providerFindsByClinicId.entrySet()) {
@@ -746,6 +887,30 @@ public class ProviderService {
 		return providerSearchResults;
 	}
 
+	@Nonnull
+	protected static ProviderFind providerFindForReferralProvider(@Nonnull Provider provider) {
+		requireNonNull(provider);
+
+		ProviderFind providerFind = new ProviderFind();
+		providerFind.setProviderId(provider.getProviderId());
+		providerFind.setUrlName(provider.getUrlName());
+		providerFind.setName(provider.getName());
+		providerFind.setTitle(provider.getTitle());
+		providerFind.setDescription(provider.getDescription());
+		providerFind.setLicense(provider.getLicense());
+		providerFind.setSpecialty(provider.getSpecialty());
+		providerFind.setClinic(provider.getClinic());
+		providerFind.setEntity(provider.getEntity());
+		providerFind.setImageUrl(provider.getImageUrl());
+		providerFind.setBioUrl(provider.getBioUrl());
+		providerFind.setSchedulingSystemId(provider.getSchedulingSystemId());
+		providerFind.setDates(List.of());
+		providerFind.setPhoneNumber(provider.getPhoneNumber());
+		providerFind.setDisplayPhoneNumberOnlyForBooking(provider.getDisplayPhoneNumberOnlyForBooking());
+
+		return providerFind;
+	}
+
 	protected static boolean providerSearchResultCanBeShownForProvider(@Nonnull Provider provider,
 																																			 @Nonnull ProviderFind providerFind,
 																																			 @Nonnull Map<UUID, AppointmentType> appointmentTypesById) {
@@ -753,7 +918,19 @@ public class ProviderService {
 		requireNonNull(providerFind);
 		requireNonNull(appointmentTypesById);
 
-		return providerFindHasOnlineBookableSlot(providerFind, appointmentTypesById)
+		return providerSearchResultCanBeShownForProvider(provider, providerFind, appointmentTypesById, null);
+	}
+
+	protected static boolean providerSearchResultCanBeShownForProvider(@Nonnull Provider provider,
+																													 @Nonnull ProviderFind providerFind,
+																													 @Nonnull Map<UUID, AppointmentType> appointmentTypesById,
+																													 @Nullable ProviderReferralBooking referralBooking) {
+		requireNonNull(provider);
+		requireNonNull(providerFind);
+		requireNonNull(appointmentTypesById);
+
+		return referralBooking != null
+				|| providerFindHasOnlineBookableSlot(providerFind, appointmentTypesById)
 				|| providerHasFallbackPhoneNumber(provider, providerFind);
 	}
 

@@ -36,6 +36,7 @@ import com.cobaltplatform.api.model.db.SupportRole;
 import com.cobaltplatform.api.model.service.AppointmentBookingScreeningKey;
 import com.cobaltplatform.api.model.service.AvailabilityTime;
 import com.cobaltplatform.api.model.service.ProviderFind;
+import com.cobaltplatform.api.model.service.ProviderReferralBooking;
 import com.cobaltplatform.api.model.service.ProviderSearchScreeningRequirement;
 import com.cobaltplatform.api.service.ClinicService;
 import com.cobaltplatform.api.service.InstitutionService;
@@ -78,7 +79,7 @@ public class ProviderApiResponse {
 	private final String urlName;
 	@Nonnull
 	private final String name;
-	@Nonnull
+	@Nullable
 	private final String emailAddress;
 	@Nullable
 	private final String title;
@@ -96,7 +97,7 @@ public class ProviderApiResponse {
 	private final String treatmentDescription;
 	@Nullable
 	private final String detailsHtml;
-	@Nonnull
+	@Nullable
 	private final String imageUrl;
 	@Nonnull
 	private final Boolean isDefaultImageUrl;
@@ -139,6 +140,8 @@ public class ProviderApiResponse {
 	private final ProviderAppointmentSelectionTypeId appointmentSelectionTypeId;
 	@Nullable
 	private final ProviderSearchScreeningRequirement screeningRequirement;
+	@Nullable
+	private final ProviderReferralBookingApiResponse referralBooking;
 
 	public static class ProviderApiResponseBatchContext {
 		@Nonnull
@@ -150,27 +153,44 @@ public class ProviderApiResponse {
 		@Nullable
 		private final Boolean bookingV2Enabled;
 		private final boolean bookingV2EnabledPreloaded;
+		@Nonnull
+		private final Map<UUID, ProviderReferralBooking> referralBookingsByProviderId;
+		private final boolean referralBookingsPreloaded;
 
 		@Nonnull
 		public static ProviderApiResponseBatchContext empty() {
-			return new ProviderApiResponseBatchContext(Map.of(), Map.of(), false, false, null, false);
+			return new ProviderApiResponseBatchContext(Map.of(), Map.of(), false, false, null, false, Map.of(), false);
 		}
 
 		public ProviderApiResponseBatchContext(@Nonnull Map<UUID, List<ProviderLocation>> providerLocationsByProviderId,
 																				 @Nonnull Map<UUID, Address> addressesByAddressId,
 																				 boolean providerLocationsPreloaded,
 																				 boolean addressesPreloaded) {
-			this(providerLocationsByProviderId, addressesByAddressId, providerLocationsPreloaded, addressesPreloaded, null, false);
+			this(providerLocationsByProviderId, addressesByAddressId, providerLocationsPreloaded, addressesPreloaded, null, false,
+					Map.of(), false);
 		}
 
 		public ProviderApiResponseBatchContext(@Nonnull Map<UUID, List<ProviderLocation>> providerLocationsByProviderId,
 																				 @Nonnull Map<UUID, Address> addressesByAddressId,
 																				 boolean providerLocationsPreloaded,
 																				 boolean addressesPreloaded,
-																				 @Nullable Boolean bookingV2Enabled,
-																				 boolean bookingV2EnabledPreloaded) {
+																	 @Nullable Boolean bookingV2Enabled,
+																	 boolean bookingV2EnabledPreloaded) {
+			this(providerLocationsByProviderId, addressesByAddressId, providerLocationsPreloaded, addressesPreloaded,
+					bookingV2Enabled, bookingV2EnabledPreloaded, Map.of(), false);
+		}
+
+		public ProviderApiResponseBatchContext(@Nonnull Map<UUID, List<ProviderLocation>> providerLocationsByProviderId,
+																	 @Nonnull Map<UUID, Address> addressesByAddressId,
+																	 boolean providerLocationsPreloaded,
+																	 boolean addressesPreloaded,
+																	 @Nullable Boolean bookingV2Enabled,
+																	 boolean bookingV2EnabledPreloaded,
+																	 @Nonnull Map<UUID, ProviderReferralBooking> referralBookingsByProviderId,
+																	 boolean referralBookingsPreloaded) {
 			requireNonNull(providerLocationsByProviderId);
 			requireNonNull(addressesByAddressId);
+			requireNonNull(referralBookingsByProviderId);
 
 			this.providerLocationsByProviderId = new HashMap<>();
 			this.addressesByAddressId = new HashMap<>(addressesByAddressId);
@@ -178,6 +198,8 @@ public class ProviderApiResponse {
 			this.addressesPreloaded = addressesPreloaded;
 			this.bookingV2Enabled = bookingV2Enabled;
 			this.bookingV2EnabledPreloaded = bookingV2EnabledPreloaded;
+			this.referralBookingsByProviderId = Map.copyOf(referralBookingsByProviderId);
+			this.referralBookingsPreloaded = referralBookingsPreloaded;
 
 			for (Map.Entry<UUID, List<ProviderLocation>> entry : providerLocationsByProviderId.entrySet())
 				this.providerLocationsByProviderId.put(entry.getKey(), List.copyOf(entry.getValue()));
@@ -211,6 +233,15 @@ public class ProviderApiResponse {
 
 		public boolean isBookingV2EnabledPreloaded() {
 			return this.bookingV2EnabledPreloaded;
+		}
+
+		@Nullable
+		public ProviderReferralBooking getReferralBookingByProviderId(@Nullable UUID providerId) {
+			return providerId == null ? null : this.referralBookingsByProviderId.get(providerId);
+		}
+
+		public boolean isReferralBookingsPreloaded() {
+			return this.referralBookingsPreloaded;
 		}
 	}
 
@@ -373,6 +404,9 @@ public class ProviderApiResponse {
 		boolean bookingV2Enabled = batchContext.isBookingV2EnabledPreloaded()
 				? Boolean.TRUE.equals(batchContext.getBookingV2Enabled())
 				: institutionService.isBookingV2Enabled(provider.getInstitutionId());
+		ProviderReferralBooking providerReferralBooking = batchContext.isReferralBookingsPreloaded()
+				? batchContext.getReferralBookingByProviderId(provider.getProviderId())
+				: providerService.findProviderReferralBookingByProviderId(provider.getProviderId()).orElse(null);
 		String bioUrl = trimToNull(provider.getBioUrl());
 		String websiteUrl = trimToNull(provider.getWebsiteUrl());
 
@@ -400,9 +434,17 @@ public class ProviderApiResponse {
 		this.displayPhoneNumberOnlyForBooking = provider.getDisplayPhoneNumberOnlyForBooking();
 		this.phoneNumberDescription = bookingV2Enabled ? formatter.formatPhoneNumber(provider.getPhoneNumber(), provider.getLocale()) : null;
 		this.formattedPhoneNumber = formatter.formatPhoneNumber(provider.getPhoneNumber(), provider.getLocale());
-		this.supportedAppointmentModalities = bookingV2Enabled ? ProviderAppointmentModalitySupport.providerAppointmentModalityApiResponsesFor(provider, strings) : null;
+		this.supportedAppointmentModalities = bookingV2Enabled
+				? (providerReferralBooking == null
+				? ProviderAppointmentModalitySupport.providerAppointmentModalityApiResponsesFor(provider, strings)
+				: ProviderAppointmentModalitySupport.providerAppointmentModalityApiResponsesFor(
+						Set.of(requireNonNull(providerReferralBooking.getAppointmentModalityId())), strings))
+				: null;
 		this.locations = includeWebsiteAndLocations ? locationApiResponsesFor(provider, providerService, batchContext) : null;
-		if (providerFind == null) {
+		this.referralBooking = providerReferralBooking == null
+				? null
+				: new ProviderReferralBookingApiResponse(providerReferralBooking);
+		if (providerFind == null || providerReferralBooking != null) {
 			this.appointmentSelectionTypeId = null;
 			this.screeningRequirement = null;
 		} else {
@@ -537,7 +579,7 @@ public class ProviderApiResponse {
 		return this.urlName;
 	}
 
-	@Nonnull
+	@Nullable
 	public String getEmailAddress() {
 		return emailAddress;
 	}
@@ -597,7 +639,7 @@ public class ProviderApiResponse {
 		return supportRolesDescription;
 	}
 
-	@Nonnull
+	@Nullable
 	public String getImageUrl() {
 		return imageUrl;
 	}
@@ -686,6 +728,11 @@ public class ProviderApiResponse {
 	@Nullable
 	public ProviderSearchScreeningRequirement getScreeningRequirement() {
 		return this.screeningRequirement;
+	}
+
+	@Nullable
+	public ProviderReferralBookingApiResponse getReferralBooking() {
+		return this.referralBooking;
 	}
 
 	@Nonnull

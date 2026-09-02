@@ -28,10 +28,12 @@ import com.cobaltplatform.api.model.api.request.CreateLogicalAvailabilityRequest
 import com.cobaltplatform.api.model.api.request.FindAppointmentBookingRequirementsRequest;
 import com.cobaltplatform.api.model.api.request.ProviderFindRequest;
 import com.cobaltplatform.api.model.api.response.ClinicApiResponse;
+import com.cobaltplatform.api.model.api.response.InstitutionReferrerApiResponse;
 import com.cobaltplatform.api.model.api.response.LocationApiResponse;
 import com.cobaltplatform.api.model.api.response.ProviderApiResponse;
 import com.cobaltplatform.api.model.api.response.ProviderListDetailsApiResponse.ProviderAppointmentModalityId;
 import com.cobaltplatform.api.model.api.response.ProviderListDetailsApiResponse.ProviderAppointmentSelectionTypeId;
+import com.cobaltplatform.api.model.api.response.ProviderSearchResultApiResponse;
 import com.cobaltplatform.api.model.db.AccountSource.AccountSourceId;
 import com.cobaltplatform.api.model.db.AppointmentBookingLevel.AppointmentBookingLevelId;
 import com.cobaltplatform.api.model.db.Account;
@@ -259,6 +261,111 @@ public class ProviderResourceTests {
 						provider.getSupportedAppointmentModalities().get(0).getAppointmentModalityId());
 				assertEquals(ProviderAppointmentModalityId.VIRTUAL,
 						provider.getSupportedAppointmentModalities().get(1).getAppointmentModalityId());
+			});
+		});
+	}
+
+	@Test
+	public void referralBackedProviderAppearsInSearchAndDetailWithoutSchedulingData() {
+		IntegrationTestExecutor.runTransactionallyAndForceRollback((app) -> {
+			ProviderResource providerResource = app.getInjector().getInstance(ProviderResource.class);
+			InstitutionResource institutionResource = app.getInjector().getInstance(InstitutionResource.class);
+			Account account = app.getInjector().getInstance(AccountService.class)
+					.findAdminAccountsForInstitution(InstitutionId.COBALT).get(0);
+			Database database = app.getInjector().getInstance(DatabaseProvider.class).getWritableMasterDatabase();
+			CurrentContextExecutor currentContextExecutor = app.getInjector().getInstance(CurrentContextExecutor.class);
+			UUID providerId = UUID.randomUUID();
+			UUID institutionReferrerId = UUID.randomUUID();
+			UUID screeningFlowId = database.queryForObject("""
+					SELECT screening_flow_id
+					FROM screening_flow
+					WHERE institution_id=?
+					ORDER BY created
+					LIMIT 1
+					""", UUID.class, InstitutionId.COBALT).get();
+			UUID institutionFeatureId = database.queryForObject("""
+					SELECT institution_feature_id
+					FROM institution_feature
+					WHERE institution_id=?
+					AND feature_id=?
+					""", UUID.class, InstitutionId.COBALT, FeatureId.THERAPY).get();
+			UUID institutionLocationId = database.queryForObject("""
+					SELECT institution_location_id
+					FROM institution_location
+					WHERE institution_id=?
+					ORDER BY display_order
+					LIMIT 1
+					""", UUID.class, InstitutionId.COBALT).get();
+			String providerUrlName = "referral-provider-" + providerId;
+			String referrerUrlName = "referral-provider-" + institutionReferrerId;
+
+			setBookingV2Enabled(database, true);
+			account.setInstitutionLocationId(institutionLocationId);
+			database.execute("""
+					INSERT INTO institution_referrer (
+					  institution_referrer_id, from_institution_id, to_institution_id, intake_screening_flow_id,
+					  url_name, title, description, page_content
+					) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+					""", institutionReferrerId, InstitutionId.COBALT, InstitutionId.COBALT_IC, screeningFlowId,
+					referrerUrlName, "Referral Provider", "Referral provider description", "<p>Referral details</p>");
+			database.execute("""
+					INSERT INTO institution_feature_institution_referrer (
+					  institution_feature_institution_referrer_id, institution_feature_id, institution_referrer_id, display_order
+					) VALUES (?, ?, ?, ?)
+					""", UUID.randomUUID(), institutionFeatureId, institutionReferrerId, 999);
+			database.execute("""
+					INSERT INTO provider (
+					  provider_id, institution_id, name, email_address, image_url, scheduling_system_id,
+					  videoconference_platform_id, url_name, description, active
+					) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+					""", providerId, InstitutionId.COBALT, "Referral Provider", null, null, null, null,
+					providerUrlName, "Referral provider description", true);
+			database.execute("""
+					INSERT INTO provider_institution_referrer (
+					  provider_id, institution_referrer_id, appointment_modality_id
+					) VALUES (?, ?, ?)
+					""", providerId, institutionReferrerId, ProviderAppointmentModalityId.IN_PERSON);
+			database.execute("DELETE FROM feature_support_role WHERE feature_id=?", FeatureId.THERAPY);
+
+			currentContextExecutor.execute(new CurrentContext.Builder(account, Locale.US, ZoneId.of("America/New_York")).build(), () -> {
+				ApiResponse searchResponse = providerResource.searchProviders(Optional.of(FeatureId.THERAPY), Optional.of("na"));
+				Map<String, Object> searchModel = (Map<String, Object>) searchResponse.model().get();
+				List<ProviderSearchResultApiResponse> searchResults =
+						(List<ProviderSearchResultApiResponse>) searchModel.get("providers");
+				ProviderSearchResultApiResponse searchResult = searchResults.stream()
+						.filter(result -> providerId.equals(result.getProviderId()))
+						.findFirst()
+						.orElseThrow();
+
+				assertNotNull(searchResult.getReferralBooking());
+				assertEquals(institutionReferrerId, searchResult.getReferralBooking().getInstitutionReferrerId());
+				assertEquals(referrerUrlName, searchResult.getReferralBooking().getUrlName());
+				assertEquals(screeningFlowId, searchResult.getReferralBooking().getIntakeScreeningFlowId());
+				assertEquals(List.of(ProviderAppointmentModalityId.IN_PERSON),
+						searchResult.getSupportedAppointmentModalities().stream()
+								.map(modality -> modality.getAppointmentModalityId())
+								.toList());
+				assertNull(searchResult.getFirstAvailableAppointment());
+				assertNull(searchResult.getAppointmentSelectionTypeId());
+
+				ProviderApiResponse provider = responseModelValue(providerResource.provider(providerUrlName), "provider");
+				assertNull(provider.getEmailAddress());
+				assertNull(provider.getPhoneNumber());
+				assertTrue(provider.getLocations().isEmpty());
+				assertNotNull(provider.getReferralBooking());
+				assertEquals(institutionReferrerId, provider.getReferralBooking().getInstitutionReferrerId());
+				assertEquals(referrerUrlName, provider.getReferralBooking().getUrlName());
+				assertEquals(screeningFlowId, provider.getReferralBooking().getIntakeScreeningFlowId());
+				assertEquals(List.of(ProviderAppointmentModalityId.IN_PERSON),
+						provider.getSupportedAppointmentModalities().stream()
+								.map(modality -> modality.getAppointmentModalityId())
+								.toList());
+				assertNull(provider.getAppointmentSelectionTypeId());
+				assertNull(provider.getScreeningRequirement());
+
+				InstitutionReferrerApiResponse institutionReferrer = responseModelValue(
+						institutionResource.getInstitutionReferrerByIdentifier(referrerUrlName), "institutionReferrer");
+				assertEquals(providerId, institutionReferrer.getProviderId().orElseThrow());
 			});
 		});
 	}

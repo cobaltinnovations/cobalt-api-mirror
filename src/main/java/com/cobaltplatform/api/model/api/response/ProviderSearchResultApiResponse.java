@@ -34,6 +34,7 @@ import com.cobaltplatform.api.model.service.ProviderFind.AvailabilityStatus;
 import com.cobaltplatform.api.model.service.ProviderFind.AvailabilityTime;
 import com.cobaltplatform.api.model.service.AppointmentBookingRequirements.AppointmentBookingRequirementsDestinationId;
 import com.cobaltplatform.api.model.service.AppointmentBookingScreeningKey;
+import com.cobaltplatform.api.model.service.ProviderReferralBooking;
 import com.cobaltplatform.api.model.service.ProviderSearchResult;
 import com.cobaltplatform.api.model.service.ProviderSearchScreeningRequirement;
 import com.cobaltplatform.api.util.Formatter;
@@ -104,6 +105,8 @@ public class ProviderSearchResultApiResponse {
 	private final Boolean hasMoreAppointments;
 	@Nullable
 	private final ProviderSearchScreeningRequirement screeningRequirement;
+	@Nullable
+	private final ProviderReferralBookingApiResponse referralBooking;
 
 	public enum ProviderSearchResultTypeId {
 		PROVIDER,
@@ -139,6 +142,7 @@ public class ProviderSearchResultApiResponse {
 		if (providerSearchResult.getProviderSearchResultTypeId() == ProviderSearchResult.ProviderSearchResultTypeId.PROVIDER) {
 			Provider provider = requireNonNull(providerSearchResult.getProvider());
 			ProviderFind providerFind = requireNonNull(providerSearchResult.getProviderFind());
+			ProviderReferralBooking providerReferralBooking = providerSearchResult.getReferralBooking();
 			Map<UUID, AppointmentType> appointmentTypesById = providerSearchResult.getAppointmentTypesById();
 			List<AvailableAppointment> availableAppointments = availableAppointmentsFor(List.of(providerFind), Map.of(provider.getProviderId(), provider), appointmentTypesById);
 			AvailableAppointment firstAvailableAppointment = availableAppointments.size() == 0 ? null : availableAppointments.get(0);
@@ -157,14 +161,23 @@ public class ProviderSearchResultApiResponse {
 			this.imageUrl = providerFind.getImageUrl();
 			this.phoneNumber = phoneNumber;
 			this.phoneNumberDescription = formatter.formatPhoneNumber(phoneNumber, provider.getLocale());
-			this.supportedAppointmentModalities = supportedAppointmentModalitiesFor(provider, strings);
-			this.appointmentSelectionTypeId = appointmentSelectionTypeIdFor(List.of(providerFind), Map.of(provider.getProviderId(), provider),
-					availableAppointments, appointmentTypesById);
+			this.supportedAppointmentModalities = providerReferralBooking == null
+					? supportedAppointmentModalitiesFor(provider, strings)
+					: supportedAppointmentModalitiesFor(Set.of(requireNonNull(providerReferralBooking.getAppointmentModalityId())), strings);
+			this.appointmentSelectionTypeId = providerReferralBooking == null
+					? appointmentSelectionTypeIdFor(List.of(providerFind), Map.of(provider.getProviderId(), provider),
+					availableAppointments, appointmentTypesById)
+					: null;
 			this.appointmentDescription = appointmentDescriptionFor(providerFind, firstAvailableAppointment, appointmentTypesById);
 			this.firstAvailableAppointment = firstAvailableAppointment == null ? null : new FirstAvailableAppointmentApiResponse(firstAvailableAppointment, formatter, provider.getLocale());
 			this.hasMoreAppointments = availableAppointments.size() > 1;
-			this.screeningRequirement = screeningRequirementFor(firstAvailableAppointment, appointmentTypesById,
-					providerSearchResult.getCompletedAppointmentBookingScreeningKeys());
+			this.screeningRequirement = providerReferralBooking == null
+					? screeningRequirementFor(firstAvailableAppointment, appointmentTypesById,
+					providerSearchResult.getCompletedAppointmentBookingScreeningKeys())
+					: null;
+			this.referralBooking = providerReferralBooking == null
+					? null
+					: new ProviderReferralBookingApiResponse(providerReferralBooking);
 		} else {
 			Clinic clinic = requireNonNull(providerSearchResult.getClinic());
 			List<ProviderFind> providerFinds = providerSearchResult.getProviderFinds();
@@ -199,6 +212,7 @@ public class ProviderSearchResultApiResponse {
 			this.hasMoreAppointments = availableAppointments.size() > 1;
 			this.screeningRequirement = screeningRequirementFor(firstAvailableAppointment, appointmentTypesById,
 					providerSearchResult.getCompletedAppointmentBookingScreeningKeys());
+			this.referralBooking = null;
 		}
 	}
 
@@ -238,6 +252,7 @@ public class ProviderSearchResultApiResponse {
 		this.firstAvailableAppointment = firstAvailableAppointment == null ? null : new FirstAvailableAppointmentApiResponse(firstAvailableAppointment, formatter, provider.getLocale());
 		this.hasMoreAppointments = availableAppointments.size() > 1;
 		this.screeningRequirement = null;
+		this.referralBooking = null;
 	}
 
 	@AssistedInject
@@ -282,6 +297,7 @@ public class ProviderSearchResultApiResponse {
 		this.firstAvailableAppointment = firstAvailableAppointment == null ? null : new FirstAvailableAppointmentApiResponse(firstAvailableAppointment, formatter, locale);
 		this.hasMoreAppointments = availableAppointments.size() > 1;
 		this.screeningRequirement = null;
+		this.referralBooking = null;
 	}
 
 	@Nonnull
@@ -794,6 +810,11 @@ public class ProviderSearchResultApiResponse {
 	@Nullable
 	public ProviderSearchScreeningRequirement getScreeningRequirement() {
 		return this.screeningRequirement;
+	}
+
+	@Nullable
+	public ProviderReferralBookingApiResponse getReferralBooking() {
+		return this.referralBooking;
 	}
 
 	@ThreadSafe
