@@ -28,6 +28,7 @@ Never apply any of these local fixture patches to a production database:
 - `sql/local/262-provider-booking-seed.sql`
 - `sql/local/263-care-navigator-seed.sql`
 - `sql/local/264-cobalt-employer-onboarding.sql`
+- `sql/local/265-team-clinic-referral-provider-seed.sql`
 
 They live outside the production update directory because they contain test
 accounts, fixed fixture identifiers, synthetic clinical
@@ -45,6 +46,13 @@ flow and snapshots the local COBALT institution locations as employer choices.
 Provision a real tenant, including PENN, with a reviewed enterprise patch using
 tenant-approved copy and employer choices. Do not run the local fixture outside
 local or bootstrap databases.
+
+`265-team-clinic-referral-provider-seed.sql` exposes the existing local TEAM
+Clinic institution referrer as a provider profile. It reuses the referrer's
+one-question intake flow and destination while deliberately creating no native
+appointment types, scheduling integration, contact information, locations, or
+availability. It runs only when the optional full bootstrap dataset is present;
+real institutions require their own reviewed enterprise fixture.
 
 ## Preflight checks
 

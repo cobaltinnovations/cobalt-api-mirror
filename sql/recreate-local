@@ -286,3 +286,8 @@ PGPASSWORD=password psql -U cobalt -h localhost -p 5501 < updates/263-care-navig
 PGPASSWORD=password psql -U cobalt -h localhost -p 5501 < updates/264-provider-institution-referrer.sql
 PGPASSWORD=password psql -U cobalt -h localhost -p 5501 < local/263-care-navigator-seed.sql
 PGPASSWORD=password psql -U cobalt -h localhost -p 5501 < local/264-cobalt-employer-onboarding.sql
+
+# TEAM Clinic is sourced from the optional full bootstrap dataset.
+if [ -f "initial/bootstrap.sql" ]; then
+  PGPASSWORD=password psql -U cobalt -h localhost -p 5501 < local/265-team-clinic-referral-provider-seed.sql
+fi
