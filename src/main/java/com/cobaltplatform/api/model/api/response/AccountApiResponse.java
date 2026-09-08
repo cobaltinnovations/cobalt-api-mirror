@@ -57,7 +57,6 @@ import javax.inject.Provider;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
-import java.time.format.FormatStyle;
 import java.util.Collections;
 import java.util.Locale;
 import java.util.Map;
@@ -254,7 +253,7 @@ public class AccountApiResponse {
 		this.languageCode = account.getLocale().getLanguage();
 		this.countryCode = account.getLocale().getCountry();
 		this.created = account.getCreated();
-		this.createdDescription = formatter.formatTimestamp(account.getCreated());
+		this.createdDescription = formatter.formatTimestampDescription(account.getCreated());
 		this.providerId = account.getProviderId();
 		this.institutionLocationId = account.getInstitutionLocationId();
 		this.promptedForInstitutionLocation = account.getPromptedForInstitutionLocation();
@@ -262,15 +261,15 @@ public class AccountApiResponse {
 		this.passwordResetRequired = account.getPasswordResetRequired();
 		this.passwordResetToken = account.getPasswordResetToken();
 		this.createdDate = LocalDate.ofInstant(account.getCreated(), currentContext.getTimeZone());
-		this.createdDateDescription = formatter.formatDate(this.createdDate, FormatStyle.MEDIUM);
+		this.createdDateDescription = formatter.formatDateDescription(this.createdDate);
 
 		if (showPrivateDetails) {
 			this.emailAddress = account.getEmailAddress();
 			this.lastUpdated = account.getLastUpdated();
 			this.consentFormAccepted = account.getConsentFormAccepted();
 			this.consentFormAcceptedDate = account.getConsentFormAcceptedDate();
-			this.consentFormAcceptedDateDescription = account.getConsentFormAcceptedDate() == null ? null : formatter.formatTimestamp(account.getConsentFormAcceptedDate());
-			this.lastUpdatedDescription = formatter.formatTimestamp(account.getLastUpdated());
+			this.consentFormAcceptedDateDescription = account.getConsentFormAcceptedDate() == null ? null : formatter.formatTimestampDescription(account.getConsentFormAcceptedDate());
+			this.lastUpdatedDescription = formatter.formatTimestampDescription(account.getLastUpdated());
 			this.phoneNumber = account.getPhoneNumber();
 			this.phoneNumberDescription = account.getPhoneNumber() == null ? null : formatter.formatPhoneNumber(account.getPhoneNumber());
 			this.epicPatientMrn = account.getEpicPatientMrn();
@@ -284,7 +283,7 @@ public class AccountApiResponse {
 			this.legalSexId = account.getLegalSexId();
 			this.administrativeGenderId = account.getAdministrativeGenderId();
 			this.birthdate = account.getBirthdate();
-			this.birthdateDescription = account.getBirthdate() == null ? null : formatter.formatDate(account.getBirthdate(), FormatStyle.MEDIUM);
+			this.birthdateDescription = account.getBirthdate() == null ? null : formatter.formatDateDescription(account.getBirthdate());
 
 			Address address = addressService.findActiveAddressByAccountId(accountId).orElse(null);
 			this.address = address == null ? null : addressApiResponseFactory.create(address);
