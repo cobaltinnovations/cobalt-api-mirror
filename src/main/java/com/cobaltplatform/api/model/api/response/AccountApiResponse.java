@@ -156,6 +156,8 @@ public class AccountApiResponse {
 	private final UUID institutionLocationId;
 	@Nullable
 	private final Boolean promptedForInstitutionLocation;
+	@Nonnull
+	private final String onboardingTreatmentId;
 	@Nullable
 	private final AccountCapabilityFlags accountCapabilityFlags;
 	@Nullable
@@ -168,6 +170,11 @@ public class AccountApiResponse {
 	private final Boolean passwordResetRequired;
 	@Nullable
 	private final UUID passwordResetToken;
+
+	@Nonnull
+	public String getOnboardingTreatmentId() {
+		return this.onboardingTreatmentId;
+	}
 
 	public enum AccountApiResponseSupplement {
 		EVERYTHING,
@@ -234,6 +241,8 @@ public class AccountApiResponse {
 		this.roleId = account.getRoleId();
 		this.institutionId = account.getInstitutionId();
 		this.accountSourceId = account.getAccountSourceId();
+		this.onboardingTreatmentId = accountService.findAccountSourceById(account.getAccountSourceId())
+				.map(source -> source.getOnboardingTreatmentId()).orElse("DEFAULT");
 		this.sourceSystemId = account.getSourceSystemId();
 		this.betaStatusId = account.getBetaStatusId();
 		this.username = account.getUsername();

@@ -284,6 +284,8 @@ PGPASSWORD=password psql -U cobalt -h localhost -p 5501 < local/262-provider-boo
 PGPASSWORD=password psql -U cobalt -h localhost -p 5501 < updates/262-care-navigator.sql
 PGPASSWORD=password psql -U cobalt -h localhost -p 5501 < updates/263-care-navigator-screening.sql
 PGPASSWORD=password psql -U cobalt -h localhost -p 5501 < updates/264-provider-institution-referrer.sql
+PGPASSWORD=password psql -U cobalt -h localhost -p 5501 < updates/265-account-source-onboarding-screening.sql
+PGPASSWORD=password psql -U cobalt -h localhost -p 5501 < updates/266-account-source-onboarding-screening-treatment.sql
 PGPASSWORD=password psql -U cobalt -h localhost -p 5501 < local/263-care-navigator-seed.sql
 PGPASSWORD=password psql -U cobalt -h localhost -p 5501 < local/264-cobalt-employer-onboarding.sql
 
@@ -291,3 +293,4 @@ PGPASSWORD=password psql -U cobalt -h localhost -p 5501 < local/264-cobalt-emplo
 if [ -f "initial/bootstrap.sql" ]; then
   PGPASSWORD=password psql -U cobalt -h localhost -p 5501 < local/265-team-clinic-referral-provider-seed.sql
 fi
+PGPASSWORD=password psql -U cobalt -h localhost -p 5501 < local/266-cobalt-employer-onboarding-single-question.sql

@@ -44,6 +44,18 @@ public class AccountSource {
 	@Nullable
 	private String prodSsoUrl;
 
+	@Nullable
+	private String onboardingTreatmentId;
+
+	@Nullable
+	public String getOnboardingTreatmentId() {
+		return this.onboardingTreatmentId;
+	}
+
+	public void setOnboardingTreatmentId(@Nullable String onboardingTreatmentId) {
+		this.onboardingTreatmentId = onboardingTreatmentId;
+	}
+
 	public enum AccountSourceId {
 		COBALT_SSO,
 		ANONYMOUS,
