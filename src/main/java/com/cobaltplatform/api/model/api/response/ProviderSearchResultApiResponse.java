@@ -874,6 +874,8 @@ public class ProviderSearchResultApiResponse {
 		@Nonnull
 		private final LocalDateTime dateTime;
 		@Nonnull
+		private final String dateTimeDescription;
+		@Nonnull
 		private final String timeDescription;
 		@Nullable
 		private final UUID appointmentTypeId;
@@ -905,6 +907,7 @@ public class ProviderSearchResultApiResponse {
 			this.date = availableAppointment.getDate();
 			this.time = availabilityTime.getTime();
 			this.dateTime = LocalDateTime.of(this.date, this.time);
+			this.dateTimeDescription = formatter.formatDateTimeDescription(this.dateTime);
 			this.timeDescription = normalizeTimeFormat(formatter.formatTime(this.time, FormatStyle.SHORT), locale);
 			this.appointmentTypeId = appointmentType == null ? null : appointmentType.getAppointmentTypeId();
 			this.appointmentTypeIds = availabilityTime.getAppointmentTypeIds();
@@ -943,6 +946,11 @@ public class ProviderSearchResultApiResponse {
 		@Nonnull
 		public LocalDateTime getDateTime() {
 			return this.dateTime;
+		}
+
+		@Nonnull
+		public String getDateTimeDescription() {
+			return this.dateTimeDescription;
 		}
 
 		@Nonnull

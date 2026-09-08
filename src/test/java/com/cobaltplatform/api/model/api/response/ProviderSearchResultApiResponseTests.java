@@ -49,6 +49,7 @@ import javax.annotation.Nullable;
 import javax.annotation.concurrent.ThreadSafe;
 import java.lang.reflect.Proxy;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.Arrays;
@@ -317,6 +318,8 @@ public class ProviderSearchResultApiResponseTests {
 		assertNotNull(response.getFirstAvailableAppointment());
 		assertEquals(LocalDate.of(2026, 9, 7), response.getFirstAvailableAppointment().getDate());
 		assertEquals(LocalTime.of(10, 0), response.getFirstAvailableAppointment().getTime());
+		assertEquals(LocalDateTime.of(2026, 9, 7, 10, 0), response.getFirstAvailableAppointment().getDateTime());
+		assertEquals("Mon, Sep 7, 2026 10:00 am", response.getFirstAvailableAppointment().getDateTimeDescription());
 		assertEquals(true, response.getHasMoreAppointments());
 	}
 
