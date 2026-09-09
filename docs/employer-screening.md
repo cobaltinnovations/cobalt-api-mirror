@@ -8,10 +8,9 @@ completion prompt references from the COBALT employer screening while preserving
 existing sessions and answers. The employer question and decline option remain;
 submitting either completes the screening.
 
-Apply production schema migrations 265 and
-`266-account-source-onboarding-screening-treatment.sql` before running the updated
-API. The latter converts the earlier boolean setting, preserving false as
-`DEFAULT` and true as `MODAL`.
+Apply `sql/updates/265-onboarding-treatment-and-cancellation-reasons.sql` before
+running the updated API. It creates the final text-valued onboarding treatment
+column directly; there is no intermediate boolean setting or conversion patch.
 
 Account API responses expose `onboardingTreatmentId`, read from
 `account_source.onboarding_treatment_id` on each response. This is a string,

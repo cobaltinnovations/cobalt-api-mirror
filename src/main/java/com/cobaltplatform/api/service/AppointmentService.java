@@ -3418,10 +3418,211 @@ public class AppointmentService {
 		));
 	}
 
+	protected void sendPatientAndNavigatorCareNavigatorAppointmentCreatedEmails(@Nonnull Appointment appointment) {
+		requireNonNull(appointment);
+
+		Account patient = getAccountService().findAccountById(appointment.getAccountId()).get();
+		Provider provider = getProviderService().findProviderById(appointment.getProviderId()).get();
+		AppointmentType appointmentType = findAppointmentTypeByIdEvenIfDeleted(appointment.getAppointmentTypeId()).orElse(null);
+		Institution institution = getInstitutionService().findInstitutionById(provider.getInstitutionId()).get();
+		Account careNavigator = findAssignedCareNavigatorForAppointment(appointment).orElse(null);
+		String careNavigatorEmailAddress = careNavigator == null ? null : trimToNull(careNavigator.getEmailAddress());
+
+		if (careNavigatorEmailAddress != null && !isValidEmailAddress(careNavigatorEmailAddress))
+			careNavigatorEmailAddress = null;
+
+		String appointmentStartDateTimeDescription = getFormatter().formatDateTime(
+				appointment.getStartTime(), FormatStyle.LONG, FormatStyle.SHORT);
+		String appointmentStartDateDescription = getFormatter().formatDate(appointment.getStartTime().toLocalDate());
+		String appointmentStartTimeDescription = getFormatter().formatTime(
+				appointment.getStartTime().toLocalTime(), FormatStyle.SHORT);
+		String patientName = getAccountService().determineDisplayName(patient);
+		String patientEmailAddress = firstNonNull(trimToNull(appointment.getEmailAddress()),
+				trimToNull(patient.getEmailAddress()));
+		String patientWebappBaseUrl = getInstitutionService()
+				.findWebappBaseUrlByInstitutionIdAndUserExperienceTypeId(
+						provider.getInstitutionId(), UserExperienceTypeId.PATIENT).get();
+		String staffWebappBaseUrl = getInstitutionService()
+				.findWebappBaseUrlByInstitutionIdAndUserExperienceTypeId(
+						provider.getInstitutionId(), UserExperienceTypeId.STAFF).get();
+		String patientAppointmentUrl = format("%s/appointments/%s", patientWebappBaseUrl, appointment.getAppointmentId());
+		String staffAppointmentUrl = format("%s/scheduling/appointments/%s", staffWebappBaseUrl, appointment.getAppointmentId());
+		String calendarOrganizerEmailAddress = firstNonNull(careNavigatorEmailAddress, provider.getEmailAddress());
+
+		if (patientEmailAddress != null) {
+			Map<String, Object> patientMessageContext = new HashMap<>();
+			patientMessageContext.put("appointmentId", appointment.getAppointmentId());
+			patientMessageContext.put("patientName", patientName);
+			patientMessageContext.put("appointmentStartDateDescription", appointmentStartDateDescription);
+			patientMessageContext.put("appointmentStartTimeDescription", appointmentStartTimeDescription);
+			patientMessageContext.put("patientAppointmentUrl", patientAppointmentUrl);
+			patientMessageContext.put("cancelUrl", format("%s/my-calendar?appointmentId=%s&action=cancel",
+					patientWebappBaseUrl, appointment.getAppointmentId()));
+			patientMessageContext.put("appointmentCreatedPatientEmailBodyHtml", appointmentType == null ? null
+					: trimToNull(appointmentType.getAppointmentCreatedPatientEmailBodyHtml()));
+
+			EmailMessage patientEmailMessage = new EmailMessage.Builder(provider.getInstitutionId(),
+					EmailMessageTemplate.V2_CARE_NAVIGATOR_APPOINTMENT_CREATED_PATIENT,
+					firstNonNull(patient.getLocale(), Locale.US))
+					.toAddresses(List.of(patientEmailAddress))
+					.messageContext(patientMessageContext)
+					.emailAttachments(List.of(generateICalInviteAsEmailAttachment(appointment, InviteMethod.REQUEST,
+							patientAppointmentUrl, calendarOrganizerEmailAddress)))
+					.build();
+
+			getMessageService().enqueueMessage(patientEmailMessage);
+
+			LocalDate reminderMessageDate = appointment.getStartTime().toLocalDate()
+					.minusDays(institution.getAppointmentReservationDefaultReminderDayOffset());
+			LocalTime reminderMessageTimeOfDay = institution.getAppointmentReservationDefaultReminderTimeOfDay();
+			EmailMessage patientReminderEmailMessage = new EmailMessage.Builder(provider.getInstitutionId(),
+					EmailMessageTemplate.V2_CARE_NAVIGATOR_APPOINTMENT_REMINDER_PATIENT,
+					firstNonNull(patient.getLocale(), Locale.US))
+					.toAddresses(List.of(patientEmailAddress))
+					.messageContext(patientMessageContext)
+					.build();
+			UUID patientReminderScheduledMessageId = getMessageService().createScheduledMessage(
+					new CreateScheduledMessageRequest<>() {{
+						setMetadata(Map.of("appointmentId", appointment.getAppointmentId()));
+						setMessage(patientReminderEmailMessage);
+						setTimeZone(provider.getTimeZone());
+						setScheduledAt(LocalDateTime.of(reminderMessageDate, reminderMessageTimeOfDay));
+					}});
+
+			getDatabase().execute("""
+					UPDATE appointment
+					SET patient_reminder_scheduled_message_id=?
+					WHERE appointment_id=?
+					""", patientReminderScheduledMessageId, appointment.getAppointmentId());
+		}
+
+		if (careNavigator == null || careNavigatorEmailAddress == null) {
+			getLogger().warn("Appointment ID {} has no assigned Care Navigator with a valid email address; "
+					+ "skipping the Navigator booking email.", appointment.getAppointmentId());
+			return;
+		}
+
+		Map<String, Object> navigatorMessageContext = new HashMap<>();
+		navigatorMessageContext.put("appointmentId", appointment.getAppointmentId());
+		navigatorMessageContext.put("appointmentStartDateTimeDescription", appointmentStartDateTimeDescription);
+		navigatorMessageContext.put("appointmentStartDateDescription", appointmentStartDateDescription);
+		navigatorMessageContext.put("appointmentStartTimeDescription", appointmentStartTimeDescription);
+		navigatorMessageContext.put("careNavigatorName", getAccountService().determineDisplayName(careNavigator));
+		navigatorMessageContext.put("patientName", patientName);
+		navigatorMessageContext.put("patientEmailAddress", patientEmailAddress);
+		navigatorMessageContext.put("staffAppointmentUrl", staffAppointmentUrl);
+
+		EmailMessage navigatorEmailMessage = new EmailMessage.Builder(provider.getInstitutionId(),
+				EmailMessageTemplate.V2_CARE_NAVIGATOR_APPOINTMENT_CREATED_NAVIGATOR,
+				firstNonNull(careNavigator.getLocale(), provider.getLocale(), Locale.US))
+				.toAddresses(List.of(careNavigatorEmailAddress))
+				.messageContext(navigatorMessageContext)
+				.emailAttachments(List.of(generateICalInviteAsEmailAttachment(appointment, InviteMethod.REQUEST,
+						staffAppointmentUrl, careNavigatorEmailAddress)))
+				.build();
+
+		getMessageService().enqueueMessage(navigatorEmailMessage);
+	}
+
+	protected void sendPatientAndNavigatorCareNavigatorAppointmentCanceledEmails(@Nonnull Appointment appointment) {
+		requireNonNull(appointment);
+
+		Account patient = getAccountService().findAccountById(appointment.getAccountId()).get();
+		Provider provider = getProviderService().findProviderById(appointment.getProviderId()).get();
+		Account careNavigator = findAssignedCareNavigatorForAppointment(appointment).orElse(null);
+		String careNavigatorEmailAddress = careNavigator == null ? null : trimToNull(careNavigator.getEmailAddress());
+
+		if (careNavigatorEmailAddress != null && !isValidEmailAddress(careNavigatorEmailAddress))
+			careNavigatorEmailAddress = null;
+
+		String appointmentStartDateTimeDescription = getFormatter().formatDateTime(
+				appointment.getStartTime(), FormatStyle.LONG, FormatStyle.SHORT);
+		String appointmentStartDateDescription = getFormatter().formatDate(appointment.getStartTime().toLocalDate());
+		String appointmentStartTimeDescription = getFormatter().formatTime(
+				appointment.getStartTime().toLocalTime(), FormatStyle.SHORT);
+		String patientName = getAccountService().determineDisplayName(patient);
+		String patientEmailAddress = firstNonNull(trimToNull(appointment.getEmailAddress()),
+				trimToNull(patient.getEmailAddress()));
+		String patientWebappBaseUrl = getInstitutionService()
+				.findWebappBaseUrlByInstitutionIdAndUserExperienceTypeId(
+						provider.getInstitutionId(), UserExperienceTypeId.PATIENT).get();
+		String staffWebappBaseUrl = getInstitutionService()
+				.findWebappBaseUrlByInstitutionIdAndUserExperienceTypeId(
+						provider.getInstitutionId(), UserExperienceTypeId.STAFF).get();
+		String patientAppointmentUrl = format("%s/appointments/%s", patientWebappBaseUrl, appointment.getAppointmentId());
+		String staffAppointmentUrl = format("%s/scheduling/appointments/%s", staffWebappBaseUrl, appointment.getAppointmentId());
+		String calendarOrganizerEmailAddress = firstNonNull(careNavigatorEmailAddress, provider.getEmailAddress());
+
+		if (patientEmailAddress != null) {
+			Map<String, Object> patientMessageContext = new HashMap<>();
+			patientMessageContext.put("appointmentId", appointment.getAppointmentId());
+			patientMessageContext.put("patientName", patientName);
+			patientMessageContext.put("appointmentStartDateDescription", appointmentStartDateDescription);
+			patientMessageContext.put("appointmentStartTimeDescription", appointmentStartTimeDescription);
+
+			EmailMessage patientEmailMessage = new EmailMessage.Builder(provider.getInstitutionId(),
+					EmailMessageTemplate.V2_CARE_NAVIGATOR_APPOINTMENT_CANCELED_PATIENT,
+					firstNonNull(patient.getLocale(), Locale.US))
+					.toAddresses(List.of(patientEmailAddress))
+					.messageContext(patientMessageContext)
+					.emailAttachments(List.of(generateICalInviteAsEmailAttachment(appointment, InviteMethod.CANCEL,
+							patientAppointmentUrl, calendarOrganizerEmailAddress)))
+					.build();
+
+			getMessageService().enqueueMessage(patientEmailMessage);
+		}
+
+		if (careNavigator == null || careNavigatorEmailAddress == null) {
+			getLogger().warn("Appointment ID {} has no assigned Care Navigator with a valid email address; "
+					+ "skipping the Navigator cancellation email.", appointment.getAppointmentId());
+			return;
+		}
+
+		Map<String, Object> navigatorMessageContext = new HashMap<>();
+		navigatorMessageContext.put("appointmentId", appointment.getAppointmentId());
+		navigatorMessageContext.put("appointmentStartDateTimeDescription", appointmentStartDateTimeDescription);
+		navigatorMessageContext.put("appointmentStartDateDescription", appointmentStartDateDescription);
+		navigatorMessageContext.put("appointmentStartTimeDescription", appointmentStartTimeDescription);
+		navigatorMessageContext.put("careNavigatorName", getAccountService().determineDisplayName(careNavigator));
+		navigatorMessageContext.put("patientName", patientName);
+		navigatorMessageContext.put("patientEmailAddress", patientEmailAddress);
+
+		EmailMessage navigatorEmailMessage = new EmailMessage.Builder(provider.getInstitutionId(),
+				EmailMessageTemplate.V2_CARE_NAVIGATOR_APPOINTMENT_CANCELED_NAVIGATOR,
+				firstNonNull(careNavigator.getLocale(), provider.getLocale(), Locale.US))
+				.toAddresses(List.of(careNavigatorEmailAddress))
+				.messageContext(navigatorMessageContext)
+				.emailAttachments(List.of(generateICalInviteAsEmailAttachment(appointment, InviteMethod.CANCEL,
+						staffAppointmentUrl, careNavigatorEmailAddress)))
+				.build();
+
+		getMessageService().enqueueMessage(navigatorEmailMessage);
+	}
+
+	@Nonnull
+	protected Optional<Account> findAssignedCareNavigatorForAppointment(@Nonnull Appointment appointment) {
+		requireNonNull(appointment);
+
+		if (appointment.getCareEncounterId() == null)
+			return Optional.empty();
+
+		return getDatabase().queryForObject("""
+				SELECT account.*
+				FROM care_encounter
+				JOIN account ON account.account_id=care_encounter.care_navigator_account_id
+				WHERE care_encounter.care_encounter_id=?
+				""", Account.class, appointment.getCareEncounterId());
+	}
+
 	protected void sendPatientAndProviderCobaltAppointmentCreatedEmails(@Nonnull UUID appointmentId) {
 		requireNonNull(appointmentId);
 
 		Appointment appointment = findAppointmentById(appointmentId).get();
+
+		if (isCareNavigatorProvider(appointment.getProviderId())) {
+			sendPatientAndNavigatorCareNavigatorAppointmentCreatedEmails(appointment);
+			return;
+		}
 
 		if (appointment.getVideoconferencePlatformId() == VideoconferencePlatformId.SWITCHBOARD) {
 			getLogger().debug("Appointment ID {} is Switchboard-backed, so don't send out booking emails.", appointment.getAppointmentId());
@@ -3544,6 +3745,11 @@ public class AppointmentService {
 		requireNonNull(appointmentId);
 
 		Appointment appointment = findAppointmentById(appointmentId).get();
+
+		if (isCareNavigatorProvider(appointment.getProviderId())) {
+			sendPatientAndNavigatorCareNavigatorAppointmentCanceledEmails(appointment);
+			return;
+		}
 
 		if (appointment.getVideoconferencePlatformId() == VideoconferencePlatformId.SWITCHBOARD) {
 			getLogger().debug("Appointment ID {} is Switchboard-backed, so don't send out cancelation emails.", appointment.getAppointmentId());
@@ -4011,35 +4217,72 @@ public class AppointmentService {
 
 	@Nonnull
 	public String generateICalInvite(@Nonnull Appointment appointment,
-																	 @Nonnull InviteMethod inviteMethod) {
+															 @Nonnull InviteMethod inviteMethod) {
 		requireNonNull(appointment);
 		requireNonNull(inviteMethod);
+
+		Provider provider = getProviderService().findProviderById(appointment.getProviderId()).get();
+		return generateICalInvite(appointment, inviteMethod, appointment.getVideoconferenceUrl(),
+				provider.getEmailAddress());
+	}
+
+	@Nonnull
+	protected String generateICalInvite(@Nonnull Appointment appointment,
+																 @Nonnull InviteMethod inviteMethod,
+																 @Nonnull String location,
+																 @Nonnull String organizerEmailAddress) {
+		requireNonNull(appointment);
+		requireNonNull(inviteMethod);
+		requireNonNull(location);
+		requireNonNull(organizerEmailAddress);
 
 		String title = calendarTitleForAppointment(appointment);
 
 		String extendedDescription = format("%s\n\n%s", title, getStrings().get("Join videoconference: {{videoconferenceUrl}}", new HashMap<String, Object>() {{
-			put("videoconferenceUrl", appointment.getVideoconferenceUrl());
+			put("videoconferenceUrl", location);
 		}}));
 
 		Account patient = getAccountService().findAccountById(appointment.getAccountId()).get();
-		Provider provider = getProviderService().findProviderById(appointment.getProviderId()).get();
 
-		InviteOrganizer inviteOrganizer = InviteOrganizer.forEmailAddress(provider.getEmailAddress());
+		InviteOrganizer inviteOrganizer = InviteOrganizer.forEmailAddress(organizerEmailAddress);
 		InviteAttendee inviteAttendee = InviteAttendee.forEmailAddress(firstNonNull(appointment.getEmailAddress(),
 				patient.getEmailAddress(), getConfiguration().getDefaultEmailToAddress(patient.getInstitutionId())));
 
 		return getiCalInviteGenerator().generateInvite(appointment.getAppointmentId().toString(), title,
 				extendedDescription, appointment.getStartTime(), appointment.getEndTime(),
-				appointment.getTimeZone(), appointment.getVideoconferenceUrl(), inviteMethod, inviteOrganizer, inviteAttendee, OrganizerAttendeeStrategy.ORGANIZER_AND_ATTENDEE);
+				appointment.getTimeZone(), location, inviteMethod, inviteOrganizer, inviteAttendee,
+				OrganizerAttendeeStrategy.ORGANIZER_AND_ATTENDEE);
 	}
 
 	@Nonnull
 	public EmailAttachment generateICalInviteAsEmailAttachment(@Nonnull Appointment appointment,
-																														 @Nonnull InviteMethod inviteMethod) {
+																					 @Nonnull InviteMethod inviteMethod) {
 		requireNonNull(appointment);
 		requireNonNull(inviteMethod);
 
 		String iCalInvite = generateICalInvite(appointment, inviteMethod);
+		return generateICalInviteAsEmailAttachment(iCalInvite, inviteMethod);
+	}
+
+	@Nonnull
+	protected EmailAttachment generateICalInviteAsEmailAttachment(@Nonnull Appointment appointment,
+																							 @Nonnull InviteMethod inviteMethod,
+																							 @Nonnull String location,
+																							 @Nonnull String organizerEmailAddress) {
+		requireNonNull(appointment);
+		requireNonNull(inviteMethod);
+		requireNonNull(location);
+		requireNonNull(organizerEmailAddress);
+
+		String iCalInvite = generateICalInvite(appointment, inviteMethod, location, organizerEmailAddress);
+		return generateICalInviteAsEmailAttachment(iCalInvite, inviteMethod);
+	}
+
+	@Nonnull
+	protected EmailAttachment generateICalInviteAsEmailAttachment(@Nonnull String iCalInvite,
+																							 @Nonnull InviteMethod inviteMethod) {
+		requireNonNull(iCalInvite);
+		requireNonNull(inviteMethod);
 
 		String filename = "invite.ics";
 		String method = inviteMethod == InviteMethod.CANCEL ? "CANCEL" : "REQUEST";
