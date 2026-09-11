@@ -255,6 +255,8 @@ public class Configuration {
 	private final Way2HealthEnvironment way2HealthEnvironment;
 	@Nonnull
 	private final String ipstackAccessKey;
+	@Nonnull
+	private final Boolean shouldProcessIpGeolocationsAutomatically;
 
 	@Nonnull
 	private final String epicNonProdKeyId;
@@ -440,6 +442,7 @@ public class Configuration {
 		this.way2HealthAccessToken = valueFor("com.cobaltplatform.api.way2health.accessToken", String.class);
 		this.way2HealthEnvironment = valueFor("com.cobaltplatform.api.way2health.environment", Way2HealthEnvironment.class);
 		this.ipstackAccessKey = valueFor("com.cobaltplatform.api.ipstack.accessKey", String.class);
+		this.shouldProcessIpGeolocationsAutomatically = valueFor("com.cobaltplatform.api.shouldProcessIpGeolocationsAutomatically", Boolean.class);
 
 		this.tinymceApiKey = valueFor("com.cobaltplatform.api.tinymce.apiKey", String.class);
 
@@ -1397,6 +1400,11 @@ public class Configuration {
 	@Nonnull
 	public String getIpstackAccessKey() {
 		return ipstackAccessKey;
+	}
+
+	@Nonnull
+	public Boolean getShouldProcessIpGeolocationsAutomatically() {
+		return this.shouldProcessIpGeolocationsAutomatically;
 	}
 
 	@Nonnull

@@ -30,6 +30,7 @@ import com.cobaltplatform.api.model.db.ScreeningQuestion;
 import com.cobaltplatform.api.model.db.Tag;
 import com.cobaltplatform.api.service.ContentService;
 import com.cobaltplatform.api.service.InstitutionService;
+import com.cobaltplatform.api.service.IpGeolocationService;
 import com.cobaltplatform.api.util.AwsSecretManagerClient;
 import com.cobaltplatform.api.util.GsonUtility;
 import com.google.gson.Gson;
@@ -57,7 +58,12 @@ import static java.util.Objects.requireNonNull;
 @ThreadSafe
 public class CobaltEnterprisePlugin extends DefaultEnterprisePlugin {
 	@Nonnull
+	public static final String PROCESS_IP_GEOLOCATIONS_CRON_CALLBACK_TYPE = "PROCESS_IP_GEOLOCATIONS";
+
+	@Nonnull
 	private final ContentService contentService;
+	@Nonnull
+	private final IpGeolocationService ipGeolocationService;
 	@Nonnull
 	private final Gson gson;
 
@@ -65,9 +71,14 @@ public class CobaltEnterprisePlugin extends DefaultEnterprisePlugin {
 	public CobaltEnterprisePlugin(@Nonnull InstitutionService institutionService,
 																@Nonnull AwsSecretManagerClient awsSecretManagerClient,
 																@Nonnull ContentService contentService,
+																@Nonnull IpGeolocationService ipGeolocationService,
 																@Nonnull Configuration configuration) {
 		super(institutionService, awsSecretManagerClient, configuration);
+		requireNonNull(contentService);
+		requireNonNull(ipGeolocationService);
+
 		this.contentService = contentService;
+		this.ipGeolocationService = ipGeolocationService;
 
 		GsonBuilder gsonBuilder = new GsonBuilder()
 				.setPrettyPrinting()
@@ -97,6 +108,11 @@ public class CobaltEnterprisePlugin extends DefaultEnterprisePlugin {
 	@Nonnull
 	protected ContentService getContentService() {
 		return this.contentService;
+	}
+
+	@Nonnull
+	protected IpGeolocationService getIpGeolocationService() {
+		return this.ipGeolocationService;
 	}
 
 	@Override
@@ -148,7 +164,15 @@ public class CobaltEnterprisePlugin extends DefaultEnterprisePlugin {
 	public void runCronJob(@Nonnull CronJob cronJob) {
 		requireNonNull(cronJob);
 
-		if ("MOCK_SEND_REPORT_EMAIL".equals(cronJob.getCallbackType())) {
+		if (PROCESS_IP_GEOLOCATIONS_CRON_CALLBACK_TYPE.equals(cronJob.getCallbackType())) {
+			if (!getConfiguration().getShouldProcessIpGeolocationsAutomatically()) {
+				getLogger().info("Skipping cron job {} for {} because automatic IP geolocation processing is disabled.",
+						cronJob.getCallbackType(), getInstitutionId());
+				return;
+			}
+
+			getIpGeolocationService().enqueueAnalyticsNativeEventIpAddressesAndProcessAfterCommit();
+		} else if ("MOCK_SEND_REPORT_EMAIL".equals(cronJob.getCallbackType())) {
 			MockSendReportEmailCronPayload payload = getGson().fromJson(cronJob.getCallbackPayload(), MockSendReportEmailCronPayload.class);
 			getLogger().info("Cron job run for {} in {}: pretending to send a report email to these addresses: {}",
 					cronJob.getCallbackType(), getInstitutionId(), payload.getEmailAddresses());

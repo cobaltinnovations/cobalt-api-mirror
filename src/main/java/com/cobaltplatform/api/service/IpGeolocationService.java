@@ -16,14 +16,17 @@
 
 package com.cobaltplatform.api.service;
 
+import com.cobaltplatform.api.error.ErrorReporter;
 import com.cobaltplatform.api.integration.ipstack.IpstackClient;
 import com.cobaltplatform.api.integration.ipstack.IpstackStandardLookupRequest;
 import com.cobaltplatform.api.integration.ipstack.IpstackStandardLookupResponse;
 import com.cobaltplatform.api.model.db.IpGeolocationStatus.IpGeolocationStatusId;
+import com.cobaltplatform.api.util.ExecutorServiceUtility;
 import com.cobaltplatform.api.util.JsonMapper;
 import com.cobaltplatform.api.util.ValidationException;
 import com.cobaltplatform.api.util.ValidationException.FieldError;
 import com.cobaltplatform.api.util.db.DatabaseProvider;
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.pyranid.Database;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,6 +38,9 @@ import javax.annotation.concurrent.ThreadSafe;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
@@ -49,7 +55,7 @@ import static org.apache.commons.lang3.StringUtils.trimToNull;
  */
 @Singleton
 @ThreadSafe
-public class IpGeolocationService {
+public class IpGeolocationService implements AutoCloseable {
 	@Nonnull
 	private static final Integer DEFAULT_BATCH_SIZE;
 	@Nonnull
@@ -62,7 +68,15 @@ public class IpGeolocationService {
 	@Nonnull
 	private final JsonMapper jsonMapper;
 	@Nonnull
+	private final ErrorReporter errorReporter;
+	@Nonnull
 	private final Logger logger;
+	@Nonnull
+	private final Object backgroundTaskLock;
+	@Nonnull
+	private Boolean backgroundTaskStarted;
+	@Nullable
+	private ExecutorService backgroundTaskExecutorService;
 
 	static {
 		DEFAULT_BATCH_SIZE = 100;
@@ -71,16 +85,130 @@ public class IpGeolocationService {
 
 	@Inject
 	public IpGeolocationService(@Nonnull DatabaseProvider databaseProvider,
-															@Nonnull IpstackClient ipstackClient,
-															@Nonnull JsonMapper jsonMapper) {
+																	@Nonnull IpstackClient ipstackClient,
+																	@Nonnull JsonMapper jsonMapper,
+																	@Nonnull ErrorReporter errorReporter) {
 		requireNonNull(databaseProvider);
 		requireNonNull(ipstackClient);
 		requireNonNull(jsonMapper);
+		requireNonNull(errorReporter);
 
 		this.databaseProvider = databaseProvider;
 		this.ipstackClient = ipstackClient;
 		this.jsonMapper = jsonMapper;
+		this.errorReporter = errorReporter;
 		this.logger = LoggerFactory.getLogger(getClass());
+		this.backgroundTaskLock = new Object();
+		this.backgroundTaskStarted = false;
+	}
+
+	@Override
+	public void close() throws Exception {
+		stopBackgroundTask();
+	}
+
+	@Nonnull
+	public Boolean startBackgroundTask() {
+		synchronized (getBackgroundTaskLock()) {
+			if (isBackgroundTaskStarted())
+				return false;
+
+			getLogger().trace("Starting IP geolocation background task...");
+
+			this.backgroundTaskExecutorService = Executors.newSingleThreadExecutor(
+					new ThreadFactoryBuilder().setNameFormat("ip-geolocation-background-task").build());
+			this.backgroundTaskStarted = true;
+
+			getLogger().trace("IP geolocation background task started.");
+
+			return true;
+		}
+	}
+
+	@Nonnull
+	public Boolean stopBackgroundTask() {
+		synchronized (getBackgroundTaskLock()) {
+			if (!isBackgroundTaskStarted())
+				return false;
+
+			getLogger().trace("Stopping IP geolocation background task...");
+
+			ExecutorServiceUtility.shutdownAndAwaitTermination(getBackgroundTaskExecutorService().get());
+			this.backgroundTaskExecutorService = null;
+			this.backgroundTaskStarted = false;
+
+			getLogger().trace("IP geolocation background task stopped.");
+
+			return true;
+		}
+	}
+
+	/**
+	 * Queues every analytics IP address that has not been seen before, then arranges for processing to begin only after
+	 * the caller's transaction commits.  Cron callbacks use this method so external IPStack requests never hold the cron
+	 * transaction open.
+	 */
+	@Nonnull
+	public Long enqueueAnalyticsNativeEventIpAddressesAndProcessAfterCommit() {
+		Database database = getWritableDatabase();
+		long enqueuedCount = database.execute("""
+				INSERT INTO ip_geolocation (ip_address)
+				SELECT DISTINCT ane.ip_address
+				FROM analytics_native_event ane
+				WHERE ane.ip_address IS NOT NULL
+				ON CONFLICT (ip_address) DO NOTHING
+				""");
+
+		database.currentTransaction()
+				.orElseThrow(() -> new IllegalStateException("IP geolocation discovery must run in a transaction."))
+				.addPostCommitOperation(this::processAllPendingIpGeolocationsAsync);
+
+		getLogger().info("Queued {} new IP address[es] for geolocation.", enqueuedCount);
+
+		return enqueuedCount;
+	}
+
+	@Nonnull
+	public Boolean processAllPendingIpGeolocationsAsync() {
+		synchronized (getBackgroundTaskLock()) {
+			if (!isBackgroundTaskStarted()) {
+				IllegalStateException exception = new IllegalStateException("IP geolocation background task is not running.");
+				getLogger().error("Unable to schedule pending IP geolocation processing.", exception);
+				getErrorReporter().report(exception);
+				return false;
+			}
+
+			getBackgroundTaskExecutorService().get().execute(() -> {
+				try {
+					ProcessingResult processingResult = processAllPendingIpGeolocations();
+					getLogger().info("Finished pending IP geolocation processing: {} claimed, {} succeeded, {} failed, " +
+							"{} skipped invalid, and {} skipped private/reserved.",
+							processingResult.getClaimedCount(), processingResult.getSucceededCount(),
+							processingResult.getFailedCount(), processingResult.getSkippedInvalidCount(),
+							processingResult.getSkippedPrivateCount());
+				} catch (Exception e) {
+					getLogger().error("Unable to complete pending IP geolocation processing.", e);
+					getErrorReporter().report(e);
+				}
+			});
+
+			return true;
+		}
+	}
+
+	@Nonnull
+	public ProcessingResult processAllPendingIpGeolocations() {
+		ProcessingResult aggregateResult = new ProcessingResult();
+
+		while (!Thread.currentThread().isInterrupted()) {
+			ProcessingResult batchResult = processPendingIpGeolocations(getDefaultBatchSize(), false);
+			aggregateResult.add(batchResult);
+
+			if (batchResult.getClaimedCount() == 0)
+				break;
+		}
+
+		return aggregateResult;
 	}
 
 	@Nonnull
@@ -458,6 +586,11 @@ public class IpGeolocationService {
 	}
 
 	@Nonnull
+	protected ErrorReporter getErrorReporter() {
+		return this.errorReporter;
+	}
+
+	@Nonnull
 	protected Logger getLogger() {
 		return this.logger;
 	}
@@ -470,6 +603,23 @@ public class IpGeolocationService {
 	@Nonnull
 	protected Integer getMaxBatchSize() {
 		return MAX_BATCH_SIZE;
+	}
+
+	@Nonnull
+	public Boolean isBackgroundTaskStarted() {
+		synchronized (getBackgroundTaskLock()) {
+			return this.backgroundTaskStarted;
+		}
+	}
+
+	@Nonnull
+	protected Object getBackgroundTaskLock() {
+		return this.backgroundTaskLock;
+	}
+
+	@Nonnull
+	protected Optional<ExecutorService> getBackgroundTaskExecutorService() {
+		return Optional.ofNullable(this.backgroundTaskExecutorService);
 	}
 
 	@NotThreadSafe
@@ -505,6 +655,16 @@ public class IpGeolocationService {
 		private int failedCount;
 		private int skippedInvalidCount;
 		private int skippedPrivateCount;
+
+		public void add(@Nonnull ProcessingResult processingResult) {
+			requireNonNull(processingResult);
+
+			setClaimedCount(getClaimedCount() + processingResult.getClaimedCount());
+			setSucceededCount(getSucceededCount() + processingResult.getSucceededCount());
+			setFailedCount(getFailedCount() + processingResult.getFailedCount());
+			setSkippedInvalidCount(getSkippedInvalidCount() + processingResult.getSkippedInvalidCount());
+			setSkippedPrivateCount(getSkippedPrivateCount() + processingResult.getSkippedPrivateCount());
+		}
 
 		public int getClaimedCount() {
 			return this.claimedCount;

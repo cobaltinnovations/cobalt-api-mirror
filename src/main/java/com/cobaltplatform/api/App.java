@@ -28,6 +28,7 @@ import com.cobaltplatform.api.service.ContentService;
 import com.cobaltplatform.api.service.CronService;
 import com.cobaltplatform.api.service.DataSyncService;
 import com.cobaltplatform.api.service.GroupSessionService;
+import com.cobaltplatform.api.service.IpGeolocationService;
 import com.cobaltplatform.api.service.MessageService;
 import com.cobaltplatform.api.service.PatientOrderService;
 import com.cobaltplatform.api.service.PatientOrderSyncService;
@@ -238,6 +239,15 @@ public class App implements AutoCloseable {
 			}
 		}
 
+		if (getConfiguration().getShouldProcessIpGeolocationsAutomatically()) {
+			try {
+				IpGeolocationService ipGeolocationService = getInjector().getInstance(IpGeolocationService.class);
+				ipGeolocationService.startBackgroundTask();
+			} catch (Exception e) {
+				getLogger().warn("Failed to start IP geolocation background task", e);
+			}
+		}
+
 		try {
 			CronService cronService = getInjector().getInstance(CronService.class);
 			cronService.startBackgroundTask();
@@ -252,6 +262,15 @@ public class App implements AutoCloseable {
 			cronService.stopBackgroundTask();
 		} catch (Exception e) {
 			getLogger().warn("Failed to stop Cron Service background task", e);
+		}
+
+		if (getConfiguration().getShouldProcessIpGeolocationsAutomatically()) {
+			try {
+				IpGeolocationService ipGeolocationService = getInjector().getInstance(IpGeolocationService.class);
+				ipGeolocationService.stopBackgroundTask();
+			} catch (Exception e) {
+				getLogger().warn("Failed to stop IP geolocation background task", e);
+			}
 		}
 
 		try {
