@@ -313,6 +313,7 @@ PGPASSWORD=password psql -U cobalt -h localhost -p 5501 < local/266-cobalt-emplo
 PGPASSWORD=password psql -v ON_ERROR_STOP=1 -U cobalt -h localhost -p 5501 < local/277-cobalt-care-navigator-contact.sql
 PGPASSWORD=password psql -v ON_ERROR_STOP=1 -U cobalt -h localhost -p 5501 < local/278-cobalt-care-navigator-slots.sql
 PGPASSWORD=password psql -v ON_ERROR_STOP=1 -U cobalt -h localhost -p 5501 < local/267-cobalt-homepage-features.sql
+PGPASSWORD=password psql -v ON_ERROR_STOP=1 -U cobalt -h localhost -p 5501 < local/279-local-only-remove-wrap-up-unit-from-module-9
 
 # The Penn location preview needs the private provider mirror imported above.
 penn_provider_bundle_directory=${PENN_PROVIDER_MIRROR_BUNDLE_DIR:-"../../penn-prod-provider-export-2026-09-11"}
