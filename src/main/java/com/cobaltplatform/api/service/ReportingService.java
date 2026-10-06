@@ -2332,6 +2332,8 @@ public class ReportingService {
 			"bb_onboarding_6",
 			"bb_onboarding_7",
 			"bb_onboarding_8",
+			"bb_onboarding_reasons",
+			"bb_onboarding_reasonsopen",
 			"bb_n_sitevisit",
 			"bb_tot_time",
 			"bb_sleep_complete",
@@ -3216,11 +3218,11 @@ public class ReportingService {
 						screening_question_answers AS (
 							SELECT
 								ss.target_account_id AS account_id,
-								NULLIF(REGEXP_REPLACE(sq.metadata->'reporting'->>'key', '\\s+', '', 'g'), '') AS reporting_key,
+								answer_values.reporting_key,
 								ssasq.screening_session_answered_screening_question_id,
 								COALESCE(MAX(sa.created), MAX(ss.created)) AS answered_at,
 								STRING_AGG(
-									COALESCE(NULLIF(sa.text, ''), NULLIF(sao.answer_option_text, ''), sao.display_order::TEXT, sao.score::TEXT),
+									answer_values.reporting_value,
 									',' ORDER BY sa.answer_order
 								) AS reporting_value
 							FROM screening_session ss
@@ -3243,10 +3245,26 @@ public class ReportingService {
 								ON sa.screening_session_answered_screening_question_id = ssasq.screening_session_answered_screening_question_id
 							LEFT JOIN screening_answer_option sao
 								ON sao.screening_answer_option_id = sa.screening_answer_option_id
+							CROSS JOIN LATERAL (
+								VALUES
+									(
+										NULLIF(REGEXP_REPLACE(sq.metadata->'reporting'->>'key', '\\s+', '', 'g'), ''),
+										CASE
+											WHEN NULLIF(sq.metadata->'reporting'->>'openTextKey', '') IS NOT NULL AND sao.freeform_supplement
+												THEN COALESCE(NULLIF(sao.answer_option_text, ''), sao.display_order::TEXT, sao.score::TEXT)
+											ELSE COALESCE(NULLIF(sa.text, ''), NULLIF(sao.answer_option_text, ''), sao.display_order::TEXT, sao.score::TEXT)
+										END
+									),
+									(
+										NULLIF(REGEXP_REPLACE(sq.metadata->'reporting'->>'openTextKey', '\\s+', '', 'g'), ''),
+										CASE WHEN sao.freeform_supplement THEN NULLIF(sa.text, '') END
+									)
+								) AS answer_values(reporting_key, reporting_value)
 							WHERE sq.metadata IS NOT NULL
 								AND ss.created >= ra.account_created_at
 								AND ss.created <= rw.report_end_at
-								AND NULLIF(REGEXP_REPLACE(sq.metadata->'reporting'->>'key', '\\s+', '', 'g'), '') LIKE 'bb_onboarding_%'
+								AND answer_values.reporting_key LIKE 'bb_onboarding_%'
+								AND answer_values.reporting_value IS NOT NULL
 							GROUP BY 1, 2, 3
 						),
 						latest_screening_values AS (
@@ -3848,11 +3866,11 @@ public class ReportingService {
 							screening_question_answers AS (
 								SELECT
 									ss.target_account_id AS account_id,
-									NULLIF(REGEXP_REPLACE(sq.metadata->'reporting'->>'key', '\\s+', '', 'g'), '') AS reporting_key,
+									answer_values.reporting_key,
 									ssasq.screening_session_answered_screening_question_id,
 									COALESCE(MAX(sa.created), MAX(ss.created)) AS answered_at,
 									STRING_AGG(
-										COALESCE(NULLIF(sa.text, ''), NULLIF(sao.answer_option_text, ''), sao.display_order::TEXT, sao.score::TEXT),
+										answer_values.reporting_value,
 										',' ORDER BY sa.answer_order
 									) AS reporting_value
 								FROM screening_session ss
@@ -3870,10 +3888,26 @@ public class ReportingService {
 								ON sa.screening_session_answered_screening_question_id = ssasq.screening_session_answered_screening_question_id
 								LEFT JOIN screening_answer_option sao
 									ON sao.screening_answer_option_id = sa.screening_answer_option_id
+								CROSS JOIN LATERAL (
+									VALUES
+										(
+											NULLIF(REGEXP_REPLACE(sq.metadata->'reporting'->>'key', '\\s+', '', 'g'), ''),
+											CASE
+												WHEN NULLIF(sq.metadata->'reporting'->>'openTextKey', '') IS NOT NULL AND sao.freeform_supplement
+													THEN COALESCE(NULLIF(sao.answer_option_text, ''), sao.display_order::TEXT, sao.score::TEXT)
+												ELSE COALESCE(NULLIF(sa.text, ''), NULLIF(sao.answer_option_text, ''), sao.display_order::TEXT, sao.score::TEXT)
+											END
+										),
+										(
+											NULLIF(REGEXP_REPLACE(sq.metadata->'reporting'->>'openTextKey', '\\s+', '', 'g'), ''),
+											CASE WHEN sao.freeform_supplement THEN NULLIF(sa.text, '') END
+										)
+									) AS answer_values(reporting_key, reporting_value)
 								WHERE sq.metadata IS NOT NULL
 									AND ss.created >= ra.account_created_at
 									AND ss.created <= rw.report_end_at
-									AND NULLIF(REGEXP_REPLACE(sq.metadata->'reporting'->>'key', '\\s+', '', 'g'), '') IS NOT NULL
+									AND answer_values.reporting_key IS NOT NULL
+									AND answer_values.reporting_value IS NOT NULL
 								GROUP BY 1, 2, 3
 							),
 						latest_screening_values AS (
