@@ -2519,7 +2519,27 @@ public class ReportingService {
 			"bb_mcb_handouts_info_visit",
 			"bb_mcb_additional_info_complete",
 			"bb_mcb_additional_info_time",
-			"bb_mcb_additional_info_visit"
+			"bb_mcb_additional_info_visit",
+			"bb_teens_postcourse_needs",
+			"bb_teens_postcourse_match",
+			"bb_teens_postcourse_confidence",
+			"bb_teens_postcourse_apply",
+			"bb_teens_postcourse_navigate",
+			"bb_teens_postcourse_likes",
+			"bb_teens_postcourse_likesopen",
+			"bb_teens_postcourse_goal",
+			"bb_teens_postcourse_recommend",
+			"bb_trauma_postcourse_needs",
+			"bb_trauma_postcourse_match",
+			"bb_trauma_postcourse_confidence",
+			"bb_trauma_postcourse_apply",
+			"bb_trauma_postcourse_actions",
+			"bb_trauma_postcourse_actionsopen",
+			"bb_trauma_postcourse_navigate",
+			"bb_trauma_postcourse_likes",
+			"bb_trauma_postcourse_likesopen",
+			"bb_trauma_postcourse_goal",
+			"bb_trauma_postcourse_recommend"
 	);
 
 	@Nonnull
@@ -4076,6 +4096,7 @@ public class ReportingService {
 		}
 
 		String screeningValue = screeningValues.get(normalizedHeaderColumn);
+
 		return formatCourseMcbDownloadScreeningValue(normalizedHeaderColumn, screeningValue);
 	}
 
