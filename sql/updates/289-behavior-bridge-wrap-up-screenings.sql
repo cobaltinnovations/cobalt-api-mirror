@@ -331,7 +331,8 @@ $scoring$, v_question_ids_json);
       0,
       question.maximum_answer_count,
       question.display_order,
-      FALSE,
+      question.screening_answer_format_id='SINGLE_SELECT'
+        AND question.maximum_answer_count=1,
       'NEXT',
       JSONB_BUILD_OBJECT('reporting', JSONB_STRIP_NULLS(JSONB_BUILD_OBJECT(
         'key', question.reporting_key,
@@ -451,6 +452,24 @@ $destination$,
     IF v_question_count <> v_survey.expected_question_count OR v_option_count <> v_survey.expected_option_count THEN
       RAISE EXCEPTION '% evaluation screening validation failed (questions: %, options: %).',
         v_survey.screening_name, v_question_count, v_option_count;
+    END IF;
+
+    IF EXISTS (
+      SELECT 1
+      FROM screening_question
+      WHERE screening_version_id=v_screening_version_id
+        AND screening_answer_format_id='SINGLE_SELECT'
+        AND maximum_answer_count=1
+        AND prefer_autosubmit=FALSE
+    ) OR EXISTS (
+      SELECT 1
+      FROM screening_question
+      WHERE screening_version_id=v_screening_version_id
+        AND (screening_answer_format_id <> 'SINGLE_SELECT' OR maximum_answer_count <> 1)
+        AND prefer_autosubmit=TRUE
+    ) THEN
+      RAISE EXCEPTION '% evaluation screening auto-advance settings failed validation.',
+        v_survey.screening_name;
     END IF;
 
     RAISE NOTICE 'Created % evaluation screening with % questions and % answer options.',
