@@ -168,6 +168,11 @@ public class ReportingResource {
 		if (reportTypeId == ReportTypeId.ACCOUNT_TIMELINE && accountId.isEmpty())
 			throw new IllegalArgumentException("accountId is required for ACCOUNT_TIMELINE");
 
+		if (reportTypeId == ReportTypeId.COURSE_UNIT_ACCOUNT_ENGAGEMENT
+				&& suppliedStartDateTime.isPresent() && suppliedEndDateTime.isPresent()
+				&& suppliedStartDateTime.get().isAfter(suppliedEndDateTime.get()))
+			throw new IllegalArgumentException("Start Date must be on or before End Date.");
+
 		LocalDateTime startDateTime = suppliedStartDateTime.orElse(null);
 		LocalDateTime endDateTime = suppliedEndDateTime.orElse(null);
 
@@ -227,6 +232,8 @@ public class ReportingResource {
 				getReportingService().runCourseFeedbackReportCsv(account.getInstitutionId(), startDateTime, endDateTime, reportTimeZone, reportLocale, printWriter);
 			else if (reportTypeId == ReportTypeId.COURSE_MCB_DOWNLOAD)
 				getReportingService().runMcbDownloadReportCsv(account.getInstitutionId(), startDateTime, endDateTime, reportTimeZone, reportLocale, printWriter);
+			else if (reportTypeId == ReportTypeId.COURSE_UNIT_ACCOUNT_ENGAGEMENT)
+				getReportingService().runCourseUnitAccountEngagementReportCsv(account.getInstitutionId(), startDateTime, endDateTime, reportTimeZone, printWriter);
 			else if (reportTypeId == ReportTypeId.ACCOUNT_TIMELINE)
 				getReportingService().runAccountTimelineReportCsv(account.getInstitutionId(), accountId.orElseThrow(IllegalArgumentException::new), startDateTime, endDateTime, reportTimeZone, reportLocale, printWriter);
 			else

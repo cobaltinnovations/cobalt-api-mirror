@@ -55,6 +55,7 @@ public class ReportType {
 		ACCOUNT_GEOLOCATION,
 		COURSE_FEEDBACK,
 		COURSE_MCB_DOWNLOAD,
+		COURSE_UNIT_ACCOUNT_ENGAGEMENT,
 		ACCOUNT_TIMELINE,
 
 		// institution.analytics_profile_id='LEGACY'

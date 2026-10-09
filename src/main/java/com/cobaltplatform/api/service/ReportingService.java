@@ -231,6 +231,9 @@ public class ReportingService {
 					if (reportType.getReportTypeId() == ReportTypeId.COURSE_MCB_DOWNLOAD)
 						return accountCapabilityFlags.isCanViewAnalytics();
 
+					if (reportType.getReportTypeId() == ReportTypeId.COURSE_UNIT_ACCOUNT_ENGAGEMENT)
+						return accountCapabilityFlags.isCanViewAnalytics();
+
 					if (reportType.getReportTypeId() == ReportTypeId.ACCOUNT_TIMELINE)
 						return accountCapabilityFlags.isCanViewAnalytics();
 
@@ -3068,6 +3071,14 @@ public class ReportingService {
 		} catch (IOException e) {
 			throw new UncheckedIOException(e);
 		}
+	}
+
+	public void runCourseUnitAccountEngagementReportCsv(@Nonnull InstitutionId institutionId,
+			@Nullable LocalDateTime startDateTime, @Nullable LocalDateTime endDateTime,
+			@Nonnull ZoneId reportTimeZone, @Nonnull Writer writer) {
+		requireNonNull(institutionId);
+		requireNonNull(reportTimeZone);
+		CourseUnitEngagementReport.writeCsv(getDatabase(), institutionId.name(), startDateTime, endDateTime, reportTimeZone, writer);
 	}
 
 	public void runMcbDownloadReportCsv(@Nonnull InstitutionId institutionId,
