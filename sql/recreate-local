@@ -297,6 +297,7 @@ fi
 PGPASSWORD=password psql -v ON_ERROR_STOP=1 -U cobalt -h localhost -p 5501 < updates/288-provider-eligibility-pools.sql
 if [ -f "initial/bootstrap.sql" ]; then
   PGPASSWORD=password psql -v ON_ERROR_STOP=1 -U cobalt -h localhost -p 5501 < updates/289-behavior-bridge-wrap-up-screenings.sql
+  PGPASSWORD=password psql -v ON_ERROR_STOP=1 -U cobalt -h localhost -p 5501 < updates/290-behavior-bridge-wrap-up-evaluation-reports.sql
 fi
 
 # When the private production-derived bundle is available in the shared Cobalt
