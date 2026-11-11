@@ -230,7 +230,8 @@ public class ReportingService {
 
 					if (reportType.getReportTypeId() == ReportTypeId.COURSE_MCB_DOWNLOAD
 							|| reportType.getReportTypeId() == ReportTypeId.COURSE_PARENTING_TEENS_WRAP_UP
-							|| reportType.getReportTypeId() == ReportTypeId.COURSE_UNDERSTANDING_TRAUMA_WRAP_UP)
+							|| reportType.getReportTypeId() == ReportTypeId.COURSE_UNDERSTANDING_TRAUMA_WRAP_UP
+							|| reportType.getReportTypeId() == ReportTypeId.COURSE_BUILDING_HEALTHY_SLEEP_WRAP_UP)
 						return accountCapabilityFlags.isCanViewAnalytics();
 
 					if (reportType.getReportTypeId() == ReportTypeId.ACCOUNT_TIMELINE)
@@ -2320,6 +2321,8 @@ public class ReportingService {
 	private static final List<String> PARENTING_TEENS_WRAP_UP_HEADER_COLUMNS = List.of("accountId", "Course Session ID", "bb_teens_postcourse_needs", "bb_teens_postcourse_match", "bb_teens_postcourse_confidence", "bb_teens_postcourse_apply", "bb_teens_postcourse_navigate", "bb_teens_postcourse_likes", "bb_teens_postcourse_likesopen", "bb_teens_postcourse_goal", "bb_teens_postcourse_recommend", "Feedback Submitted At (America/New_York)");
 	@Nonnull
 	private static final List<String> UNDERSTANDING_TRAUMA_WRAP_UP_HEADER_COLUMNS = List.of("accountId", "Course Session ID", "bb_trauma_postcourse_needs", "bb_trauma_postcourse_match", "bb_trauma_postcourse_confidence", "bb_trauma_postcourse_apply", "bb_trauma_postcourse_actions", "bb_trauma_postcourse_actionsopen", "bb_trauma_postcourse_navigate", "bb_trauma_postcourse_likes", "bb_trauma_postcourse_likesopen", "bb_trauma_postcourse_goal", "bb_trauma_postcourse_recommend", "Feedback Submitted At (America/New_York)");
+	@Nonnull
+	private static final List<String> BUILDING_HEALTHY_SLEEP_WRAP_UP_HEADER_COLUMNS = List.of("accountId", "Course Session ID", "bb_sleep_postcourse_needs", "bb_sleep_postcourse_match", "bb_sleep_postcourse_confidence", "bb_sleep_postcourse_apply", "bb_sleep_postcourse_navigate", "bb_sleep_postcourse_likes", "bb_sleep_postcourse_likesopen", "bb_sleep_postcourse_goal", "bb_sleep_postcourse_recommend", "Feedback Submitted At (America/New_York)");
 
 	@Nonnull
 	private static final List<String> COURSE_MCB_DOWNLOAD_HEADER_COLUMNS = List.of(
@@ -3095,6 +3098,10 @@ public class ReportingService {
 
 	public void runUnderstandingTraumaWrapUpReportCsv(@Nonnull InstitutionId institutionId, @Nonnull LocalDateTime startDateTime, @Nonnull LocalDateTime endDateTime, @Nonnull ZoneId reportTimeZone, @Nonnull Locale reportLocale, @Nonnull Writer writer) {
 		runWrapUpEvaluationReportCsv(institutionId, startDateTime, endDateTime, reportTimeZone, writer, "Understanding Trauma Wrap Up", "bb_trauma_postcourse_", UNDERSTANDING_TRAUMA_WRAP_UP_HEADER_COLUMNS);
+	}
+
+	public void runBuildingHealthySleepWrapUpReportCsv(@Nonnull InstitutionId institutionId, @Nonnull LocalDateTime startDateTime, @Nonnull LocalDateTime endDateTime, @Nonnull ZoneId reportTimeZone, @Nonnull Locale reportLocale, @Nonnull Writer writer) {
+		runWrapUpEvaluationReportCsv(institutionId, startDateTime, endDateTime, reportTimeZone, writer, "Building Healthy Sleep Wrap Up", "bb_sleep_postcourse_", BUILDING_HEALTHY_SLEEP_WRAP_UP_HEADER_COLUMNS);
 	}
 
 	private void runWrapUpEvaluationReportCsv(InstitutionId institutionId, LocalDateTime startDateTime, LocalDateTime endDateTime, ZoneId reportTimeZone, Writer writer, String screeningName, String keyPrefix, List<String> headers) {
